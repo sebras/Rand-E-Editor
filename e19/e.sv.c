@@ -154,9 +154,11 @@ char * filestatusString (Fn fn, char **fname_pt)
     int i; 
     short ffmask, fflg;
     int cdrom_flg;
+    Flag modified_flg;
 
     *fname_pt = NULL;
     if ( (fn < FIRSTFILE + NTMPFILES) || (fn >= MAXFILES) ) return (NULL);
+    if ( !fnlas[fn].la_file || !fnlas[fn].la_file->la_ffs ) return (NULL);
     ffile_pt = fnlas[fn].la_file->la_ffs->f_file;
 
     fflg = fileflags[fn];
@@ -165,6 +167,7 @@ char * filestatusString (Fn fn, char **fname_pt)
     memset (strg, 0, sizeof (strg));
 
     /* build the file status string */
+    modified_flg = la_modified (&fnlas[fn]);
     strcpy (ffstrg, fileflags_string);
     fflg = fileflags[fn];
     for ( i = strlen(ffstrg) -1 , ffmask = 1 ; i >= 0 ; i--, ffmask <<= 1 ) {
@@ -179,8 +182,9 @@ char * filestatusString (Fn fn, char **fname_pt)
     sv_stylestrg = file_style_string (fn, YES, &fstylestrg, NULL);
     if ( !sv_stylestrg || (sv_stylestrg == fstylestrg) ) {
 	if ( ! fstylestrg ) fstylestrg = "";    /* To Be assersed */
-	sprintf (strg, "%-4s%s file #%d (%s): ",
-	    fstylestrg, cdrom_flg ? " CD-ROM" : "", fn, ffstrg);
+	sprintf (strg, "%-4s%s file #%d (%s) %c : ",
+	    fstylestrg, cdrom_flg ? " CD-ROM" : "", fn, ffstrg,
+	    modified_flg ? 'M' : '-');
     }
     else {
 	if ( ! fstylestrg ) fstylestrg = "Tbd";

@@ -13,6 +13,10 @@
 #define NO  0
 #endif
 
+#ifdef LONGFILES
+#define LA_LONGFILES
+#endif
+
 /* #define LA_LONGLINES            very esoteric */
 
 /* You may still want this, even if your machine is not INT4 */

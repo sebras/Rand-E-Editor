@@ -23,6 +23,7 @@ file e.cm.c
 #endif
 
 extern Cmdret fileStatus ();
+extern void resize_screen ();
 
 #include SIG_INCL
 
@@ -118,6 +119,7 @@ S_looktbl cmdtable[] = {
     "redraw"  , CMDREDRAW   ,
     "regexp"  , CMDPATTERN  ,
     "replace" , CMDREPLACE  ,
+/*  "resize"  , CMDRESIZE   ,   used purely internaly */
     "run"     , CMDRUN      ,
     "save"    , CMDSAVE     ,
     "search"  , CMDSEARCH   ,
@@ -428,7 +430,7 @@ void incr_fname_para_sz (int nb)
     If return TRUE, the file_param must be sfree if it is not null.
 */
 
-int command_file (char *param, char **file_para_pt)
+int command_file (char *param, char **file_para_pt, Short *cmdval_pt)
 {
     Short cmdtblind;
     Short cmdval;
@@ -447,6 +449,7 @@ int command_file (char *param, char **file_para_pt)
     if ( cmdtblind < 0 ) return 0;
 
     cmdval = cmdtable[cmdtblind].val;
+    if ( cmdval_pt ) *cmdval_pt = cmdval;
     for ( i = 0 ; file_cmds[i].cmdv != 0 ; i++ ) {
 	if ( file_cmds[i].cmdv != cmdval ) continue;
 	if ( file_para_pt != NULL ) *file_para_pt = getword (&nxt);
@@ -537,6 +540,8 @@ command ()
 Cmdret
 command ()
 {
+    extern void cmds_prompt_mesg ();
+
     Short cmdtblind;
     Cmdret retval;
     Short cmdval;
@@ -683,7 +688,7 @@ command ()
 	break;
 
     case CMDCOMMAND:
-	mesg (TELALL + 1, "CMDS: ");
+	cmds_prompt_mesg ();
     case CMD_COMMAND:
 	cmdmode = cmdval == CMDCOMMAND ? YES : NO;
 	retval = CROK;
@@ -870,6 +875,10 @@ command ()
 	}
 	removewindow ();
 	retval = CROK;
+	break;
+
+    case CMDRESIZE:
+	resize_screen ();
 	break;
 
     case CMDGOTO:

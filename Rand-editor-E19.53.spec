@@ -6,7 +6,7 @@ Prefix: %{targdir}
 Summary: Rand full screen text Editor for Linux
 Name: Rand
 Version: E19
-Release: 51
+Release: 53
 Copyright: Copyright abandoned, 1983, The Rand Corporation
 Group: Applications/Editors
 Source: ftp://pspc7715.cern.ch/usr/local/src/%{name}/%{name}-%{version}.%{release}.tgz
@@ -15,7 +15,7 @@ URL: http://home.cern.ch/~perrioll/Rand_Editor/linux
 Requires: XFree86
 Exclusivearch: i386
 Exclusiveos: Linux
-Serial: 2
+Serial: 3
 
 %define pkgname %{name}
 
@@ -38,11 +38,11 @@ The current version is : %{name}-%{version}.%{release}
 # ----------------------------------------------------------------------------
 # to rebuild the package (bin and source files) :
 #   cd /usr/src/redhat/SPECS
-#   rpm -ba --clean Rand-editor-E19.51.spec
+#   rpm -ba --clean Rand-editor-E19.53.spec
 #
 #   To load somewhere else than the default build in : /usr/local
-#   rpm -ivh --prefix <somewhere> Rand-E19-51.i386.rpm
-#   rpm -ivh --relocate /usr/local=<somewhere> Rand-E19-51.i386.rpm
+#   rpm -ivh --prefix <somewhere> Rand-E19-53.i386.rpm
+#   rpm -ivh --relocate /usr/local=<somewhere> Rand-E19-53.i386.rpm
 #       to prevent creation of links in the doc system directory use
 #           --excludedocs rpm option flag
 #
@@ -59,6 +59,11 @@ The current version is : %{name}-%{version}.%{release}
 %define bindir %{targdir}/bin
 %define genericprgname %{bindir}/e
 
+# keyboard definition files
+%define KbDir kbfiles
+%define RefKbFile vt200kbn
+%define KbFiles universalkb linuxkb xtermkb nxtermkb
+%define KbscDir ./help/%{KbDir}
 
 %prep
 %setup
@@ -73,17 +78,22 @@ make install TARGETDIR=%{targdir} PKGDIR=%{pkgdir}
 
 # link the executable to the generic name
     rm -f %{genericprgname}
-    (cd %{bindir}; ln -s ../%{pkgname}/e19 ./e)
+    (cd %{bindir}; ln -s ../%{pkgname}/e19.%{release} ./e)
 
 # install system wide keyboard configuration files
-    mkdir -p %{pkgcfgdir}/kbfiles
-    install -m 644 ./help/kbfiles/vt200kbn %{pkgcfgdir}/kbfiles
-    ( cd %{pkgcfgdir}/kbfiles; \
-	for i in universalkb linuxkb xtermkb nxtermkb ; do \
-	    rm -f ./$i; \
-	    ln -s ./vt200kbn ./$i; \
-	done; \
-    )
+    mkdir -p %{pkgcfgdir}/%{KbDir}
+    install -m 644 %{KbscDir}/%{RefKbFile} %{pkgcfgdir}/%{KbDir}
+    for i in %{KbFiles} ; do
+	if [ -e %{KbscDir}/$i -a ! -L %{KbscDir}/$i ]; then
+	    rm -f %{pkgcfgdir}/%{KbDir}/$i
+	    install -m 644 %{KbscDir}/$i %{pkgcfgdir}/%{KbDir}
+	else
+	    ( cd %{pkgcfgdir}/%{KbDir}; \
+		rm -f ./$i; \
+		ln -s ./%{RefKbFile} ./$i; \
+	    )
+	fi
+    done;
 
 # doc file to be installed into the package doc directory
     mkdir -p %{pkgtargdir}/doc
@@ -106,7 +116,7 @@ make install TARGETDIR=%{targdir} PKGDIR=%{pkgdir}
 	rmdir --ignore-fail-on-non-empty %{docdir}
     fi
     if [ -d %{pkgcfgdir} ]; then
-	rmdir --ignore-fail-on-non-empty %{pkgcfgdir}/kbfiles
+	rmdir --ignore-fail-on-non-empty %{pkgcfgdir}/%{KbDir}
 	rmdir --ignore-fail-on-non-empty %{pkgcfgdir}
     fi
 
@@ -117,28 +127,28 @@ make install TARGETDIR=%{targdir} PKGDIR=%{pkgdir}
 %doc %{docdir}/Introduction_to_Rand.txt
 %doc %{docdir}/Rand-E19_man.html
 # %dir %{pkgcfgdir}
-# %dir %{pkgcfgdir}/kbfiles
-%config(missingok) %{pkgcfgdir}/kbfiles/vt200kbn
-%config(missingok) %{pkgcfgdir}/kbfiles/universalkb
-%config(missingok) %{pkgcfgdir}/kbfiles/linuxkb
-%config(missingok) %{pkgcfgdir}/kbfiles/xtermkb
-%config(missingok) %{pkgcfgdir}/kbfiles/nxtermkb
+# %dir %{pkgcfgdir}/%{KbDir}
+%config(missingok) %{pkgcfgdir}/%{KbDir}/vt200kbn
+%config(missingok) %{pkgcfgdir}/%{KbDir}/universalkb
+%config(missingok) %{pkgcfgdir}/%{KbDir}/linuxkb
+%config(missingok) %{pkgcfgdir}/%{KbDir}/xtermkb
+%config(missingok) %{pkgcfgdir}/%{KbDir}/nxtermkb
 %dir %{pkgtargdir}
 %{pkgtargdir}/Crashdoc
 %{pkgtargdir}/errmsg
 %{pkgtargdir}/helpkey
 %{pkgtargdir}/recovermsg
-%{pkgtargdir}/e19
+%{pkgtargdir}/e19.%{release}
 %{pkgtargdir}/center
 %{pkgtargdir}/fill
 %{pkgtargdir}/just
 %{pkgtargdir}/run
-%dir %{pkgtargdir}/kbfiles
-%{pkgtargdir}/kbfiles/vt200kbn
-%{pkgtargdir}/kbfiles/universalkb
-%{pkgtargdir}/kbfiles/linuxkb
-%{pkgtargdir}/kbfiles/xtermkb
-%{pkgtargdir}/kbfiles/nxtermkb
+%dir %{pkgtargdir}/%{KbDir}
+%{pkgtargdir}/%{KbDir}/vt200kbn
+%{pkgtargdir}/%{KbDir}/universalkb
+%{pkgtargdir}/%{KbDir}/linuxkb
+%{pkgtargdir}/%{KbDir}/xtermkb
+%{pkgtargdir}/%{KbDir}/nxtermkb
 %{pkgtargdir}/README
 %dir %{pkgtargdir}/doc
 %{pkgtargdir}/doc/Introduction_to_Rand.txt
@@ -146,6 +156,17 @@ make install TARGETDIR=%{targdir} PKGDIR=%{pkgdir}
 %{genericprgname}
 
 %changelog
+* Fri Mar 03 2000 Fabien Perriollat <Fabien.Perriollat@cern.ch>
+- revision 53
+- Resize of terminal screen supported (with the restricion
+  that it can be done only when a single editing window is used).
+- Navigation in the command line history.
+- Navigation in the edited file list.
+* Mon Jan 31 2000 Fabien Perriollat <Fabien.Perriollat@cern.ch>
+- revision 52
+- keyboard definition file can use "#include <file_name>" directive.
+- Try to use X11 Keyboard Extention for better understanding of key mapping.
+- better installation of system wide keyboard configuration files.
 * Fri Oct 16 1999 Fabien Perriollat <Fabien.Perriollat@cern.ch>
 - revision 51
 - package build with relocation capability

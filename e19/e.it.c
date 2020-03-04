@@ -23,16 +23,20 @@ in_file (lexp, count)
 Uchar *lexp;
 int *count;
 {
+    extern int CtrlC_flg;
     int code;
-    Uchar *inp, *outp;
+    Uchar *inp, *outp, chr;
     int i;
 
     for (inp = lexp, i = *count; i-- > 0;)
 	*inp++ &= 0177;           /* Mask off high bit of all chars */
-/* outp should be different so a string can be replaced by a longer one */
-    inp = outp = lexp;
+
+    /* outp should be different so a string can be replaced by a longer one */
+    inp = outp = lexp;  /* !!!! what append if output is longer than input ! */
     while (*count > 0) {
-	if (*inp >= ' ' && *inp <= '~') {
+	chr = *inp;
+	CtrlC_flg = (chr == ('C' & '\037'));
+	if (chr >= ' ' && chr <= '~') {
 	    *outp++ = *inp++;
 	    --*count;
 	    continue;
@@ -104,7 +108,7 @@ next:
 itget (..) matches input (at *cpp) against input table
 If some prefix of the input matches the table, returns the number of
    characters in the value corresponding to the matched input, stores
-   the address of the value in valp, points cpp past the matching input,
+   the value in valp, points cpp past the matching input,
    and decrements *countp by the number of characters matched.
 
 If no match, returns IT_NOPE.
@@ -130,9 +134,9 @@ char *valp;
 
 
 /* itoverwrite : overwrite the value of the leave define by dsetstrg
-		  by value of the leave defined by srcstrg */
-/* ----------------------------------------------------------------- */
-
+ *               by value of the leave defined by srcstrg
+ * -----------------------------------------------------------------
+ */
 int itoverwrite (srcstrg, deststrg, head)
 char *srcstrg, *deststrg;
 struct itable *head;
@@ -158,3 +162,22 @@ struct itable *head;
     return (cc);
 }
 
+
+/* itgetleave : get the leave for the given string
+ * -----------------------------------------------
+ */
+int itgetleave (strg, it_pt, head)
+char *strg;
+struct itable **it_pt;
+struct itable *head;
+
+{
+    int cc;
+    char *cp;
+    int count;
+
+    cp = strg;
+    count = strlen (cp);
+    cc = itget_addr (&cp, &count, head, NULL, it_pt);
+    return (cc);
+}

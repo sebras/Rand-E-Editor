@@ -234,9 +234,9 @@ extern Flag optstick;
  **/
 typedef struct workspace {
     La_stream las;              /* lastream opened for this workspace   */
-    AFn      wfile;             /* File number of file - 0 if none      */
+    AFn     wfile;              /* File number of file - 0 if none      */
     ASlines clin;               /* cursorline when inactive             */
-    AScols   ccol;              /* curorcol when inactive               */
+    AScols  ccol;               /* curorcol when inactive               */
     ANlines wlin;               /* line no of ulhc of screen            */
     ANcols  wcol;               /* col no of column 0 of screen         */
     ANlines rngline;            /* start line of search range */
@@ -244,8 +244,8 @@ typedef struct workspace {
     La_stream *ernglas;         /* end of range, if set */
     ASmall wkflags;
 } S_wksp;
-/* S_window flags: */
-# define RANGESET 1                /* RANGE is set */
+/* S_wksp flags: */
+# define RANGESET 1             /* RANGE is set */
 
 extern
 S_wksp  *curwksp;
@@ -376,6 +376,7 @@ typedef struct window
     AScols   ledit;             /* edit window limits on screen         */
     AScols   redit;
     ASlines bedit;
+    Slines  size;               /* arrays size of : firstcol, lastcol, lmchars, rmchars */
     AScols  *firstcol;          /* first col containing nonblank        */
     AScols  *lastcol;           /* last col containing nonblank         */
     char   *lmchars;            /* left margin characters               */
@@ -387,6 +388,8 @@ typedef struct window
     Nlines  mipage;             /* default minus a page        */
     Ncols   lwin;               /* default window left         */
     Ncols   rwin;               /* default window right        */
+    ASlines clin;               /* cursorline on switchwindow (for resize) */
+    AScols  ccol;               /* cursorline on switchwindow (for resize) */
 } S_window;
 /* S_window flags: */
 #define TRACKSET 1              /* track wksp and altwksp */
@@ -499,7 +502,14 @@ typedef struct savebuf {
 #else
 #define CCDWORD        CCUNAS1
 #endif
-#else
+
+/* Resize entry code : to be used for replay only
+ *   do not use for keyboard assignement
+ * CCRESIZE is followed by <(line +32), (column +32), CCRETURN>
+ */
+#define CCRESIZE       0270
+
+#else /* -LMCCMDS */
 #define CCEXIT         CCUNAS1
 #define CCABORT        CCUNAS1
 #define CCREDRAW       CCUNAS1
@@ -522,7 +532,7 @@ typedef struct savebuf {
 #define CCRANGE        CCUNAS1
 #define CCNULL         CCUNAS1
 #define CCDWORD        CCUNAS1
-#endif
+#endif  /* -LMCCMDS */
 
 extern
 Scols   cursorcol;              /* physical screen position of cursor   */
@@ -566,8 +576,8 @@ Flag    singlescroll;           /* do scrolling one line at a time */
 extern ANcols *tabs;            /* array of tabstops */
 extern Short   stabs;           /* number of tabs we have alloced room for */
 extern Short   ntabs;           /* number of tabs set */
-extern
-char    *blanks;
+
+extern char blanks [];          /* blank screen line */
 
 /* Argument to getkey is one of these: */
 #define WAIT_KEY      0 /* wait for a char, ignore interrupted read calls. */

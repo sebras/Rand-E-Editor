@@ -108,7 +108,7 @@ ANcols *tabs;                   /* array of tabstops */
 Short   stabs = NTABS;          /* number of tabs we have alloced room for */
 Short   ntabs = NTABS / 2;      /* number of set tabs */
 
-char    *blanks;
+char    blanks [MAXWIDTH+1];    /* a blanks screen line */
 
 Char    key;                /* last char read from tty */
 Flag    keyused = YES;      /* last char read from tty has been used. */

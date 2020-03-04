@@ -48,9 +48,7 @@ file e.t.c
 
 #define EINTR   4       /* should be #included but for problems ... */
 
-#ifdef  NOCMDCMD
-extern  Flag optnocmd;          /* YES = -nocmdcmd; <cmd><cmd> functions disabled */
-#endif
+extern void testandset_resize ();
 
 /* set outside putup (), looked at by putup () */
 Flag entfstline = NO;           /* says write out entire first line */
@@ -93,8 +91,187 @@ extern void screenexit ();
 extern void tglinsmode ();
 extern Flag vinsdel ();
 
-/* XXXXXXXXXXXXXXXXXXXXXXXX */
 static unsigned Short getkey1 ();
+static char * history_get (Flag forward);
+
+
+/* command line history handling */
+
+static char history [2048];
+static char * history_end = NULL;
+static char * hist_write = NULL;    /* write into history pointer */
+static char * hist_get = NULL;      /* where to get the next entry */
+
+void history_init ()
+{
+    if ( hist_write ) return;
+    memset (history, 0, sizeof (history));
+    hist_write = &history[0];
+    hist_get = &history [0];
+    history_end = &history[sizeof (history) -1];
+}
+
+
+void history_dump (FILE *stfile)
+{
+    int sz;
+    char *cmd1, *cmd2;
+
+    if ( ! stfile ) return;
+    sz = hist_write - history;
+    if ( sz == 0 ) {
+	putlong  ((long) sz, stfile);
+	return;
+    }
+
+    hist_get = hist_write;
+    cmd1 = history_get (NO);
+    cmd2 = history_get (NO);
+    if ( cmd1 && cmd2 ) {
+	if ( strcmp (cmd1, cmd2) == 0 ) {
+	    /* ignore the last command if it is already in history list */
+	    cmd1 = history_get (YES);
+	    hist_write = hist_get;
+	    *hist_write = '\0';
+	    sz = hist_write - history;
+	}
+    }
+    putlong  ((long) sz, stfile);
+    if ( sz > 0 ) {
+	(void) fwrite (history, sizeof (history [0]), sz, stfile);
+    }
+}
+
+
+void history_reload (FILE *stfile, Flag dump_state)
+{
+    int sz, i;
+    char * cmd, *str;
+
+    hist_write = NULL;
+    history_init ();
+    if ( ! stfile ) return;
+
+    sz = (int) getlong (stfile);
+    if ( sz <= 0 ) {
+	if ( dump_state ) puts ( sz < 0 ? "No history data in state file"
+					: "Empty history list");
+	return;
+    }
+    if ( dump_state ) printf ("History buffer size : %d\n", sz);
+    if ( sz > sizeof (history) ) {
+	if ( dump_state ) printf ("    Too large history buffer (max %d), ignore it\n", sizeof (history));
+	return;
+    }
+    (void) fread (history, sizeof (history [0]), sz, stfile);
+    hist_write = history + sz;
+    hist_get = &history [0];
+
+    if ( dump_state ) {
+	hist_get = hist_write;
+	for ( i = 0 ; ; i++ ) {
+	    str =  history_get (NO);
+	    if ( ! str || ! *str ) break;
+	    cmd = str;
+	}
+	for ( ;  i > 0 ; i-- ) {
+	    printf ("  %3d : \"%s\"\n", i, cmd);
+	    cmd = history_get (YES);
+	    if ( ! cmd || ! *cmd ) break;
+	}
+    }
+}
+
+
+static history_store (char *cmd)
+{
+    unsigned int size, sz, pos;
+
+    if ( ! cmd ) return;
+
+    size = strlen (cmd);
+    if ( (size <= 0) || (size >= (sizeof (history) -1)) ) return;
+
+    if ( (hist_write + size) >= history_end ) {
+	/* not enough room in history to store cmd */
+	sz = hist_write - history;  /* used space */
+	if ( size < sz ) {
+	    /* need less room that used space */
+	    sz = strlen (&history [size]) +1;
+	    pos = sz + size;    /* what will be removed */
+	    sz = hist_write - &history [pos];
+	    (void) memmove (history, &history [pos], sz);
+	    hist_write -= pos;
+	    memset (hist_write, 0, pos);
+	    hist_get -= pos;
+	    if ( hist_get < &history [0] ) hist_get = &history [0];
+	} else {
+	    memset (history, 0, sizeof (history));
+	    hist_write = &history[0];
+	    hist_get = &history [0];
+	}
+    }
+    memcpy (hist_write, cmd, size);
+    hist_write += size;
+    *hist_write = '\0';
+    hist_write++;
+    hist_get = hist_write;
+}
+
+static char * history_get (Flag forward)
+{
+    int sz;
+
+    if ( forward ) {
+	/* move forward in the command history list */
+	sz = strlen (hist_get);
+	if ( !sz ) return NULL;
+	hist_get += sz +1;
+    } else {
+	/* move backward */
+	if ( hist_get == history ) {
+	    putchar ('\007');
+	    return NULL;
+	}
+	for ( hist_get -=2 ; *hist_get ; hist_get-- )
+	    if ( hist_get < history ) break;
+	hist_get++;
+    }
+    return hist_get;
+}
+
+
+/* edited file list navigation handling */
+/* ------------------------------------ */
+
+static char fnavig_cmd [PATH_MAX +32];
+static char *fnavig_buf = NULL;
+static AFn fnavig_fn = 0;
+
+
+static char * file_list_navigation (S_window * cwin, Flag down_flg)
+{
+    AFn delta, sv_fn;
+
+    sv_fn = fnavig_fn;
+    delta = down_flg ? 1 : -1;
+    for ( fnavig_fn += delta ; ; fnavig_fn += delta ) {
+	if ( (fnavig_fn < FIRSTFILE + NTMPFILES) || (fnavig_fn >= MAXFILES) ) {
+	    break;
+	}
+	if ( ! (fileflags [fnavig_fn] & INUSE) ) continue;
+	if ( fnavig_fn == cwin->wksp->wfile ) continue;
+	if ( fnavig_fn == cwin->altwksp->wfile ) continue;
+	if ( !names [fnavig_fn] || !*names [fnavig_fn] ) continue;
+	strcpy ( fnavig_buf, names [fnavig_fn]);
+	return (fnavig_cmd);
+    }
+    fnavig_fn = sv_fn;
+    putchar ('\007');
+    return NULL;
+}
+
+
 
 #ifdef COMMENT
 void
@@ -228,7 +405,7 @@ Scols   ncols;      /* number of columns for partial line redraw */
 	    poscursor (-1, ln);
 	    putch (chgborders == 1 ? lmc : INMCH, NO);
 	    curwin->lmchars[ln] = lmc;
-	} else Block {
+	} else {
 	    Reg1 Slines lt;
 	    Slines lb;
 	    if (ln == ls && lmc != ELMCH)
@@ -276,10 +453,9 @@ Scols   ncols;      /* number of columns for partial line redraw */
 	}
 	curwin->firstcol[ln] = fc;
 	poscursor ((Scols) col, ln);
-	/* XXXXXXXXXXXXXXXXXXXXXXXXXXXXX */
 	/* if (stdout->_cnt < 100) */  /* smooth any outputting breaks  */
 	    d_put (0);
-	Block {
+	{
 	    Reg1 Scols tmp;
 	    if ((tmp = fc - col) > 0) {
 		multchar (' ', tmp);
@@ -291,7 +467,7 @@ Scols   ncols;      /* number of columns for partial line redraw */
 	/* this should do better on lines that go past right border */
 	if (offendflg)
 	    lstcol = 0;
-	else Block {
+	else {
 	    Reg1 Ncols tmp;
 	    tmp = (ncline - 1) - lcol;
 	    if (tmp < 0)
@@ -304,7 +480,7 @@ Scols   ncols;      /* number of columns for partial line redraw */
 	}
 	if (lstcol < col)
 	    lstcol = col;
-	Block {
+	{
 	    Reg1 Scols ricol;   /* rightmost col of text to put up */
 	    ricol = min (lstcol, min (rlimit, strtcol + ncols));
 	    /* put out the text */
@@ -320,7 +496,7 @@ Scols   ncols;      /* number of columns for partial line redraw */
 	    }
 	}
 	/* determine how many trailing blanks we need to put out */
-	Block {
+	{
 	    Reg1 Scols tmp;
 	    if (   !freshputup
 		&& (tmp = (curwin->lastcol[ln] - lstcol)) > 0
@@ -765,7 +941,7 @@ Flag wt;
     d_put (0);
     if (wt) {
 #ifdef  SYSSELECT
-	Block {
+	{
 	    static struct timeval onesec = { 1, 0 };
 
 	    getkey (WAIT_PEEK_KEY, &onesec);
@@ -946,7 +1122,7 @@ Reg6 Scols   curscol;
     curscol = min (curscol, curwin->rtext);
     newdisplay = Z;
 
-    Block {
+    {
 	Reg1 S_wksp *awksp;
 	awksp = curwin->altwksp;
 	if (vdist = winlin - cwksp->wlin) {
@@ -1014,6 +1190,16 @@ struct svcs {
     AScols  sv_curscol;
     ASlines sv_cursline;
 } *sv_curs;
+
+
+/* Update a saved cursor position (called from screen resize) */
+void update_saved_curs (struct svcs *curs, AScols ccol, ASlines clin)
+{
+    if ( ! curs ) return;
+    curs->sv_curscol  = ccol;
+    curs->sv_cursline = clin;
+}
+
 
 #ifdef COMMENT
 void
@@ -1150,7 +1336,7 @@ Reg4 Nlines cnt;
 	col -= cnt;
 	break;
     case TB:                    /* tab forward to next stop */
-	Block {
+	{
 	    Reg1 Short  i;
 	    for (i = Z, col += curwksp->wcol; i < ntabs; i++)
 		if (tabs[i] > col) {
@@ -1162,7 +1348,7 @@ Reg4 Nlines cnt;
 	col -= curwksp->wcol;
 	break;
     case BT:                    /* tab back to previous stop        */
-	Block {
+	{
 	    Reg1 Short  i;
 	    for (i = ntabs - 1, col += curwksp->wcol; i >= 0; i--)
 		if (tabs[i] < col) {
@@ -1175,7 +1361,7 @@ Reg4 Nlines cnt;
 	break;
     }
 
-    Block {
+    {
 	Reg5 Nlines ldif;
 	Reg6 Ncols  cdif;
 	if ((cdif = col - curwin->ledit) < 0)
@@ -1268,7 +1454,6 @@ Reg2 Flag peekflg;
 {
     Reg1 unsigned Short rkey;
     static Flag knockdown  = NO;
-    extern unsigned Short getkey1 ();
 
     if (peekflg == WAIT_KEY && keyused == NO)
 	return key; /* then getkey is really a no-op */
@@ -1328,9 +1513,10 @@ Small peekflg;
     static Uchar chbuf[NREAD];
     static Uchar *lp;
 
-    if (replaying) Block {
+    if ( replaying ) {
 	static Small replaydone = 0;
-	if (replaydone) {
+	if ( replaydone ) {
+	    extern void resize_screen ();
  finishreplay:
 	    close (inputfile);
 	    inputfile = STDIN;
@@ -1343,15 +1529,18 @@ Small peekflg;
 	    }
 	    mesg (ERRALL + 1,
 		  recovering
-		  ? "Recovery completed."
+		  ? "Recovery completed, please exit and restart the editor."
 		  : replaydone == 1
-		    ? "Replay completed."
-		    : "Replay aborted."
+		    ? "Replay completed, please exit and restart the editor."
+		    : "Replay aborted, please exit and restart the editor."
 		 );
 	    d_put (0);
 	    replaying = NO;
 	    recovering = NO;
 	    replaydone = 0;
+	    /* Resize to the current screen size, and allows resizing */
+	    resize_screen ();
+	    testandset_resize (YES, NULL, NULL);
 	    goto nonreplay;
 	}
 	if (   !recovering
@@ -1363,7 +1552,7 @@ Small peekflg;
 		continue;
 	    goto endreplay;
 	}
-	if (lcnt <= 0) Block {
+	if (lcnt <= 0) {
 	    static Uchar charsaved;
 	    static Uchar svchar;
 	    d_put (0);
@@ -1399,7 +1588,7 @@ Small peekflg;
 	   ) {
 	    replaydone = 1;
  endreplay:
-	    if (!entering)
+	    if ( ! entering )
 		goto finishreplay;
 	    else {
 		*chbuf = CCINT;
@@ -1428,7 +1617,7 @@ Small peekflg;
 	    }
 	    d_put (0);
 #ifdef  SYSSELECT
-	    Block {
+	    {
 		/* XXXXXXXXXXXXXXXXXXXXXXXXXXXX */
 		fd_set readmask, z;
 		FD_ZERO (&z);
@@ -1445,15 +1634,15 @@ Small peekflg;
 		    return NOCHAR;
 	    }
 #endif
-	    do Block {
+	    do {
 		Reg3 int nread;
 		nread = NREAD - lcnt;
 		if ((nread = xread (inputfile, (char *) &chbuf[lcnt], nread))
-		    > 0) Block {
+		    > 0) {
 		    Reg4 Uchar *stcp;
 		    stcp = &chbuf[lcnt -= lexrem];
 		    lexrem += nread;
-		    if ((nread = (*kbd.kb_inlex) (stcp, &lexrem)) > 0) Block {
+		    if ((nread = (*kbd.kb_inlex) (stcp, &lexrem)) > 0) {
 			Reg1 Uchar *cp;
 			Reg2 int nr;
 			cp = &stcp[nread];
@@ -1500,7 +1689,7 @@ Small peekflg;
 	return *lp & CHARMASK;
 #endif
 
-    Block {
+    {
 	Reg1 unsigned Short rchar;
 #ifdef UNSCHAR
 	rchar = *lp++;
@@ -1640,6 +1829,7 @@ Char    code2;
     putc (code1, keyfile);
     fputs (str, keyfile);
     putc (code2, keyfile);
+    flushkeys ();
     return;
 }
 
@@ -1858,9 +2048,16 @@ static Short lcmdlen;
 
 
 
-static char cmd_prompt[] = "CMD: ";
+static const char cmd_prompt [] = "CMD: ";
+static const char cmds_prompt[] = "CMDS:";
 static int cmd_prompt_sz = sizeof (cmd_prompt) -1;
 /* the size of cmd_prompt must be compatible with the size of "CMDS:" */
+
+void cmds_prompt_mesg ()
+{
+    mesg (TELALL + 1, cmds_prompt);
+}
+
 
 #ifdef WIN32
 /* generate a clear command line control character string */
@@ -2058,22 +2255,55 @@ param ()
 {
     extern void clear_namelist ();
     extern int get_next_name ();
+    extern void key_resize ();
+    extern int command_file ();
 
-    long seek_point;    /* position on entry in param in keyfile */
-    int old_wlen;
-    Flag cmd_file_flg;  /* set when file expantion is active */
-    Flag used_file_flg; /* set if file expansion was uesed */
-    char *file_name_expantion;
+    long seek_point;        /* position on entry in param in keyfile */
+    int old_wlen;           /* insert file name expension */
+    Flag cmd_file_flg;      /* set when file expantion is active */
+    Flag used_file_flg;     /* set if file expansion was uesed */
+    Flag resize_entry_flg;  /* begining of resize sequence */
+    Flag cmdenter_flg;      /* already in command when entring resize */
+    char resize_chr [8];    /* screen size : col_chr, lin_chr */
+    int resize_chr_idx;     /* current write position into resize_chr */
+    unsigned int key_cnt, previous_key_cnt; /* main for loop counter */
+    char * file_name_expantion;     /* expanded file name */
+    char * hist_strg;       /* cmd string from history list */
 
-    Flag cmdflg;
-    Flag uselast;
-    Flag clean_msg;
+    S_window * cwin;            /* current active window */
+    struct svcs * csv_curs;     /* saved cursor position */
+
+    Flag all_cmdflg, previous_all_cmdflg;   /* only CCCMD keys */
+    Flag cmdflg, previous_cmdflg;   /* previous and pervious previous key was CCCDM */
+    Flag uselast;                   /* re-use the last command string */
+    Flag clean_msg;                 /* hold cmd line until next key input */
+    Flag prchar_flg;                /* put key value in the command line */
+    Flag done_flg;                  /* completion of the main for loop */
+    Flag parmstrt_flg;              /* a full new command line */
+    Flag keep_previous_flg;         /* keep the previous state variable in main loop (for resize) */
+    Flag hist_flg, previous_hist_flg;   /* in history processing */
+    Flag hist_cont_flg;                 /* continue history processing */
+    Flag file_navig_flg;                /* in file list navigation */
+    Flag file_navig_cont_flg;           /* continue file navigation */
+    Flag previous_file_navig_flg;
+
+    /* for file navigation */
+    char * file_cmd_strg;               /* cmd string for file navigation */
+    char * file_para;
+    Short cmdval;
+    static char fcmd [32];      /* command line on entry in file navigation */
+
     static struct timeval nulsec = { 0, 0 };
 
-    uselast = used_file_flg = NO;
+    resize_entry_flg = cmdenter_flg = NO;
     entering = YES;     /* set this flag so that getkey1() knows you are in
 			   this routine. */
+
+    /* save the cursor position */
     savecurs ();
+    cwin = curwin;
+    csv_curs = sv_curs;
+
     setbul (NO);
 
     if (ccmdl == 0) {  /* first time only */
@@ -2083,69 +2313,103 @@ param ()
 
     exchgcmds ();
 
- parmstrt:
-    clean_msg = loopflags.hold;
-    if ( cmdmode ) {
-	if ( ! loopflags.hold )
-	    mesg ((TELSTRT|TELCLR) + 1, "");
-        else
-	    mesg ((TELSTRT) + 1, "");
-    }
-    else {
-        mesg ((TELSTRT|TELCLR) + 1, cmd_prompt);
-    }
-    loopflags.hold = NO;
+    parmstrt_flg = YES;
+    uselast = used_file_flg = NO;
+    key_cnt = previous_key_cnt = 0;
+    previous_all_cmdflg = all_cmdflg = YES;
+    cmdflg = previous_cmdflg = cmd_file_flg = NO;
+    keep_previous_flg = YES;
+    hist_get = hist_write;
+    hist_flg = previous_hist_flg = hist_cont_flg = NO;
+    file_navig_flg = file_navig_cont_flg = previous_file_navig_flg = NO;
 
-    ccmdbg = cmd_prompt_sz;
-    memset (ccmdp, 0, ccmdl);
-    ccmdpos = 0;
-    ccmdlen = 0;
-    ccmdoffset = 0;
-
-    
-    if (uselast) {
-        /* redisplay last command string */
-        uselast = NO;
-	if (lcmdlen >= ccmdl)
-	    ccmdp = gsalloc (ccmdp, 0, ccmdl = lcmdlen + LPARAM, YES);
-        memmove (ccmdp, lcmdp, lcmdlen);
-	ccmdpos = ccmdlen = lcmdlen;
-        ccmdp[ccmdlen] = '\0';
-        putmsg ();
-	getkey (WAIT_KEY, nulsec);
-    }
-    else {
-#ifdef  NOCMDCMD
-rmcmd:
-#endif
-	seek_point = ftell (keyfile);
-
-	getkey (WAIT_KEY, nulsec);
-	switch (key) {
-        /* <CMD> <key> command which are editing command */
-	case CCDELCH:
-	case CCMOVELEFT:
-	case CCMOVERIGHT:
-	case CCBACKSPACE:
-	    goto done;
-#ifdef  NOCMDCMD
-	case CCCMD:
-	    if (optnocmd == NO) break;
-	    keyused = YES;
-	    goto rmcmd;  /* remove multiple <cmd> keys */
-#endif
+    /* Main get command line loop */
+    for ( done_flg = NO ; ! done_flg ; keyused = YES ) {
+	if ( ! keep_previous_flg ) {
+	    cmdflg = ((unsigned) key == CCCMD);
+	    all_cmdflg = all_cmdflg && cmdflg;
+	    hist_flg = hist_flg && hist_cont_flg;
+	    file_navig_flg = file_navig_flg && file_navig_cont_flg;
 	}
-    }
+	keep_previous_flg = hist_cont_flg = file_navig_cont_flg = NO;
 
-    clear_namelist ();
-    old_wlen = 0;
-    cmdflg = cmd_file_flg = NO;
-    for (; ; cmdflg = key == CCCMD, keyused = YES, getkey (WAIT_KEY, nulsec)) {
-        if ( ccmdlen <= 0 ) ccmdlen = ccmdpos = 0;
-        if (ccmdlen >= ccmdl)
+	if ( parmstrt_flg ) {
+	    /* Get a fully new command line */
+	    parmstrt_flg = NO;
+
+	    /* display command prompt */
+	    clean_msg = loopflags.hold;
+	    if ( cmdmode ) {
+		if ( ! loopflags.hold )
+		    mesg ((TELSTRT|TELCLR) + 1, "");
+		else
+		    mesg ((TELSTRT) + 1, "");
+		poscursor (sizeof(cmds_prompt)- 1, 0);
+	    }
+	    else {
+		mesg ((TELSTRT|TELCLR) + 1, cmd_prompt);
+	    }
+	    loopflags.hold = NO;
+
+	    /* init the command line storage */
+	    ccmdbg = cmd_prompt_sz;
+	    memset (ccmdp, 0, ccmdl);
+	    ccmdpos = 0;
+	    ccmdlen = 0;
+	    ccmdoffset = 0;
+	    cmdflg = previous_cmdflg = NO;
+	    cmd_file_flg = NO;
+	    clear_namelist ();
+	    old_wlen = 0;
+
+	    if ( uselast ) {
+		/* re-display and re-use the last (or saved) command string */
+		uselast = NO;
+		if (lcmdlen >= ccmdl)
+		    ccmdp = gsalloc (ccmdp, 0, ccmdl = lcmdlen + LPARAM, YES);
+		memmove (ccmdp, lcmdp, lcmdlen);
+		ccmdpos = ccmdlen = lcmdlen;
+		ccmdp[ccmdlen] = '\0';
+		key_cnt = ccmdpos +2;   /* for the <CMD> <ALT> keys */
+		putmsg ();
+		all_cmdflg = NO;
+	    }
+	    else {
+		/* keyfile write position, for file expension and CCINT */
+		seek_point = ftell (keyfile);
+	    }
+	}
+
+
+	/* Get a key value from input stream */
+	testandset_resize (YES, csv_curs, cwin);
+	getkey (WAIT_KEY, nulsec);
+	testandset_resize (NO, csv_curs, cwin);
+	key_cnt++;
+	if ( key_cnt == INT_MAX ) key_cnt = 2;  /* must be > 1 */
+
+	prchar_flg = YES;   /* default : put key in the command line */
+	done_flg = NO;
+
+	/* check for <CMD> <key> command which are main editing command */
+	if ( all_cmdflg && !cmdmode ) {
+	    if (    ((unsigned) key == CCDELCH)
+		 || ((unsigned) key == CCMOVELEFT)
+		 || ((unsigned) key == CCMOVERIGHT)
+		 || ((unsigned) key == CCBACKSPACE)
+	       ) {
+		 done_flg = YES;
+		 break;     /* done, exit from main loop */
+	    }
+	}
+
+	/* check command line storage */
+	if ( ccmdlen <= 0 ) ccmdlen = ccmdpos = 0;
+	if  (ccmdlen >= ccmdl )
 	    ccmdp = gsalloc (ccmdp, ccmdlen, ccmdl += LPARAM, YES);
-        ccmdp[ccmdlen] = '\0';
+	ccmdp [ccmdlen] = '\0';
 
+	/* look for navigation in expended file name list */
 	if ( ((unsigned) key == CCMOVEUP) || ((unsigned) key == CCMOVEDOWN) ) {
 	    int delta, wlen;
 	    Flag beep, cont;
@@ -2157,12 +2421,11 @@ rmcmd:
 		/* only one name in the list */
 		if ( delta > 0 ) {
 		    key = CCTAB;  /* simulate a Tab */
-		    beep = 0;
-		    cont = 0;
+		    beep = cont = NO;
 		}
 	    } else if ( wlen >= 0 ) {
 		/* something in the list */
-		beep = 0;
+		beep = NO;
 		if ( old_wlen > 0 ) {
 		    cmd_delete (old_wlen);
 		    old_wlen = 0;
@@ -2181,17 +2444,95 @@ rmcmd:
 		continue;
 	    }
 	} else {
+	    /* no navigation, clear list */
 	    clear_namelist ();
 	    old_wlen = 0;
 	}
 
-	if ( CTRLCHAR ) 
-	    /* make sure that all codes for which <CMD><key> is undefined are are ignored */
+	if ( CTRLCHAR ) {
+	    /* key value is an editor key function value.
+	     *   Make sure that all codes for which <CMD><key>
+	     *   is undefined are are ignored by this processing.
+	     */
+
+	    prchar_flg = NO;   /* do not put key in the command line */
+	    done_flg = YES;    /* for loop completed */
+
 	    switch ((unsigned) key) {
+
+		case CCCMD:
+		    previous_cmdflg = cmdflg;
+		    previous_all_cmdflg = all_cmdflg;
+		    previous_key_cnt = key_cnt;
+		    previous_hist_flg = hist_flg;
+		    previous_file_navig_flg = file_navig_flg;
+
+		    done_flg = NO;
+		    break;
+
+		case CCRETURN:
+		    if ( resize_entry_flg ) {
+			extern void replaying_resize (char *resize_chr);
+			resize_chr [sizeof (resize_chr) -1] = '\0';
+			if ( replaying ) replaying_resize (resize_chr);
+			resize_entry_flg = NO;
+			/* restaure value on entry */
+			cmdflg = previous_cmdflg;
+			if ( previous_cmdflg ) key = CCCMD;
+			all_cmdflg = previous_all_cmdflg;
+			hist_flg = previous_hist_flg;
+			file_navig_flg = previous_file_navig_flg;
+			key_cnt = previous_key_cnt;
+			keep_previous_flg = YES;
+			if ( cmdenter_flg ) done_flg = NO;  /* some command is to be entered */
+		    }
+		    break;
+
+		case CCINT:
+		    /* do this whether or not preceded by <CMD> key */
+		    if ( ccmdlen > 0 ) {
+			/* we have generated something we may want to call back */
+			if ( used_file_flg ) {
+			    /* a file para could have been expanded,
+			       simulate the input in keyfile to save data
+			    */
+			    int i;
+			    (void) fseek (keyfile, seek_point, SEEK_SET);
+			    for ( i = 0 ; i < ccmdlen ; i++ ) putc (ccmdp[i], keyfile);
+			    key_resize ();  /* for the case where a resize was done during file xpension */
+			    clear_namelist ();
+			    old_wlen = 0;
+			    used_file_flg = NO;
+			}
+			exchgcmds ();
+		    }
+		    putc (CCINT, keyfile);
+		    keyused = YES;
+		    if ( cmdmode ) {
+			mesg (TELSTOP);
+			uselast = NO;
+			done_flg = NO;
+			parmstrt_flg = YES;
+			break;
+		    }
+		    /* to force that what was just saved will be use as
+		       last command during the done processing.
+		       If ccmdlen is not set to 0, this is not true
+		    */
+		    ccmdlen = 0;
+		    break;
+
+		case CCRESIZE:  /* resize the screen (in replaying only) */
+		    resize_chr_idx = 0;
+		    memset (resize_chr, 0, sizeof (resize_chr));
+		    resize_entry_flg = YES;
+		    cmdenter_flg = cmdflg || (ccmdlen > 0); /* already in command */
+		    cmdenter_flg = cmdflg || (ccmdlen > 0);
+		    done_flg = NO;
+		    break;
 
 		case CCTAB:     /* expand file name ? */
 		    {
-			extern int command_file ();
 			extern int expand_file_para ();
 			extern void incr_fname_para_sz ();
 			char *file_para;
@@ -2207,7 +2548,7 @@ rmcmd:
 
 			cmd_file_flg = NO;
 			file_para = NULL;
-			if ( command_file (strg, &file_para) ) {
+			if ( command_file (strg, &file_para, NULL) ) {
 			    /* the command could use a file name para */
 			    used_file_flg = YES;
 			    if ( file_para ) {
@@ -2226,205 +2567,279 @@ rmcmd:
 			    }
 			} else {
 			    /* not a command requesting a file name para */
-			    if ( !cmdflg ) {
+			    if ( ! cmdflg ) {
 				if ( file_para && *file_para ) sfree (file_para);
 				file_para = NULL;
-				goto done;
+				break;
 			    }
 			}
 			if ( file_para && *file_para ) sfree (file_para);
 			file_para = NULL;
+			done_flg = NO;
 			break;
 		    }
 
-	    case CCBACKSPACE:
-		if ( ccmdpos <= 0 ) break;  /* beginig of the command */
+		case CCBACKSPACE:
+		    done_flg = NO;
+		    if ( ccmdpos <= 0 ) break;  /* beginig of the command string */
 
-                if (cmdflg) {
-                    int i;
+		    if ( cmdflg ) {
+			int i;
 
-                    i = ccmdpos;
-		    if (insmode) {
-                        int nb;
+			i = ccmdpos;
+			if ( insmode ) {
+			    int nb;
 
-                        nb = ccmdlen - ccmdpos;
-                        if ( nb > 0 ) 
-                            memmove (ccmdp, &ccmdp[ccmdpos], nb);
-                        else nb = 0;
-			ccmdlen = nb;
+			    nb = ccmdlen - ccmdpos;
+			    if ( nb > 0 )
+				memmove (ccmdp, &ccmdp[ccmdpos], nb);
+			    else nb = 0;
+			    ccmdlen = nb;
+			}
+			else {
+			    memset (ccmdp, ' ', ccmdpos);
+			}
+			ccmdp[ccmdlen] = '\0';
+			ccmdpos = 0;
+			move_cursor (-i, YES);
 		    }
 		    else {
-                        memset (ccmdp, ' ', ccmdpos);
-		    }
-                    ccmdp[ccmdlen] = '\0';
-		    ccmdpos = 0;
-                    move_cursor (-i, YES);
-		}
-		else {
-                    int nb;
-                    nb = ccmdlen - ccmdpos;
-                    ccmdpos--;
-                    if ( nb <= 0 ) {        /* end of the string */
-                        ccmdlen--;   
-                    }
-                    else {
-                        if (insmode) {
-                            memmove (&ccmdp[ccmdpos], &ccmdp[ccmdpos+1], nb);
+			int nb;
+			nb = ccmdlen - ccmdpos;
+			ccmdpos--;
+			if ( nb <= 0 ) {        /* end of the string */
 			    ccmdlen--;
-                        }
-			else
-    			    ccmdp[ccmdpos] = ' ';
-                    }
-                    ccmdp[ccmdlen] = '\0';
-                    move_cursor (-1, YES);
-		}
-		break;
-
-	    case CCDELCH:
-                if ( ccmdpos >= ccmdlen ) break;   /* at the end of command */ 
-                
-		if (cmdflg) {
-		    ccmdlen = ccmdpos;
-                } else {
-                    int nb;
-                    nb = ccmdlen - ccmdpos -1;
-                    if ( nb > 0 ) 
-                        memmove (&ccmdp[ccmdpos], &ccmdp[ccmdpos+1], nb);
-		    ccmdlen--;
-                }
-		ccmdp[ccmdlen] = '\0';
-                move_cursor (0, YES);
-		break;
-
-	    case CCINSMODE:
-		/* do this whether or not preceded by <CMD> key */
-		tglinsmode ();
-		break;
-
-	    case CCMOVELEFT:
-		if ( ccmdpos ) {
-		    int  i, nb;
-		    nb = cmdflg ? -ccmdpos : -1;
-                    ccmdpos += nb;
-                    for ( i = ccmdlen ; i > ccmdpos ; i-- ) {
-                        if ( ccmdp[i-1] != ' ' ) break;
-                    }
-                    ccmdlen = i;
-                    ccmdp[ccmdlen] = '\0';
-                    move_cursor (nb, NO);
-		}
-		break;
-
-	    case CCMOVERIGHT:
-                if ( cmdflg ) {
-                    int nb;
-                    nb = ccmdlen - ccmdpos;
-                    if ( nb <= 0 ) break;
-
-                    ccmdpos = ccmdlen;
-                    move_cursor (nb, NO);
-                }
-                else {
-                    if ( ccmdpos == ccmdlen ) {
-			ccmdp[ccmdpos] = ' ';
-			ccmdlen++;
-                    }
-                    ccmdp[ccmdlen] = '\0';
-                    ccmdpos++;
-                    move_cursor (1, NO);
-                }
-		break;
-
-	    case CCPICK:
-		if (!cmdflg)
-		    goto done;
-		Block {
-		    int wlen; /* must be int because of pkarg argument */
-		    Reg1 char *wcp;
-		    if ((wcp = pkarg (msowin->wksp,
-				       msowin->wksp->wlin + msolin,
-					msowin->wksp->wcol + msocol,
-					 &wlen)) == NULL)
-			break;
-                    if ( wlen <= 0 ) break;
-		    (void) cmd_insert (wlen, wcp);
-		}
-		break;
-
-
-	    case CCSETFILE:
-		if (!cmdflg)
-		    goto done;
-                /* <CMD> <alt file> : redisplay the previous command string */    
-		mesg (TELSTOP);
-		uselast = YES;
-		keyused = YES;
-		goto parmstrt;
-
-	    case CCCMD:
-		break;
-
-	    case CCCTRLQUOTE:
-		/* do this whether or not preceded by <CMD> key */
-		key = ESCCHAR;
-		goto prchar;
-
-	    case CCINT:
-		/* do this whether or not preceded by <CMD> key */
-		if (ccmdlen > 0) {
-		    /* we have generated something we may want to call back */
-		    if ( used_file_flg ) {
-			/* a file para could have been expanded,
-			   simulate the input in keyfile to save data
-			*/
-			int i;
-			(void) fseek (keyfile, seek_point, SEEK_SET);
-			for ( i = 0 ; i < ccmdlen ; i++ ) putc (ccmdp[i], keyfile);
-			clear_namelist ();
-			old_wlen = 0;
-			used_file_flg = NO;
+			}
+			else {
+			    if ( insmode ) {
+				memmove (&ccmdp[ccmdpos], &ccmdp[ccmdpos+1], nb);
+				ccmdlen--;
+			    }
+			    else
+				ccmdp[ccmdpos] = ' ';
+			}
+			ccmdp[ccmdlen] = '\0';
+			move_cursor (-1, YES);
 		    }
-		    exchgcmds ();
-		}
-		putc (CCINT, keyfile);
-		keyused = YES;
-		if (cmdmode) {
+		    break;
+
+		case CCDELCH:
+		    done_flg = NO;
+		    if ( ccmdpos >= ccmdlen ) break;   /* at the end of command */
+
+		    if ( cmdflg ) {
+			ccmdlen = ccmdpos;
+		    } else {
+			int nb;
+			nb = ccmdlen - ccmdpos -1;
+			if ( nb > 0 )
+			    memmove (&ccmdp[ccmdpos], &ccmdp[ccmdpos+1], nb);
+			ccmdlen--;
+		    }
+		    ccmdp[ccmdlen] = '\0';
+		    move_cursor (0, YES);
+		    break;
+
+		case CCINSMODE:
+		    /* do this whether or not preceded by <CMD> key */
+		    tglinsmode ();
+		    done_flg = NO;
+		    break;
+
+		case CCMOVELEFT:
+		    if ( ccmdpos ) {
+			int  i, nb;
+			nb = cmdflg ? -ccmdpos : -1;
+			ccmdpos += nb;
+			for ( i = ccmdlen ; i > ccmdpos ; i-- ) {
+			    if ( ccmdp[i-1] != ' ' ) break;
+			}
+			ccmdlen = i;
+			ccmdp[ccmdlen] = '\0';
+			move_cursor (nb, NO);
+		    }
+		    done_flg = NO;
+		    break;
+
+		case CCMOVERIGHT:
+		    done_flg = NO;
+		    if ( cmdflg ) {
+			int nb;
+			nb = ccmdlen - ccmdpos;
+			if ( nb <= 0 ) break;
+
+			ccmdpos = ccmdlen;
+			move_cursor (nb, NO);
+		    }
+		    else {
+			if ( ccmdpos == ccmdlen ) {
+			    ccmdp[ccmdpos] = ' ';
+			    ccmdlen++;
+			}
+			ccmdp[ccmdlen] = '\0';
+			ccmdpos++;
+			move_cursor (1, NO);
+		    }
+		    break;
+
+		case CCPICK:
+		    if ( ! cmdflg )
+			break;
+		    {
+			int wlen; /* must be int because of pkarg argument */
+			char *wcp;
+			done_flg = NO;
+			if ((wcp = pkarg (msowin->wksp,
+					   msowin->wksp->wlin + msolin,
+					    msowin->wksp->wcol + msocol,
+					     &wlen)) == NULL)
+			    break;
+			if ( wlen <= 0 ) break;
+			(void) cmd_insert (wlen, wcp);
+		    }
+		    break;
+
+
+		case CCSETFILE:
+		    if ( ! cmdflg )
+			break;
+
+		    /* <CMD> <alt file> : redisplay the previous command string */
 		    mesg (TELSTOP);
-		    uselast = NO;
-		    goto parmstrt;
-		}
-		/* to force that what was just saved will be use as
-		   last command during the done processing.
-		   If ccmdlen is not set to 0, this is not true
-		*/
-		ccmdlen = 0;
-		goto done;
+		    uselast = YES;
+		    keyused = YES;
+		    parmstrt_flg = YES;
+		    done_flg = NO;
+		    break;
 
-	    case CCRETURN:
-		goto done;
+		case CCCTRLQUOTE:
+		    /* do this whether or not preceded by <CMD> key */
+		    key = ESCCHAR;
+		    prchar_flg = YES;
+		    done_flg = NO;
+		    break;
 
-	    default:
-		if (!cmdflg)
-		    goto done;
+		case CCMOVEUP:
+		case CCMOVEDOWN:
+		    if ( !cmdflg && !hist_flg && !file_navig_flg ) {
+			if ( ! ccmdlen ) break;
+			if ( ! command_file (ccmdp, &file_para, &cmdval) )
+			    break;
+			if ( (cmdval != CMDEDIT) || (file_para && *file_para) )
+			    break;
+
+			/* entering in edited file list navigation */
+			for ( ; ccmdp[ccmdlen -1] == ' ' ; ccmdlen-- ) ;
+			ccmdp[ccmdlen++] = ' ';
+			ccmdp[ccmdlen] = '\0';
+			memset (fnavig_cmd, '\0', sizeof (fnavig_cmd));
+			strcpy (fnavig_cmd, ccmdp);
+			fnavig_buf = &fnavig_cmd [ccmdlen];
+			fnavig_fn = cwin->wksp->wfile;
+			file_navig_flg = YES;
+		    }
+
+		    if ( file_navig_flg ) {
+			/* in edited file list navigation */
+			file_cmd_strg = file_list_navigation (cwin,
+					      (unsigned) key == CCMOVEDOWN );
+
+			if ( file_cmd_strg ) {
+			    ccmdpos = ccmdlen = strlen (file_cmd_strg);
+			    memmove (ccmdp, file_cmd_strg, ccmdlen);
+			    ccmdp[ccmdlen] = '\0';
+			    key_cnt = ccmdpos +1;
+			    putmsg ();
+			    all_cmdflg = NO;
+			}
+			file_navig_cont_flg = YES;
+			done_flg = NO;
+			break;
+		    }
+
+		    if ( !hist_flg ) hist_get = hist_write;
+		    hist_strg = history_get ( (unsigned) key == CCMOVEDOWN );
+		    if ( hist_strg ) {
+			ccmdpos = ccmdlen = strlen (hist_strg);
+			memmove (ccmdp, hist_strg, ccmdlen);
+			ccmdp[ccmdlen] = '\0';
+			key_cnt = ccmdpos +2;   /* for the <CMD> <CCMOVExx> keys */
+			putmsg ();
+			all_cmdflg = NO;
+		    }
+		    hist_flg = hist_cont_flg = YES;
+		    done_flg = NO;
+		    break;
+
+
+#if 0
+/* can be an alternative */
+		case CCMISRCH:
+		case CCPLSRCH:
+		case CCLWINDOW:
+		case CCRWINDOW:
+		case CCHOME:
+		case CCBACKTAB:
+		case CCMIPAGE:
+		case CCPLPAGE:
+		case CCMILINE:
+		case CCPLLINE:
+		case CCCHWINDOW:
+		case CCLWORD:
+		case CCRWORD:
+		case CCOPEN:
+		case CCCLOSE:
+		case CCERASE:
+		    /* key function which use parameters for command line */
+		    break;
+
+		default:
+
+		    /* do not return if a command line editing is in progress */
+		    done_flg = all_cmdflg || ccmdlen || (cmdflg && (ccmdlen == 0));
+
+		    /* this is the previous version behaviour */
+		    done_flg = ! cmdflg;
+
+#endif
+
+		default:
+		    done_flg = all_cmdflg || ccmdlen || (cmdflg && (ccmdlen == 0));
+
+	    }   /* end of switch (key) */
+
+	}   /* end of if ( CTRLCHAR ) */
+
+	if ( prchar_flg ) {
+	    /* A normal char or something to be put in the command line */
+
+	    if ( resize_entry_flg ) {
+		/* replay resize command */
+		if ( resize_chr_idx < sizeof (resize_chr) )
+		    resize_chr [resize_chr_idx++] = key;
+		done_flg = NO;
+		continue;   /* go back in the for loop */
 	    }
-	else
- prchar:    if (insmode && ccmdpos < ccmdlen) {
-	    memmove (&ccmdp[ccmdpos +1], &ccmdp[ccmdpos], (ccmdlen++ - ccmdpos));
-	    ccmdp[ccmdpos++] = key;
-            move_cursor (1, YES);   /* move cursor and refresh display */
-	}
-	else {
-	    if (ccmdpos == ccmdlen)
-		ccmdlen++;
-	    ccmdp[ccmdpos++] = key;
-            ccmdp[ccmdlen] = '\0';
-	    if ( clean_msg ) move_cursor (1, YES);
-	    else putch_cmd (key);
-	}
-	clean_msg = NO;
-    }
 
- done:
+	   if ( insmode && (ccmdpos < ccmdlen) ) {
+		memmove (&ccmdp[ccmdpos +1], &ccmdp[ccmdpos], (ccmdlen++ - ccmdpos));
+		ccmdp[ccmdpos++] = key;
+		move_cursor (1, YES);   /* move cursor and refresh display */
+	    }
+	    else {
+		if ( ccmdpos == ccmdlen ) ccmdlen++;
+		ccmdp[ccmdpos++] = key;
+		ccmdp[ccmdlen] = '\0';
+		if ( clean_msg ) move_cursor (1, YES);
+		else putch_cmd (key);
+	    }
+	    done_flg = NO;
+	    clean_msg = NO;
+	}
+    }       /* end of main for loop */
+
+
+    /* The get command line input is completed */
     move_cursor (CMDEND, NO);   /* move cursor to the end of command string */
     mesg (TELSTOP);
     if ( ccmdlen ) {    /* remove trailling space */
@@ -2434,16 +2849,17 @@ rmcmd:
 
     if ( used_file_flg && (key != CCINT) ) {
 	/* a file para could have been expanded,
-	   simulates in the keyfile what is the current command string
-	*/
+	 * simulates in the keyfile what is the current command string
+	 */
 	int i;
 	(void) fseek (keyfile, seek_point, SEEK_SET);
 	for ( i = 0 ; i < ccmdlen ; i++ ) putc (ccmdp[i], keyfile);
+	key_resize ();  /* for the case where a resize was done during file xpension */
 	putc (key, keyfile);
     }
 
-    if (ccmdlen == 0)
-	paramtype = 0;
+    /* get the parameter type */
+    if ( ccmdlen == 0 ) paramtype = 0;
     else {
 	/* in most cases, the interest is whether the arg string
 	 *  0: was empty
@@ -2451,41 +2867,36 @@ rmcmd:
 	 *  2: contained only a rectangle spec (e.g. "12x16")
 	 *  3: contained a single-word string
 	 *  4: contained a multiple-word string
-	 **/
+	 */
 	char *c2;
+
 	c2 = ccmdp;
 	paramtype = getpartype (&c2, YES, NO, curwksp->wlin + cursorline);
 
-	switch (paramtype) {
-	case 1:
-	case 2:
-	    Block {
-		Reg1 char *cp;
-		for (cp = c2; *cp && *cp == ' '; cp++)
-		    continue;
-		if (*cp)
+	switch ( paramtype ) {
+	    char *cp;
+	    case 1:
+	    case 2:
+		for ( cp = c2 ; *cp && *cp == ' ' ; cp++) continue;
+		if ( *cp )
 		    paramtype = 4; /* more than one string */
-	    }
-	    break;
+		break;
 
-	case 3:
-	    Block {
-		Reg1 char *cp;
-		for (cp = ccmdp; *cp && *cp == ' '; cp++)
-		    continue;
-		for (; *cp && *cp != ' '; cp++)
-		    continue;
-		for (; *cp && *cp == ' '; cp++)
-		    continue;
-		if (*cp)
+	    case 3:
+		for ( cp = ccmdp ; *cp && *cp == ' ' ; cp++) continue;
+		for ( ; *cp && *cp != ' ' ; cp++) continue;
+		for ( ; *cp && *cp == ' ' ; cp++) continue;
+		if ( *cp )
 		    paramtype = 4;
-	    }
 	}
     }
+
     paramv = ccmdp;
-    if (ccmdlen == 0)
+    if ( ccmdlen == 0 )
 	/* exchange back so that we don't have empty string as last cmd */
 	exchgcmds ();
+    if ( ! hist_write ) history_init;
+    history_store (ccmdp);
     restcurs ();
     clrbul ();
     entering = NO;
@@ -2599,6 +3010,9 @@ limitcursor ()
     return;
 }
 
+/* image of the full info line */
+static char info_line [MAXWIDTH +1];
+
 #ifdef COMMENT
 void
 info (column, ncols, msg)
@@ -2614,32 +3028,58 @@ info (column, ncols, msg)
 void
 info (column, ncols, msg)
 Scols column;
-Reg3 Scols ncols;
-Reg2 char *msg;
+Scols ncols;
+char *msg;
 {
-    Reg1 Short chr;
-    Reg4 S_window *oldwin;
-    Reg5 Scols  oldcol;
-    Reg6 Slines oldlin;
+    Short chr;
+    S_window *oldwin;
+    Scols  oldcol;
+    Slines oldlin;
+    char * infl;
+    int sz;
 
-    oldwin = curwin;        /* save old window info   */
+    if ( column >= sizeof (info_line) ) return;
+
+    if ( ! info_line [0] ) memset (info_line, ' ', sizeof (info_line));
+
+    /* update the info line image */
+    sz = (column + ncols) <= sizeof (info_line) ? ncols : sizeof (info_line) - column;
+    infl = &info_line [column];
+    memset (infl, ' ', sz);
+    sz = strlen (msg);
+    if ( (column + sz) > sizeof (info_line) ) sz = sizeof (info_line) - column;
+    memcpy (infl, msg, sz);
+    info_line [sizeof (info_line) -1] = '0';
+
+    /* save old window info   */
+    oldwin = curwin;
     oldcol = cursorcol;
     oldlin = cursorline;
+
     switchwindow (&infowin);
     poscursor (column, 0);
-
-    for (; cursorcol < infowin.redit && (chr = *msg++); ncols--)
-	if (040 <= chr && chr < 0177)
+    for ( ; cursorcol < infowin.redit && (chr = *msg++) ; ncols-- ) {
+	if (040 <= chr && chr < 0177) {
 	    putch (chr, NO);
-	else {
+	} else {
 	    putch (ESCCHAR, NO);
-	    if (chr != ESCCHAR)
+	    if (chr != ESCCHAR) {
 		putch ((chr & 037) | 0100, NO);
+	    }
 	}
+    }
+
     multchar (' ', ncols);
     switchwindow (oldwin);
     poscursor (oldcol, oldlin);
     return;
+}
+
+/* refresh the info line on the screen */
+void refresh_info ()
+{
+    info_line [sizeof (info_line) -1] = '\0';
+    info (0, 0, info_line);
 }
 
 #ifdef COMMENT
@@ -2712,7 +3152,7 @@ unsigned char *msg1,*msg2,*msg3,*msg4,*msg5,*msg6,*msg7;
 	    switchwindow (&enterwin);
             /* old version : no clear of the command line
 	    if (cmdmode)
-		poscursor (sizeof("CMDS: ")- 1, 0);
+		poscursor (sizeof(cmds_prompt)- 1, 0);
 	    else {
 		poscursor (0, 0);
 	    };
@@ -2739,7 +3179,7 @@ unsigned char *msg1,*msg2,*msg3,*msg4,*msg5,*msg6,*msg7;
 
     }
 
-    if ((parm & ERRSTRT) == ERRSTRT) Block {
+    if ((parm & ERRSTRT) == ERRSTRT) {
 	Reg1 char *cp;
 	cp = "\007 *** ";
 	if (to_image)
@@ -2783,7 +3223,7 @@ unsigned char *msg1,*msg2,*msg3,*msg4,*msg5,*msg6,*msg7;
 	    putchar ('\007');
     }
 
-    if (to_image) Block {
+    if (to_image) {
 	Reg1 Scols tmp;
 	static Scols lparamdirt;       /* for edit part        */
 	static Scols rparamdirt;       /* for info part        */
@@ -2811,8 +3251,12 @@ unsigned char *msg1,*msg2,*msg3,*msg4,*msg5,*msg6,*msg7;
 
     if (parm & TELSTOP) {         /* remember last position and.. */
 	if (to_image) {
-	    if (curwin != msowin)
-		switchwindow (msowin); /* go back to original pos      */
+	    if ( curwin != msowin ) {
+		/* cursor position can be changed by resizing */
+		msocol = msowin->ccol;
+		msolin = msowin->clin;
+		switchwindow (msowin); /* go back to original window */
+	    }
 	    poscursor (msocol, msolin);
 	}
 	else

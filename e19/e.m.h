@@ -91,6 +91,7 @@ extern char *nxtop;     /* next word after opstr - use for further getwords */
 #define CMD_DIFF        72
 #define CMDDIFF         73
 #define CMDSTATS        74
+#define CMDRESIZE       75
 #define CMDPICK         100  /************************************/
 #define CMDCLOSE        101  /*  these seven must be consecutive */
 #define CMDERASE        102  /*                                  */

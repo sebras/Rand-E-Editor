@@ -9,10 +9,12 @@ file e.iit.c
 #endif
 
 
+#include <string.h>
 #include "e.h"
 #ifdef  KBFILE
 #include "e.it.h"
 
+extern Flag helpflg, verbose_helpflg, dbgflg;
 extern char *salloc();
 static void itadd ();
 
@@ -20,7 +22,7 @@ int kbfile_wline = 0;   /* line number of a duplicated string */
 
 struct itable *ithead = NULLIT;
 
-S_looktbl itsyms[] = {
+S_looktbl itsyms [] = {
     "+line",   CCPLLINE,
     "+page",   CCPLPAGE,
     "+sch",    CCPLSRCH,
@@ -136,18 +138,67 @@ char *kbendstr;
 int  kbinilen;
 int  kbendlen;
 
-/* include_cccmd : try to add a Control char for <cmd> function */
+static struct itable *it_leave_ctrlc = NULL;
+static struct itable  it_leave_ctrlc_ref;
+static int ctrlc_is_ret;
+static char ccreturn_val [2] = { CCRETURN, 0 };
+
+/* Get the <Ctrl C> value */
+int get_ctrlc_fkey ()
+{
+    if ( ctrlc_is_ret || !it_leave_ctrlc ) return CCRETURN;
+    return (int) *(it_leave_ctrlc->it_val);
+}
+
+/* switch <Ctrl C> to <ret> and back (for help output) */
+void switch_ctrlc (ret)
+Flag ret;
+{
+    if ( ctrlc_is_ret || !it_leave_ctrlc ) return;
+    it_leave_ctrlc->it_len = ( ret ) ? 1 : it_leave_ctrlc_ref.it_len;
+    it_leave_ctrlc->it_val = ( ret ) ? ccreturn_val : it_leave_ctrlc_ref.it_val;
+}
+
+/* include_cccmd : force <Ctrl M> to be <ret>,
+ * if <Ctrl C> is not allocated, set to <ret> (used in help output),
+ * and try to add a Control char for <cmd> function
+ */
 static void include_cccmd ()
 {
     extern int itget ();
+    extern int itgetleave ();
+    extern struct itable *ithead;
+
     char ch, ch0, cmd[256], *ch_pt;
     int cc, nb;
+
+    ch = ch0 = ('M' & '\037');
+    ch_pt = &ch; nb = 1;
+    cc = itget (&ch_pt, &nb, ithead, cmd);
+    if ( (cc != 1) || (cmd[0] != CCRETURN) ) {
+	/* force <Ctrl M> to be CCRETURN */
+	cmd[0] = CCRETURN ; cmd[1] = '\0';
+	itadd (&ch0, 1, &ithead, cmd, 1, "-- Force setting of 'Ctrl M' to <ret> --", -1);
+    }
+    ch = ch0 = ('C' & '\037');
+    ch_pt = &ch; nb = 1;
+    cc = itget (&ch_pt, &nb, ithead, cmd);
+    if ( cc == IT_NOPE ) {
+	/* <Ctrl C> not allocated, force to CCRETURN */
+	cmd[0] = CCRETURN ; cmd[1] = '\0';
+	itadd (&ch0, 1, &ithead, cmd, 1, "-- Default setting of 'Ctrl C' to <ret> --", -1);
+    }
+    /* setup data to be use for temporary overwrite <Crtl C> with <ret> */
+    cmd[0] = ('C' & '\037'); cmd[1] = '\0';
+    cc = itgetleave (cmd, &it_leave_ctrlc, ithead);
+    ctrlc_is_ret = (   (it_leave_ctrlc->it_len == 1)
+		    && (*(it_leave_ctrlc->it_val) == CCRETURN) );
+    it_leave_ctrlc_ref = *it_leave_ctrlc;
 
     /* found an empty slot in Ctrl A ... Ctrl Z */
     ch0 = 0;
     for ( ch = ('Z' & '\037') ; ch >= ('A' & '\037') ; ch-- ) {
-	ch_pt = &ch;
-	nb = 1;
+	ch_pt = &ch; nb = 1;
 	cc = itget (&ch_pt, &nb, ithead, cmd);
 	if ( (cc == 1) && (cmd[0] == CCCMD) ) return;
 	if ( cc == IT_NOPE ) ch0 = ch;     /* empty slot */
@@ -158,29 +209,84 @@ static void include_cccmd ()
     }
 }
 
-Flag
-getkbfile (filename)
-char *filename;
+static char * check_include (line, path)
+char *line, *path;
 {
-    extern void overwrite_PF1PF4 ();
-    extern char *tname;
+    static const char incl[] = "include ";
+    char *fname, *str;
+    char c;
+    int sz;
 
+    fname = line;
+    sz = strlen (incl);
+    if ( strncmp (fname, incl, sz) != 0 ) return NULL;
+    fname += sz;
+    for ( ; c = *fname++ ; ) if ( c != ' ') break;
+    if ( ! c ) return NULL;
+    if ( (c != '<') && (c != '"') ) return NULL;
+    if ( c == '<' ) c = '>';
+    str = strchr (fname, c);
+    if ( ! str ) return NULL;
+
+    *str = '\0';    /* ignore the rest of the line */
+    if ( *fname != '/' ) {
+	/* this include file path name is relative to the including file */
+	str = strrchr (path, '/');
+	if ( str ) {
+	    str++;
+	    sz = str - path;
+	    /* make room for path */
+	    memmove (fname + sz, fname, strlen (fname) +1);
+	    memcpy (fname, path, sz);
+	}
+    }
+    return fname;
+}
+
+
+static Flag process_kbfile (filename, level)
+char *filename;
+int level;
+{
     char line[TMPSTRLEN], string[TMPSTRLEN], value[TMPSTRLEN];
     FILE *f;
     int lnb, str_len, val_len;
+    char *incl_fname;
+    char c;
+    Flag cc;
 
+    if ( verbose_helpflg ) printf ("Process kbfile : \"%s\"\n", filename);
+    if ( level > 32 ) {
+	if ( verbose_helpflg )
+	    printf ("  Too large included depth %d : this is probably a loop of include\n", level);
+	return NO;
+    }
     if ((f = fopen (filename, "r")) == NULL) {
 	/* ---- old version
 	getout (YES, "Can't open keyboard file \"%s\"", filename);
 	---- */
-	return (NO);
+	if ( verbose_helpflg ) printf ("ERROR fopen error %d : %s\n", errno, strerror (errno));
+	else if ( helpflg || dbgflg )
+	    printf ("\n\"%s\"ERROR  fopen error %d :\n\n  %s\n", filename, errno, strerror (errno));
+	return NO;
     }
 
     for ( lnb = 1 ; fgets (line, sizeof line, f) != NULL; lnb++ ) {
-	line[strlen (line)-1] = '\0';   /* Stomp on the newline */
-	if(line[0] == '#'               /* gww 21 Feb 82 */
-	|| line[0] == '\0')             /* gww 21 Feb 82 */
-		continue;               /* gww 21 Feb 82 */
+	line[strlen (line)-1] = '\0';   /* remove newline */
+	if ( verbose_helpflg ) printf ("%3d  %s\n", lnb, line);
+	if ( line[0] == '#' ) {         /* FP 14 Jan 2000 */
+	    incl_fname = line+1;
+	    for ( ; c = *incl_fname ; incl_fname++ ) if ( c != ' ') break;
+	    incl_fname = check_include (incl_fname, filename);
+	    if ( incl_fname ) {
+		cc = process_kbfile (incl_fname, level +1);
+		if ( verbose_helpflg ) printf ("---Back in kbfile : \"%s\"\n", filename);
+	    }
+	    continue;
+	}
+	if ( line[0] == '!'             /* add FP 14 Jan 2000 */
+	     || line[0] == '\0' )       /* gww 21 Feb 82 */
+	    continue;                   /* gww 21 Feb 82 */
 	itparse (line, string, &str_len, value, &val_len);
 	switch (string[0]) {
 	case KBINIT:
@@ -198,12 +304,24 @@ char *filename;
 	}
     }
     fclose (f);
+    return (YES);
+}
+
+Flag
+getkbfile (filename)
+char *filename;
+{
+    /* use the Rand options "-verbose -help" to debug the kbfile */
+    extern void overwrite_PF1PF4 ();
+    Flag cc;
+
+    cc = process_kbfile (filename, 1);
     include_cccmd ();
     overwrite_PF1PF4 ();
 #ifdef  DEBUG_KBFILE
     itprint (ithead, 0);
 #endif
-    return (YES);
+    return (cc);
 }
 
 static void itadd (str, str_len, headp, val, val_len, line, line_nb)
@@ -214,6 +332,7 @@ int str_len, val_len;
 char *line;             /* For debugging */
 int line_nb;
 {
+    char * itsyms_by_val ();
     struct itable *it;         /* Current input table entry */
     struct itable *pt;         /* Previous table entry */
 
@@ -225,9 +344,18 @@ int line_nb;
 		/*
 		getout (YES, "kbfile duplicate string in %s\n", line);
 		*/
-		printf ("WARNING : kbfile duplicate string in %s\n", line);
-		kbfile_wline = line_nb;
-		continue;
+		if ( verbose_helpflg ) {
+		    printf ("WARNING : kbfile overwrite previously defined value : <%s>\n",
+			    itsyms_by_val ((short) *it->it_val));
+		    kbfile_wline = line_nb;
+		}
+		/* overwrite the previously defined value */
+		if ( val_len != it->it_len ) {
+		    sfree (it->it_val);
+		    it->it_val = salloc (val_len, YES);
+		    it->it_len = val_len;
+		}
+		move (val, it->it_val, val_len);
 	    } else      /* Go down the tree */
 		itadd (str+1, str_len-1, &it->it_link, val, val_len, line, line_nb);
 	    return;
@@ -397,7 +525,7 @@ char *strg;
 		return (it1);   /* a new leaf must be processed */
 	}
     }
-    if (n >= 0 ) strg [n -1] = '\0';  /* continue on the previous level */
+    if (n > 0 ) strg [n -1] = '\0';  /* continue on the previous level */
     return (NULL);    /* no more leaves on this level */
 }
 
@@ -406,14 +534,14 @@ char *strg;
 
 static int it_listall ()
 {
-    int i, nb_leaves;
+    int i, nb, nb_leaves;
     struct itable *it;
     unsigned char *cp, *sp;
     char strg [80];
 
     memset (strg, 0, sizeof (strg));
     nb_leaves = 0;
-    for ( ; ; ) {
+    for ( nb = 0 ; nb < 10000 ; nb ++ ) {
 	it = it_walk (ithead, 0, strg);
 	if ( ! it ) break;  /* no more leaves */
 
@@ -425,6 +553,10 @@ static int it_listall ()
 	    if ( sp ) printf ("<%s>", sp);
 	}
 	putchar ('\n');
+    }
+    if ( it ) {
+	printf ("======= error in it structure ==========\n");
+	return -1;
     }
     return (nb_leaves);
 }
@@ -505,13 +637,14 @@ int n;
 /* print all the elements of the it table tree (escape seq to key function) */
 /* ------------------------------------------------------------------------ */
 
-void print_it_escp ()
+int print_it_escp ()
 {
     int nb;
 
     printf ("\n---- Escape Sequence to key function -----\n", nb);
     nb = it_listall ();
     printf ("---- defined entries in Escape Seq table : %d -----\n", nb);
+    return nb;
 }
 
 /* it_value_to_string : return all the string for a given it value */

@@ -21,15 +21,16 @@ OBJS=   e.main.o e.o    e.iit.o e.q.o   e.tb.o  e.put.o e.nm.o  e.sv.o \
 	e.wi.o  e.wk.o  e.u.o   e.f.o   e.dif.o e.h.o   e.se.o  e.e.o \
 	e.mk.o  e.ra.o  e.re.o  e.t.o   e.ru.o  e.cm.o  e.d.o   e.it.o \
 	e.la.o  e.m.o   e.p.o   e.pa.o  e.sb.o  e.tt.o  e.x.o \
-	e.keyboard_map.o
+	e.keyboard_map.o e.resize.o
 
 SRCS=   e.main.c e.c    e.iit.c e.q.c   e.tb.c  e.put.c e.nm.c  e.sv.c \
 	e.wi.c  e.wk.c  e.u.c   e.f.c   e.dif.c e.h.c   e.se.c  e.e.c \
 	e.mk.c  e.ra.c  e.re.c  e.t.c   e.ru.c  e.cm.c  e.d.c   e.it.c \
 	e.la.c  e.m.c   e.p.c   e.pa.c  e.sb.c  e.tt.c  e.x.c \
-	e.keyboard_map.c
+	e.keyboard_map.c e.resize.c
 
 LIBS=   ../la1/libla.a ../ff3/libff.a ../lib/libtmp.a
+LIBX=   -L/usr/X11R6/lib -lXt -lX11 -lxkbfile
 
 # For Ultrix, following line is needed !!
 #TERMCAP = -ltermcap
@@ -38,7 +39,7 @@ TERMCAP =
 ALL=a.out
 
 $(ALL): $(OBJS) e.r.o  $(LIBS)
-	$(CC) $(CFLAGS) -o $(ALL) $(OBJS) e.r.o  $(LIBS) -lcurses $(TERMCAP) 
+	$(CC) $(CFLAGS) -o $(ALL) $(OBJS) e.r.o  $(LIBS) $(LIBX) -lcurses $(TERMCAP)
 
 e.r.c:
 	cd ../; make e19/e.r.c
@@ -94,15 +95,15 @@ e.o: /usr/include/getopt.h /usr/include/signal.h /usr/include/bits/signum.h
 e.o: /usr/include/bits/siginfo.h /usr/include/bits/sigaction.h
 e.o: /usr/include/bits/sigcontext.h /usr/include/asm/sigcontext.h
 e.o: /usr/include/bits/sigstack.h
-e.iit.o: e.h ../include/c_env.h ../include/localenv.h
-e.iit.o: /usr/include/sys/types.h /usr/include/features.h
+e.iit.o: /usr/include/string.h /usr/include/features.h
 e.iit.o: /usr/include/sys/cdefs.h /usr/include/gnu/stubs.h
-e.iit.o: /usr/include/bits/types.h
-e.iit.o: /usr/lib/gcc-lib/i386-redhat-linux/egcs-2.91.66/include/stddef.h
-e.iit.o: /usr/include/time.h /usr/include/endian.h /usr/include/bits/endian.h
-e.iit.o: /usr/include/sys/select.h /usr/include/bits/select.h
-e.iit.o: /usr/include/bits/sigset.h /usr/include/sys/sysmacros.h ../la1/la.h
-e.iit.o: ../ff3/ff.h /usr/include/stdio.h
+e.iit.o: /usr/lib/gcc-lib/i386-redhat-linux/egcs-2.91.66/include/stddef.h e.h
+e.iit.o: ../include/c_env.h ../include/localenv.h /usr/include/sys/types.h
+e.iit.o: /usr/include/bits/types.h /usr/include/time.h /usr/include/endian.h
+e.iit.o: /usr/include/bits/endian.h /usr/include/sys/select.h
+e.iit.o: /usr/include/bits/select.h /usr/include/bits/sigset.h
+e.iit.o: /usr/include/sys/sysmacros.h ../la1/la.h ../ff3/ff.h
+e.iit.o: /usr/include/stdio.h
 e.iit.o: /usr/lib/gcc-lib/i386-redhat-linux/egcs-2.91.66/include/stdarg.h
 e.iit.o: /usr/include/libio.h /usr/include/_G_config.h
 e.iit.o: /usr/include/bits/stdio_lim.h /usr/include/limits.h
@@ -560,5 +561,32 @@ e.keyboard_map.o: /usr/include/sys/ttydefaults.h /usr/include/string.h
 e.keyboard_map.o: /usr/include/linux/kd.h /usr/include/linux/types.h
 e.keyboard_map.o: /usr/include/linux/posix_types.h
 e.keyboard_map.o: /usr/include/asm/posix_types.h /usr/include/asm/types.h
-e.keyboard_map.o: /usr/include/linux/keyboard.h /usr/include/X11/keysym.h
-e.keyboard_map.o: /usr/include/X11/keysymdef.h
+e.keyboard_map.o: /usr/include/linux/keyboard.h /usr/include/X11/Xlib.h
+e.keyboard_map.o: /usr/include/X11/X.h /usr/include/X11/Xfuncproto.h
+e.keyboard_map.o: /usr/include/X11/Xosdefs.h /usr/include/X11/Intrinsic.h
+e.keyboard_map.o: /usr/include/X11/Xutil.h /usr/include/X11/Xresource.h
+e.keyboard_map.o: /usr/include/X11/Core.h /usr/include/X11/Composite.h
+e.keyboard_map.o: /usr/include/X11/Constraint.h /usr/include/X11/Object.h
+e.keyboard_map.o: /usr/include/X11/RectObj.h /usr/include/X11/Xatom.h
+e.keyboard_map.o: /usr/include/X11/keysym.h /usr/include/X11/keysymdef.h
+e.keyboard_map.o: /usr/include/X11/XKBlib.h
+e.keyboard_map.o: /usr/include/X11/extensions/XKBstr.h
+e.keyboard_map.o: /usr/include/X11/extensions/XKB.h
+e.keyboard_map.o: /usr/include/X11/extensions/XKBfile.h
+e.keyboard_map.o: /usr/include/X11/extensions/XKBgeom.h
+e.resize.o: /usr/include/string.h /usr/include/features.h
+e.resize.o: /usr/include/sys/cdefs.h /usr/include/gnu/stubs.h
+e.resize.o: /usr/lib/gcc-lib/i386-redhat-linux/egcs-2.91.66/include/stddef.h
+e.resize.o: e.h ../include/c_env.h ../include/localenv.h
+e.resize.o: /usr/include/sys/types.h /usr/include/bits/types.h
+e.resize.o: /usr/include/time.h /usr/include/endian.h
+e.resize.o: /usr/include/bits/endian.h /usr/include/sys/select.h
+e.resize.o: /usr/include/bits/select.h /usr/include/bits/sigset.h
+e.resize.o: /usr/include/sys/sysmacros.h ../la1/la.h ../ff3/ff.h
+e.resize.o: /usr/include/stdio.h
+e.resize.o: /usr/lib/gcc-lib/i386-redhat-linux/egcs-2.91.66/include/stdarg.h
+e.resize.o: /usr/include/libio.h /usr/include/_G_config.h
+e.resize.o: /usr/include/bits/stdio_lim.h /usr/include/limits.h
+e.resize.o: /usr/include/bits/posix1_lim.h /usr/include/bits/local_lim.h
+e.resize.o: /usr/include/linux/limits.h /usr/include/bits/posix2_lim.h e.t.h
+e.resize.o: e.cm.h e.inf.h e.tt.h e.wi.h

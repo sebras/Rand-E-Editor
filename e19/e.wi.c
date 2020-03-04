@@ -77,16 +77,12 @@ char   *file;
 				horiz ? oldwin->tmarg + cursorline + 1
 				      : oldwin->tmarg,
 				oldwin->rmarg,
-#ifdef LMCMARG
 				oldwin->bmarg, 0, YES)
-#else
-				oldwin->bmarg, YES)
-#endif
        ) )
 	return NOMEMERR;
     winlist[nwinlist] = newwin;
 
-    if (horiz) Block {
+    if (horiz) {
 	/* newwin is below oldwin on the screen  */
 	Reg1 Slines i;
 	oldwin->bmarg = oldwin->tmarg + cursorline + 1;
@@ -98,7 +94,7 @@ char   *file;
 		   newwin->lastcol, (Uint) i);
 	}
     }
-    else Block {
+    else {
 	/* newwin is to the right of oldwin on the screen  */
 	Reg1 Slines i;
 	oldwin->rmarg = oldwin->lmarg + cursorcol + 1;
@@ -113,7 +109,7 @@ char   *file;
 	}
     }
 
-    Block {
+    {
 	Small winnum;
 	/* the number of curwin is new prevwin */
 	for (winnum = 0; winlist[winnum] != curwin; winnum++)
@@ -129,7 +125,7 @@ char   *file;
     infotrack (NO);
     inforange (NO);
 
-    Block {
+    {
 	Fn ocurfile, oaltfile;
 	ocurfile = curwksp->wfile;
 	oaltfile = curwin->altwksp->wfile;
@@ -161,19 +157,13 @@ char   *file;
 
 #ifdef COMMENT
 S_window *
-#ifdef LMCSTATE
 setupwindow (win, cl, lt, cr, lb, wf, editflg)
-#else  LMCSTATE
-setupwindow (win, cl, lt, cr, lb, editflg)
-#endif LMCSTATE
     S_window *win;
     Scols   cl;
     Scols   cr;
     Slines  lt;
     Slines  lb;
-#ifdef LMCSTATE
     Aflag   wf;
-#endif LMCSTATE
     Flag    editflg;
 .
     Initialize the window using 'cl', 'cr', 'lt', 'lb' as the left, right,
@@ -181,26 +171,21 @@ setupwindow (win, cl, lt, cr, lb, editflg)
     If 'editflg' == YES then 'win' is an editing window -- i.e. borders, etc.
     If 'win' == 0, then alloc a new window.
     Return 'win' if no alloc failure, else return 0.
+
+
 #endif
 S_window *
-#ifdef LMCSTATE
 setupwindow (win, cl, lt, cr, lb, wf, editflg)
-#else
-setupwindow (win, cl, lt, cr, lb, editflg)
-#endif
 Reg3 S_window *win;
 Scols   cl;
 Scols   cr;
 Slines  lt;
 Slines  lb;
-#ifdef LMCSTATE
 AFlag   wf;
-#endif
 Flag    editflg;
 {
-    if (   !win
-	&& !(win = (S_window *) okalloc (SWINDOW))
-       )
+    /* Warning : okalloc, salloc ... routines must initialize to 0 the allocated memory */
+    if ( !win && !(win = (S_window *) okalloc (SWINDOW)) )
 	return 0;
 
 #ifdef LMCSTATE
@@ -213,7 +198,7 @@ Flag    editflg;
     if (editflg) {
 	win->ltext = cl + 1;
 	win->ttext = lt + 1;
-	win->rtext = cr - cl - 2;
+	win->rtext = cr - cl - 2;   /* 2 : this is NHORIZBORDERS */
 	win->btext = lb - lt - 2;
     }
     else {
@@ -233,20 +218,63 @@ Flag    editflg;
     win->rwin = defrwin;
     win->lwin = deflwin;
 
-    if (win->wksp = (S_wksp *) okalloc (sizeof (S_wksp))) {
-	if (!editflg)
+    if ( !win->wksp )
+	win->wksp = (S_wksp *) okalloc (sizeof (S_wksp));
+    if ( win->wksp ) {
+	if ( ! editflg )
 	    return win;
-	if (win->altwksp = (S_wksp *) okalloc (sizeof (S_wksp))) Block {
-	    Reg2 Slines size;
-	    size = term.tt_height - NINFOLINES - NENTERLINES - NHORIZBORDERS;
-	    if (win->firstcol = (AScols *) okalloc (2 * size * (sizeof *win->firstcol))) {
+
+	/* this is an editing window */
+	if ( ! win->altwksp )
+	    win->altwksp = (S_wksp *) okalloc (sizeof (S_wksp));
+	if ( win->altwksp ) {
+	    Slines size;
+	    int i, sz;
+	    AScols ascl;
+	    size = term.tt_height - NPARAMLINES - NHORIZBORDERS;
+	    if ( size < 80 ) size = 80;     /* min allocation */
+	    if ( size > win->size ) {
+		if ( win->firstcol ) sfree (win->firstcol);
+		if ( win->lmchars )  sfree (win->lmchars);
+		win->firstcol = win->lastcol = NULL;
+		win->lmchars = win->rmchars = NULL;
+		win->size = size;
+	    }
+	    size = win->size;
+	    sz = 2 * size * sizeof (*win->firstcol);
+	    if ( ! win->firstcol ) win->firstcol = (AScols *) okalloc (sz);
+	    if ( win->firstcol ) {
 		win->lastcol = &win->firstcol[size];
-		if (win->lmchars
-		    = okalloc (2 * size * (sizeof *win->lmchars))) Block {
-		    Reg1 int i;
+		ascl = win->rtext + 1;
+		for ( i = size -1 ; i >= 0 ; i-- ) {
+			win->firstcol[i] = ascl;
+			win->lastcol[i] = 0;
+		}
+		sz = 2 * size * sizeof (*win->lmchars);
+		if ( !win->lmchars )  win->lmchars  = okalloc (sz);
+		if ( win->lmchars ) {
+		    memset (win->lmchars, ' ', sz);
+		    win->rmchars = &win->lmchars[size];
+		    /* evry thing ok */
+		    return win;
+		}
+		sfree ((char *) win->firstcol);
+	    }
+
+#if 0
+	    Slines size;
+	    size = term.tt_height - NINFOLINES - NENTERLINES - NHORIZBORDERS;
+	    if ( ! win->firstcol ) sfree (win->firstcol);
+	    win->firstcol = (AScols *) okalloc (2 * size * (sizeof *win->firstcol));
+	    if ( win->firstcol ) {
+		win->lastcol = &win->firstcol[size];
+		if ( ! win->lmchars ) sfree (win->lmchars);
+		win->lmchars = okalloc (2 * size * (sizeof *win->lmchars));
+		if ( win->lmchars ) {
+		    int i;
 		    win->rmchars = &win->lmchars[size];
 		    /* can't use bfill here because firstcol may not be a char */
-		    for (i = Z; i < size; i++) {
+		    for (i = 0; i < size; i++) {
 			win->firstcol[i] = win->rtext + 1;
 			win->lastcol[i] = 0;
 		    }
@@ -254,11 +282,13 @@ Flag    editflg;
 		}
 		sfree ((char *) win->firstcol);
 	    }
+#endif
+
 	    sfree ((char *) win->altwksp);
 	}
 	sfree ((char *) win->wksp);
     }
-    return 0;
+    return NULL;
 }
 
 #ifdef COMMENT
@@ -285,7 +315,7 @@ removewindow ()
     pwin = winlist[ppnum];
     savewksp (thewin->wksp);
 
-    if (pwin->bmarg != thewin->bmarg) Block {
+    if (pwin->bmarg != thewin->bmarg) {
 	/* thewin is below pwin on the screen  */
 	Slines j;
 	register Slines tmp;
@@ -303,10 +333,10 @@ removewindow ()
 	pwin->btext = pwin->bmarg - pwin->tmarg - 2;
 	pwin->bedit = pwin->btext;
     }
-    else Block {
+    else {
 	/* thewin is to the right of pwin on the screen  */
 	register Slines tmp;
-	for (tmp = Z; tmp <= pwin->btext; tmp++) {
+	for (tmp = 0; tmp <= pwin->btext; tmp++) {
 	    pwin->lastcol[tmp] = thewin->lastcol[tmp] +
 		thewin->lmarg - pwin->lmarg;
 	    if (pwin->firstcol[tmp] > pwin->rtext)
@@ -330,6 +360,7 @@ removewindow ()
     (void) la_close (&thewin->wksp->las);
     sfree ((char *) thewin->wksp);
     sfree ((char *) thewin);
+    winlist [nwinlist] = NULL;
     return;
 }
 
@@ -395,7 +426,7 @@ Small how;
     j = window->rmarg;
     poscursor (i = window->lmarg, window->tmarg);
 #ifdef LMCMARG
-    for (k=Z; k < ntabs && tabs[k] < window->wksp->wcol; k++)
+    for (k=0; k < ntabs && tabs[k] < window->wksp->wcol; k++)
 	{}
     k1 = k;
 #endif
@@ -514,7 +545,7 @@ Small how;
 	Reg4 Slines bottom;
 	bottom = window->bmarg - 1;
 	line = window->tmarg + 1;
-	if (how & WIN_ACTIVE) Block {
+	if (how & WIN_ACTIVE) {
 	    Reg1 char *lmcp;
 	    Reg2 char *rmcp;
 	    lmcp = window->lmchars;
@@ -558,7 +589,7 @@ Small how;
 
     bottom = window->bmarg - 1;
     line = window->tmarg + 1;
-    if (how & WIN_ACTIVE) Block {
+    if (how & WIN_ACTIVE) {
 	register char *bchrp;
 	bchrp = border == window->lmarg ? window->lmchars : window->rmchars;
 	for (; line <= bottom; line++) {
@@ -592,6 +623,8 @@ register S_window *win;
     register S_window *cwin;
 
     cwin = curwin;
+    cwin->ccol = cursorcol;
+    cwin->clin = cursorline;
     cursorcol  += cwin->ltext - win->ltext;
     cursorline += cwin->ttext - win->ttext;
     if (curwksp = (curwin = win)->wksp) {

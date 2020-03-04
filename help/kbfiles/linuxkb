@@ -1,1 +1,32 @@
-vt200kbn
+!-----------------------------------------------------------------------------
+! kbfile for linux terminal (console)
+! Fabien Perriollat 2000 Jan 11 : differenciate ctrl H <008> and Bksp <0177>
+!   This file use the new "#include kbfile" directive
+!-----------------------------------------------------------------------------
+
+#include <vt200kbn>
+
+^C:<int>
+
+! BackSpace key
+<0177>:<bksp>
+
+! Delete key may generate ^H
+! ^H:<dchar>
+
+!Shift F1
+^["[25~":<split>
+!Shift F2
+^["[26~":<join>
+!Shift F3
+^["[28~":<caps>
+!Shift F4
+^["[29~":<ccase>
+!Shift F5
+^["[31~":<cmd><help>
+!Shift F6
+^["[32~":<cmd>
+!Shift F7
+^["[33~":<dword>
+!Shift F8
+^["[34~":<erase>

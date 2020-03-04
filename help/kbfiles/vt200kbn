@@ -2,8 +2,8 @@
 # Julian Blake/CERN, 1985/12/2
 # Fabien Perriollat 1995 Oct 8 : Addition of F1
 #                   1998 Dec 17 : better handling of nxterm in linux
-#
-
+#                   2000 Jan 11 : differenciate ctrl H <008> and Bksp <0177>
+#                                 for the zvt emulator in gnome-terminal
 #-----------------------------------------------------------------------------
 # Linux specific case :
 # ---------------------
@@ -18,7 +18,7 @@
 # !   The new translation must be applied only to shift and lock_shift
 # !       case (see the ':' in the translation defintion).
 #
-# *VT100.Translations: #override \n\
+# XTerm*VT100.Translations: #override \n\
 #         <Key>Home:             string(0x1b) string("[H")\n\
 #        :<Key>KP_Home:          string(0x1b) string("[H")\n\
 #        :<Key>KP_End:           string(0x1b) string("[F")\n\
@@ -26,6 +26,14 @@
 #         <Key>Begin:            string(0x1b) string("[E")\n\
 #        :<Key>KP_Begin:         string(0x1b) string("[E")\n\
 #         <Key>Delete:           string(0x1b) string("[3~")
+#
+# To have a setting compatible between linux console, XTerm emulator
+#   family and gnome-terminal the backspace key must return a
+#   delete ('\0177') character and not a backspace ('\008') character
+#   This can be done by :
+#   - in gnome-terminal set : swap DEL/Backspace (in settings, preferences)
+#   - for XTerm emulator family set the ressource :
+#     XTerm*VT100.BackarrowKey: false
 
 # Expected keyboard X mapping :
 #
@@ -34,6 +42,8 @@
 # !   This is an good compromise setting fo the rand editor.
 # !   A link to this file is expected to be defined in
 # !       "/usr/X11R6/lib/X11/xinit/.Xmodmap"
+# ! The keycode values are given for a XFree86 X11 server,
+# !     they must be replaced by the actual values of the X server vendor.
 #
 # ! keycode  22 = BackSpace
 # ! keycode  23 = Tab KP_Tab
@@ -206,7 +216,9 @@
 #RETURN
 ^M:<ret>
 #DEL
-<0177>:<bksp>
+# <0177>:<bksp>
+<0177>:<dchar>
+
 ^G:<home>
 
 #TAB

@@ -29,6 +29,7 @@ file e.c
 #include <fcntl.h>
 #endif /* SYSIII */
 #include <unistd.h>
+#include <time.h>
 
 extern char *getenv ();
 
@@ -84,6 +85,7 @@ extern char *ttyname ();
 #define OPTDIRPACKG    21
 #define OPTVHELP       22
 #define OPTVERSION     23
+#define OPTDUMPESF     24
 
 /* Entries must be alphabetized. */
 /* Entries of which there are two in this table must be spelled out. */
@@ -96,6 +98,7 @@ S_looktbl opttable[] = {
 #ifdef TERMCAP
     "dtermcap" , OPTDTERMCAP ,
 #endif
+    "dump_state_file", OPTDUMPESF,
     "help"     , OPTHELP     ,
     "inplace"  , OPTINPLACE  ,
 #ifdef  KBFILE
@@ -219,11 +222,13 @@ Flag optbullets = -1;   /* YES = -bullets, NO = -nobullets */
 #ifdef TERMCAP
 Flag optdtermcap;       /* YES = force use of termcap */
 #endif
+Flag dump_state_file=NO; /* YES = dump the state file defined with -state=<fname> option */
+
 
 /* ++XXXXXXXXXXXXXXXXXXXXXXXXX */
 /* Rand package service & configuration files */
 
-static char *packg_subdir = NULL;   /* extracted form program path or def_xdir_dir */
+static char *packg_subdir = NULL;   /* extracted form program path or XDIR_DIR */
 
 struct cnfg_dir_rec {
 	char *path;         /* directory path name */
@@ -309,11 +314,14 @@ main1 (argc, argv)
 #endif
 void
 main1 (argc, argv)
-Reg3 int argc;
-Reg2 char *argv[];
+int argc;
+char *argv[];
 {
+    extern void key_resize ();
+    extern void history_init ();
     char    ichar;      /* must be a char and can't be a register */
 
+    history_init ();
 #ifdef VBSTDIO
     setbuf (stdout, (char *) _sobuf);
 #endif
@@ -325,6 +333,15 @@ Reg2 char *argv[];
     (void) getcwd (default_workingdirectory, sizeof (default_workingdirectory));
 
     checkargs ();
+
+    if ( dump_state_file ) {
+	if ( state ) {
+	    getstate (ALL_WINDOWS, YES);
+	    getout (YES, "");
+	} else {
+	    getout (YES, "You must use -state=<state_file_name> to dump it");
+	}
+    }
 
     if (dbgflg && (dbgfile = fopen (dbgname, "w")) == NULL)
 	getout (YES, "Can't open debug file: %s", dbgname);
@@ -343,7 +360,7 @@ Reg2 char *argv[];
 	exit_now (-1);
     }
 
-    if (replaying) Block {
+    if (replaying) {
 	short tmp;      /* must be a short, can't be a register */
 	short replterm; /* must be a short, can't be a register */
 	struct stat statbuf;
@@ -384,37 +401,38 @@ Replay file \"%s\" was made by a different type of terminal.", inpfname);
 	    VBell = YES;
 	}
 #endif
-    getstate (ichar);
+
+    getstate (ichar, NO);
+    infoinit ();
+
     putshort (revision, keyfile);
     putc (ichar, keyfile);          /* for next time */
     putshort ((short) termtype, keyfile);
+    key_resize ();  /* dump current screen size in keyfile */
 
-    infoinit ();
-
-    if (!replaying && curarg < argc && *argv[curarg] != '\0') Block {
-	extern void keyedit ();
-	Block {
-	    Reg1 char *cp;
-	    extern char *getenv ();
-	    if (   (cp = getenv ("editalt"))
-		|| (   curarg + 1 < argc
-		    && *(cp = argv[curarg + 1]) != '\0'
-		   )
-	       ) {
-		editfile (cp, (Ncols) 0, 0, 0, NO);
-		keyedit (cp);
-		/* do this so that editfile won't be cute about suppressing
-		 * a putup on a file that is the same as the altfile
-		 **/
-		curfile = NULLFILE;
-	    }
+    if (!replaying && curarg < argc && *argv[curarg] != '\0') {
+	char *cp;
+	if (   (cp = getenv ("editalt"))
+	    || (   curarg + 1 < argc
+		&& *(cp = argv[curarg + 1]) != '\0'
+	       )
+	   ) {
+	    editfile (cp, (Ncols) 0, 0, 0, NO);
+	    keyedit (cp);
+	    /* do this so that editfile won't be cute about suppressing
+	     * a putup on a file that is the same as the altfile
+	     */
+	    curfile = NULLFILE;
 	}
 	if (editfile (argv[curarg], (Ncols) 0, 0, 1, YES) <= 0)
 	    eddeffile (YES);
 	keyedit (argv[curarg]);
     }
-    else if (!replaying || ichar != NO_WINDOWS)
+    else if (!replaying || ichar != NO_WINDOWS) {
+	extern void resize_screen ();
+	resize_screen ();   /* set up the actual size */
 	putupwin ();
+    }
     return;
 }
 
@@ -429,7 +447,7 @@ static void
 keyedit (file)
 char *file;
 {
-    Reg1 char *cp;
+    char *cp;
 
     cp = append ("edit ", file);
     writekeys (CCCMD, cp, CCRETURN);
@@ -448,10 +466,10 @@ void
 getprogname (arg0)
 char arg0[];
 {
-    Reg1 char *cp;
-    Reg2 Char lastc;
+    char *cp;
+    Char lastc;
 
-    lastc = Z;
+    lastc = 0;
     progname = cp = arg0;
     for (; *cp; cp++) {
 	if (lastc == '/')
@@ -476,7 +494,7 @@ void
 checkargs ()
 {
     optusedflg = dbgflg = NO;
-    for (curarg = 1; curarg < numargs; curarg++) Block {
+    for (curarg = 1; curarg < numargs; curarg++) {
 	char *cp;
 	Flag opteqflg;
 	Short tmp;
@@ -621,6 +639,11 @@ checkargs ()
 
 	case OPTVERSION:
 	    getout (YES, "");
+	    break;
+
+	case OPTDUMPESF:
+	    dump_state_file = YES;
+	    break;
 
 	default:
 	unrecog:
@@ -925,6 +948,39 @@ static void get_dirpackage ()
     }
 }
 
+/* Set up utility windows.
+ * They have no margins, and they are not on winlist.
+ */
+void utility_setupwindow ()
+{
+
+    /* wholescreen window.  general utility */
+    setupwindow (&wholescreen, 0, 0,
+		 term.tt_width - 1, term.tt_height - 1, 0, NO);
+
+    /* parameter entry window */
+    setupwindow (&enterwin, 0,
+		 term.tt_height -NENTERLINES - NINFOLINES,
+		 term.tt_width - 1,
+		 term.tt_height - 1 - NINFOLINES, 0, NO);
+    enterwin.redit = term.tt_width - 1;
+
+    /* info display window. */
+    setupwindow (&infowin, 0,
+		 term.tt_height - NINFOLINES,
+		 term.tt_width - 1,
+		 term.tt_height - 1, 0, NO);
+}
+
+/* Set up editing window (full screen, must be normaly window [0]) */
+void edit_setupwindow (win, flgs)
+S_window *win;  /* editing window */
+AFlag flgs;     /* value of winflgs */
+{
+    setupwindow (win, 0, 0,
+		 term.tt_width - 1, term.tt_height - 1 - NPARAMLINES, flgs, 1);
+}
+
 #ifdef COMMENT
 void
 startup ()
@@ -935,6 +991,7 @@ void
 startup ()
 {
     extern Flag get_keyboard_map ();
+    extern char *TI, *KS, *VS;
     char  *name;
 
     /* ++XXXXXXXXXXXXXXXXXXXXXXXXXXXXX */
@@ -998,7 +1055,7 @@ startup ()
 
     /* --XXXXXXXXXXXXXXXXXXXXXXXXXXXXX */
 
-    Block {
+    {
 	Short i;
 	for (i=0; i<MAXFILES ; i++) {
 		names[i] = "";
@@ -1009,8 +1066,10 @@ startup ()
      }
 
 #ifdef  SIGNALS
-    Block {
-	Reg1 Short  i;
+    {
+	extern void sig_resize (int);
+
+	Short  i;
 	for (i = 1; i <= NSIG; ++i)
 	    switch (i) {
 	    case SIGINT:
@@ -1033,6 +1092,7 @@ startup ()
 #endif
 #ifdef SIGWINCH /* cannot handle window size change (yet?) */
 	    case SIGWINCH:
+		(void) signal (i, sig_resize);
 #endif
 		/* leave at SIG_DFL */
 		break;
@@ -1045,7 +1105,7 @@ startup ()
 #endif  /* SIGNALS */
 
 #ifdef PROFILE
-    Block {
+    {
 	extern Flag profiling;
 	/* sample only 1/8 of all editor runs */
 	if (strttime & 7)
@@ -1063,29 +1123,27 @@ startup ()
     /* stty on input to CBREAK or RAW and ~ECHO ASAP to allow typeahead */
     setitty ();
 
-    Block {
+    {
 	extern time_t time ();
 	time (&strttime);
+    }
+
+    /* XXXXXXXXXXXXXX : do not open files in -help option */
+    if (helpflg) {
+	Xterm_flg = get_keyboard_map (tname, 4, TI, KS, VS, kbinistr);
+	return;
     }
 
     /* stty on output for ~CRMOD and ~XTABS */
     setotty ();
 
-    /* XXXXXXXXXXXXXX : do not open files in -help option */
-    if (helpflg) {
-	extern char *TI, *KS, *VS;
-	Xterm_flg = get_keyboard_map (tname, 4, TI, KS, VS, kbinistr);
-	return;
-    }
-
     /* initialize terminal.  must be done before "starting..." message */
     /* so keys are initialized. */
     if (!silent) {
-	extern char *TI, *KS, *VS;
 	d_put (VCCICL);
 	windowsup = YES;
-	Xterm_flg = get_keyboard_map (tname, 4, TI, KS, VS, kbinistr);
     }
+    Xterm_flg = get_keyboard_map (tname, 4, TI, KS, VS, kbinistr);
     if (loginflg)
 	printf ("%s is starting...", progname);
 #ifdef  DEBUGDEF
@@ -1103,16 +1161,13 @@ startup ()
 	setbuf (stdout, (char *) _sobuf);
 #endif
 
-    blanks = salloc (term.tt_width+1, YES);
-    fill (blanks, (Uint) term.tt_width, ' ');
-
 #ifdef NMN
-    Block {
-	Reg1 Short  i;
+    {
+	Short  i;
 	static Ff_buf ffbufhdrs[NUMFFBUFS];
 	static char ffbufs[NUMFFBUFS * FF_BSIZE];
 
-	for (i = Z; i < NUMFFBUFS; i++) {
+	for (i = 0; i < NUMFFBUFS; i++) {
 	    ffbufhdrs[i].fb_buf = &ffbufs[i * FF_BSIZE];
 	    ff_use ((char *)&ffbufhdrs[i], 0);
 	}
@@ -1131,7 +1186,7 @@ startup ()
     cline = salloc ((lcline = icline) + 1, YES);
 
     /* build the names of the working files */
-    Block {
+    {
 	struct stat statbuf;
 
 	/* check current directory */
@@ -1160,8 +1215,8 @@ startup ()
 #else
     la_nbufs = 10;
 #endif
-    Block {
-	Reg1 char *c;
+    {
+	char *c;
 	c = append (tmpnstr, name);
 	la_cfile = append (tmppath, c);
 	sfree (c);
@@ -1169,16 +1224,16 @@ startup ()
 	rfile = append (tmppath, c);
 	sfree (c);
     }
-    Block {
-	Reg1 Short indv;
+    {
+	Short indv;
 	indv = strlen (tmppath) + VRSCHAR;
 	for (evrsn = '1'; ; evrsn++) {
 	    if (evrsn > '9')
 		getout (NO, "\n%s: No free temp file names left\n", progname);
 	    la_cfile[indv] = evrsn;
 	    rfile[indv] = evrsn;
-	    Block {
-		Reg3 int i;
+	    {
+		int i;
 		if ((i = open (la_cfile, 0)) >= 0) {
 		    /* Should use exclusive open here, but we don't have it */
 		    /* exclusive => exists and no one has it exclusively open */
@@ -1207,8 +1262,8 @@ startup ()
 
     /* make the rest of the file names */
     bkeystr[VRSCHAR] = keystr[VRSCHAR] = evrsn;
-    Block {
-	Reg1 char *c;
+    {
+	char *c;
 	c = append (keystr, name);
 	keytmp  = append (tmppath, c);
 	sfree (c);
@@ -1218,7 +1273,7 @@ startup ()
     }
     sfree (name);
 
-    Block {
+    {
 	struct stat statbuf;
 	if (!crashed && stat (keytmp, &statbuf) != -1)
 	    dorecov (1);
@@ -1232,35 +1287,10 @@ startup ()
 	getout (YES, "Can't create keystroke file (%s).", keytmp);
     chmod (keytmp, 0600);
 
-    /* Set up utility windows.
-     * They have no margins, and they are not on winlist.
-     **/
-    /* wholescreen window.  general utility */
-    setupwindow (&wholescreen, 0, 0,
-#ifdef LMCSTATE
-		 term.tt_width - 1, term.tt_height - 1, 0, NO);
-#else
-		 term.tt_width - 1, term.tt_height - 1, NO);
-#endif
-    /* parameter entry window */
-    setupwindow (&enterwin, 0,
-		 term.tt_height - NENTERLINES - NINFOLINES,
-		 term.tt_width - 1,
-#ifdef LMCSTATE
-		 term.tt_height - 1 - NINFOLINES, 0, NO);
-#else
-		 term.tt_height - 1 - NINFOLINES, NO);
-#endif
-    enterwin.redit = term.tt_width - 1;
-    /* info display window. */
-    setupwindow (&infowin, 0,
-		 term.tt_height - NINFOLINES,
-		 term.tt_width - 1,
-#ifdef LMCSTATE
-		 term.tt_height - 1, 0, NO);
-#else
-		 term.tt_height - 1, NO);
-#endif
+    memset (&wholescreen, 0, sizeof (S_window));
+    memset (&enterwin, 0, sizeof (S_window));
+    memset (&infowin, 0, sizeof (S_window));
+    utility_setupwindow ();
 
     curwin = &wholescreen;
     return;
@@ -1308,9 +1338,11 @@ Flag full_flg;    /* ful dispaly */
     extern char * filestatusString ();
     extern char kbmap_fn[];
     extern char verstr[];
-    static void display_bigbuf ();
+    extern char * la_max_size ();
+
+    static int display_bigbuf ();
     char *tmpstrg;
-    int i, nbli;
+    int i, nbli, ctrlc;
     char bigbuf [4096]; /* must be large enough for the message */
     char strg [256];
 
@@ -1322,7 +1354,9 @@ Flag full_flg;    /* ful dispaly */
     if (windowsup) screenexit (YES);
     ------- */
 
-    fputc ('\n', stdout);
+    if ( verbose_helpflg ) printf ("\
+----------------------------------------------------------------------------\n");
+    else fputc ('\n', stdout);
     if ( full_flg ) 
 	sprintf (bigbuf + strlen (bigbuf), "\
 Synopsis: %s [options] file [alternate file]\n\
@@ -1333,7 +1367,11 @@ Overall status of the editor parameters\n\
 =======================================\
 \n");
 	sprintf (bigbuf + strlen (bigbuf),
-		 "  %s\n\n", verstr);
+		 "  %s\n", verstr);
+	sprintf (bigbuf + strlen (bigbuf),
+		 "  Built for files with %s\n    and max number of edited files : %d\n\n",
+		 la_max_size (),
+		 (MAXFILES - (FIRSTFILE + NTMPFILES)));
 	if ( optusedflg ) sprintf (bigbuf + strlen (bigbuf),
 			"In use command line program options :\n");
 	else sprintf (bigbuf + strlen (bigbuf),
@@ -1431,6 +1469,10 @@ Overall status of the editor parameters\n\
 	sprintf (bigbuf + strlen (bigbuf), "\
   -version : display the version and revision info\n");
 
+    if ( full_flg )
+	sprintf (bigbuf + strlen (bigbuf), "\
+  -dump_state_file : display the content of the state file defined by -state\n");
+
     if ( optusedflg )
 	sprintf (bigbuf + strlen (bigbuf),
 		 "\"*\" means this option is in effect.\n");
@@ -1452,11 +1494,19 @@ Environment variables known by Rand editor:\n\
     display_env_var (bigbuf, "editalt", NULL);
     bigbuf [strlen (bigbuf)] = '\n';
 
-    display_bigbuf (bigbuf, &nbli, sizeof (bigbuf));
+    ctrlc = display_bigbuf (bigbuf, &nbli, sizeof (bigbuf));
+    if ( ctrlc ) return;
 
-    tmpstrg = termtype ? "" : " (use termcap or terminfo)";
-    sprintf (bigbuf + strlen (bigbuf), "%sTerminal : \"%s\"%s, keyboard : %s (%d)\n",
-	    (Xterm_flg)? "X-" : "", tname, tmpstrg, kname, kbdtype);
+    if ( Xterm_flg ) {
+	extern char *emul_name, *emul_class, *wm_name;
+	extern void xterm_msg ();
+
+	xterm_msg (bigbuf + strlen (bigbuf));
+    } else {
+	tmpstrg = termtype ? "" : " (use termcap or terminfo)";
+	sprintf (bigbuf + strlen (bigbuf), "Terminal : \"%s\"%s, keyboard : %s (%d)\n",
+		 tname, tmpstrg, kname, kbdtype);
+    }
 
     if ( kbfile ) {     /* use termcap or terminfo and key board definition file */
 	extern char * get_keyboard_mode_strg ();
@@ -1565,7 +1615,7 @@ Environment variables known by Rand editor:\n\
 	sprintf (bigbuf + strlen (bigbuf), "Current Editor status, keystroke, changes files :\n  %s\n  %s\n  %s\n",
 		rfile, keytmp, names[CHGFILE]);
     }
-    strcat (bigbuf + strlen (bigbuf), "Edited files :\n");
+    strcat (bigbuf + strlen (bigbuf), "Edited files (use 'help ?file' for details on status value) :\n");
     for ( i = FIRSTFILE + NTMPFILES ; i < MAXFILES ; i++) {
 	char *fname;
 	if ( !(fileflags[i] & INUSE) ) continue;
@@ -1598,7 +1648,7 @@ Environment variables known by Rand editor:\n\
 	sprintf (bigbuf + strlen (bigbuf), "Current value of SET command paramters (use 'help set' command for details) \n%s\n\n", buf);
     }
 
-    display_bigbuf (bigbuf, &nbli, sizeof (bigbuf));
+    ctrlc = display_bigbuf (bigbuf, &nbli, sizeof (bigbuf));
     return;
 }
 
@@ -1615,13 +1665,14 @@ static void check_message_file (char *fname, char *buf)
 	     fn, strg);
 }
 
-static void display_bigbuf (char *buf, int *nbli, int bufsz)
+static int display_bigbuf (char *buf, int *nbli, int bufsz)
 {
-    int nb, dispsz;
+    int nb, dispsz, ctrlc;
     char ch, *sp0, *sp1;
 
+    ctrlc = NO;
     dispsz = term.tt_height;
-    if ( verbose_helpflg  ) dispsz = 100000;     /* very very large : do not hold the screen */
+    if ( verbose_helpflg ) dispsz = 100000;     /* very very large : do not hold the screen */
     for ( sp0 = sp1 = buf ; (ch = *sp1) ; sp1++ ) {
 	if ( ch != '\n' ) continue;
 	(*nbli)++;
@@ -1631,15 +1682,21 @@ static void display_bigbuf (char *buf, int *nbli, int bufsz)
 	fputc ('\n', stdout);
 	fputc ('\n', stdout);
 	sp0 = sp1 +1;
-	wait_keyboard ("Push a key to continue");
+	ctrlc = wait_keyboard ("Push a key to continue, <Ctrl C> to exit", NULL);
 	fputs ("                                         \r", stdout);
 	*nbli = 2;  /* overlap size */
 	(*term.tt_addr) (dispsz -2, 0);
+	if ( ctrlc && !verbose_helpflg ) {
+	    *sp0 = '\0';
+	    break;
+	}
     }
     if ( *sp0 ) fputs (sp0, stdout);
     if ( dbgflg )
 	printf ("-- debug -- message size %d, nb of lines %d\n", strlen (buf), *nbli);
     memset (buf, 0, bufsz);
+    if ( verbose_helpflg ) ctrlc = NO;
+    return ctrlc;
 }
 
 #ifdef COMMENT
@@ -1651,7 +1708,7 @@ showhelp ()
 void
 showhelp ()
 {
-    extern void print_it_escp ();
+    extern int print_it_escp ();
     extern void print_all_ccmd ();
     extern void display_keymap ();
 
@@ -1662,10 +1719,11 @@ showhelp ()
     do_showhelp (YES);
     if ( verbose_helpflg ) {
 	extern int help_info (char *, int *);
-	print_it_escp ();   /* print the it table tree (escape seq to ccmd) */
-	print_all_ccmd ();  /* print ccmd assignement (escape seq) */
-	display_keymap (verbose_helpflg);
-	(void) help_info ("Linux_key_mapping", NULL);
+	if ( print_it_escp () >= 0 ) {  /* print the it table tree (escape seq to ccmd) */
+	    print_all_ccmd ();  /* print ccmd assignement (escape seq) */
+	    display_keymap (verbose_helpflg);
+	    (void) help_info ("Linux_key_mapping", NULL);
+	}
     }
     reset_crlf (oflag);
 }
@@ -1697,7 +1755,7 @@ dorecov (type)
 #endif
 void
 dorecov (type)
-Reg3 int type;
+int type;
 {
     /* XXXXXXXXXXXXXXXXXXXXXXX */
     if (helpflg)
@@ -1706,9 +1764,9 @@ Reg3 int type;
 	return;
     fixtty ();
     printf("\n"); fflush(stdout);
-    for (;;) Block {
+    for (;;) {
 	char line[132];
-	Block {
+	{
 	    int tmp;
 	    /* XXXXXXXXXXXXXXXXX */
 	    tmp = dup (1);      /* so that filecopy can close it */
@@ -1902,7 +1960,7 @@ gettermtype ()
 	&& !(tname = getenv ("TERM"))
        )
 	getout (YES, "No TERM environment variable or -terminal argument");
-    Block {
+    {
 	int ind;
 	if ((ind = lookup (tname, termnames)) >= 0) {
 	    kbdtype = termnames[ind].val; /* assume same as term for now */
@@ -1947,7 +2005,7 @@ gettermtype ()
     else if ( (kname = optkname) ) kbfcase = "\"-keyboard\" option";
     else if ( (kname = getenv ("EKBD")) ) kbfcase = "EKBD variable";
     if ( kname ) {
-	Reg1 int ind;
+	int ind;
 	if (   (ind = lookup (kname, termnames)) >= 0
 	    && tkbd[termnames[ind].val] /* we have compiled-in code for it */
 	   )
@@ -1997,8 +2055,8 @@ gettermtype ()
     /* initialize the keyboard */
     (*kbd.kb_init) ();
 
-    Block {
-	Reg1 int tmp;
+    {
+	int tmp;
 	tmp = term.tt_naddr;
 	tt_lt2 = term.tt_nleft  && 2 * term.tt_nleft  < tmp;
 	tt_lt3 = term.tt_nleft  && 3 * term.tt_nleft  < tmp;
@@ -2055,7 +2113,7 @@ setitty ()
 
 #ifdef  CBREAK
 #ifdef  TIOCGETC
-    if (cbreakflg) Block {
+    if (cbreakflg) {
 	static struct tchars tchars = {
 	    0xff,       /* char t_intrc;    * interrupt */
 	    0xff,       /* char t_quitc;    * quit */
@@ -2074,7 +2132,7 @@ setitty ()
 #endif
 
 #ifdef  TIOCGLTC
-    if (cbreakflg) Block {
+    if (cbreakflg) {
 	static struct ltchars ltchars = {
 	    0xff,       /* char t_suspc;    * stop process signal */
 	    0xff,       /* char t_dsuspc;   * delayed stop process signal */
@@ -2093,8 +2151,8 @@ setitty ()
 #endif
 #endif  /* CBREAK */
 
-    Block {
-	Reg1 int tmpflags;
+    {
+	int tmpflags;
 	tmpflags = instty.sg_flags;
 #ifdef  CBREAK
 	if (cbreakflg)
@@ -2127,8 +2185,8 @@ setotty ()
     if (ioctl (STDOUT, TIOCGETP, &outstty) < 0)
 #endif /* SYSIII */
 	fast = YES;
-    else Block {
-	Reg1 int i;
+    else {
+	int i;
 #ifdef MESG_NO
 	struct stat statbuf;
 #endif /* MESG_NO */
@@ -2248,10 +2306,193 @@ makescrfile ()
     return;
 }
 
+static char * state_file_name = NULL;
+
+static void badstart (FILE * gbuf)
+{
+    fclose (gbuf);
+    getout (YES, "Bad state file: \"%s\"\nDelete it and try again.",
+	    state_file_name);
+}
+
+
+/* Extract the specification for one window from the state file and act.
+ *    It is called with only ALL_WINDOWS, or NO_WINDOWS
+ *    If dump_state (display the content of the state file) nothing is build
+ */
+static void one_window_state (Char ichar, Flag dump_state,
+			      FILE *gbuf, Small win_idx, Small curwin_idx)
+{
+    Flag build_flg;
+    char chr;
+    Small sml;
+    char strg [PATH_MAX];
+    fpos_t lnb;
+    Small gf;
+    S_window *window;
+    Scols   lmarg;
+    Scols   rmarg;
+    Slines  tmarg;
+    Slines  bmarg;
+#ifdef LMCV19
+    AFlag   winflgs;
+#endif
+    Small nletters;
+    char *fname;
+    Nlines  lin;
+    Ncols   col;
+    Slines tmplin;
+    Scols tmpcol;
+    Small cc;
+
+    build_flg = NO;     /* default : do not build the window */
+    if ( ! dump_state ) {
+	build_flg = (ichar == ALL_WINDOWS)
+		    || ((ichar == ONE_WINDOW) && (win_idx == curwin_idx))
+		    || ((ichar == ONE_FILE) && (win_idx == curwin_idx));
+    }
+
+    if ( dump_state ) {
+	(void) fgetpos (gbuf, &lnb);
+	printf ("Window idx %d (at state file position %06o) :%s\n", win_idx, lnb,
+		(win_idx == curwin_idx) ? " (current active window)" : "");
+    }
+
+    chr = getc (gbuf);
+    if ( dump_state ) printf ("  prevwin %d\n", chr);
+    else if ( build_flg ) {
+	window = winlist[win_idx] = (S_window *) salloc (SWINDOW, YES);
+	window->prevwin = (ichar == ALL_WINDOWS) ? chr : 0;
+    }
+
+    tmarg = getc (gbuf);
+    lmarg = getshort (gbuf);
+    bmarg = getc (gbuf);
+    rmarg = getshort (gbuf);
+#ifdef LMCV19
+    winflgs = getc (gbuf);
+    if ( dump_state ) printf ("  tmarg %d, lmarg %d, bmarg %d, rmarg %d, winflgs %d\n",
+			      tmarg, lmarg, bmarg, rmarg, winflgs);
+#endif
+    if ( ichar != ALL_WINDOWS ) {
+	tmarg = 0;
+	lmarg = 0;
+	bmarg = term.tt_height - 1 - NPARAMLINES;
+	rmarg = term.tt_width - 1;
+#ifdef LMCSTATE
+	winflgs = 0;
+#endif
+    }
+
+    defplline = getshort (gbuf);
+    defmiline = getshort (gbuf);
+    defplpage = getshort (gbuf);
+    defmipage = getshort (gbuf);
+    deflwin = getshort (gbuf);
+    defrwin = getshort (gbuf);
+
+    if ( build_flg ) {
+	setupwindow (window, lmarg, tmarg, rmarg, bmarg, winflgs, 1);
+	if ( win_idx != curwin_idx ) drawborders (window, WIN_INACTIVE);
+	switchwindow (window);
+    }
+    gf = 0;
+
+    /* alternated edited file */
+    nletters = getshort (gbuf);
+    (void) fgetpos (gbuf, &lnb);
+    if ( dump_state )
+	printf ("  size of alternate file name %d at file pos %06o\n",
+		nletters, lnb);
+    if ( nletters ) {
+	/* there is an alternate file */
+	if ( feoferr (gbuf) ) badstart (gbuf);
+
+	fname = ( build_flg ) ? salloc (nletters, YES) : strg;
+	fread (fname, 1, nletters, gbuf);
+	if ( dump_state ) {
+	    fname [nletters -1] = '\0';
+	    if ( !nletters || !fname [0] ) printf ("    no alternate file\n");
+	    else printf ("    alternate file \"%s\"\n", fname);
+	}
+
+	lin = getlong  (gbuf);
+	col = getshort (gbuf);
+	tmplin = getc (gbuf);
+	tmpcol = getshort (gbuf);
+	if ( dump_state )
+	    printf ("    lin %d, col %d, tmplin %d, tmpcol %d\n",
+		    lin, col, tmplin, tmpcol);
+	if ( build_flg ) {
+	    if ( ichar != ONE_FILE ) {
+		cc = editfile (fname, col, lin, 0, NO);
+		if ( cc == 1 ) gf = 1;
+		/* this sets them up to get copied into curwksp->ccol & clin */
+		poscursor (curwksp->ccol = tmpcol, curwksp->clin = tmplin);
+	    }
+	    else poscursor (0, 0);
+	}
+
+	/*  do this so that editfile won't be cute about
+	 *  suppressing a putup on a file that is the same
+	 *  as the altfile
+	 */
+	curfile = NULLFILE;
+    }
+
+    /* main edited file */
+    nletters = getshort (gbuf);
+    (void) fgetpos (gbuf, &lnb);
+    if ( dump_state )
+	printf ("  size of file name %d at file pos %06o\n",
+		nletters, lnb);
+    if ( feoferr (gbuf) ) badstart (gbuf);
+
+    fname = ( build_flg ) ? salloc (nletters, YES) : strg;
+    fread (fname, 1, nletters, gbuf);
+    if ( dump_state ) {
+	fname [nletters -1] = '\0';
+	if ( !nletters || !fname [0] ) printf ("    no file\n");
+	else printf ("    file \"%s\"\n", fname);
+    }
+
+    lin = getlong  (gbuf);
+    col = getshort (gbuf);
+    tmplin = getc (gbuf);
+    tmpcol = getshort (gbuf);
+    if ( dump_state )
+	printf ("    lin %d, col %d, tmplin %d, tmpcol %d\n",
+		lin, col, tmplin, tmpcol);
+    if ( feoferr (gbuf) ) badstart (gbuf);
+
+    if ( win_idx != curwin_idx ) chgborders = 2;
+
+    if ( build_flg ) {
+	cc = editfile (fname, col, lin, 0, win_idx == curwin_idx ? NO : YES);
+	if ( cc == 1) {
+	    gf = 2;
+	    poscursor (curwksp->ccol = tmpcol, curwksp->clin = tmplin);
+	}
+	chgborders = 1;
+
+	if ( gf < 2 ) {
+	    if ( win_idx != curwin_idx ) chgborders = 2;
+	    if ( gf == 0 ) {
+		eddeffile (win_idx == curwin_idx ? NO : YES);
+		curwksp->ccol = curwksp->clin = 0;
+	    }
+	    else if ( win_idx != curwin_idx ) putupwin ();
+	    chgborders = 1;
+	}
+    }
+}
+
+
 #ifdef COMMENT
 void
-getstate (ichar)
+getstate (ichar, dump_state)
     Char ichar;
+    Flag dump_state;
 .
     /*
     Set up things as per the state file.
@@ -2264,292 +2505,211 @@ getstate (ichar)
     */
 #endif
 void
-getstate (ichar)
+getstate (ichar, dump_state)
 Char ichar;
+Flag dump_state;
 {
-    Small winnum;
-    Reg1 FILE *gbuf;
-#ifdef LMCSTATE
-    char *x;
+    extern void new_image ();
+    extern void history_reload (FILE *stfile, Flag dump_state);
 
-    x = state ? statefile : rfile;
-#endif
-    if (   ichar == NO_WINDOWS
-	|| notracks
+    Slines nlin;
+    Scols ncol;
+    Short i, widx;
+    Small nletters;
+    Small winnum;
+    FILE *gbuf;
 #ifdef LMCSTATE
-	|| (gbuf = fopen (x, "r")) == NULL
-#else
-	|| (gbuf = fopen (rfile, "r")) == NULL
+    char *ich, dchr;
+    char strg [128];
 #endif
-       ) {
-	makestate (gbuf == NULL);
+    long sttime;
+
+    gbuf = NULL;
+#ifdef LMCSTATE
+    state_file_name = state ? statefile : rfile;
+#else
+    state_file_name = rfile;
+#endif
+
+    if ( dump_state ) {
+	switch (ichar) {
+	case NO_WINDOWS :
+	    ich = "NO_WINDOWS";
+	    break;
+	case ALL_WINDOWS :
+	    ich = "ALL_WINDOWS";
+	    break;
+	case ONE_WINDOW :
+	    ich = "ONE_WINDOW";
+	    break;
+	case ONE_FILE :
+	    ich = "ONE_FILE";
+	    break;
+	}
+	printf ("\nDump of state file \"%s\" for %s\n", state_file_name, ich);
+    }
+
+    if ( ! dump_state ) {
+	if ( (ichar == NO_WINDOWS) || notracks ) {
+	    /* do not read state file, do not edit scratch file */
+	    makestate (NO);
+	    return;
+	}
+    }
+
+    gbuf = fopen (state_file_name, "r");
+    if ( ! gbuf ) {
+	/* state file cannot be opened (non existing, ...) */
+	if ( ! dump_state )  getout (YES, "  state file cannot be opened");
+	else makestate (gbuf == NULL);
 	return;
     }
 
-    Block {
-	Reg2 Short i;
-	if ( (i = getshort (gbuf)) != revision) {
-	    if (i >= 0 || feoferr (gbuf))
-		goto badstart;
+    /* Rand revision */
+    i = getshort (gbuf);
+    if ( dump_state )
+	printf ("Revision %d, Rand editor revision %d\n", -i, -revision);
+    else {
+	if ( i != revision ) {
+	    if (i >= 0 || feoferr (gbuf)) badstart (gbuf);
+
 	    if (i != -1)            /* always accept -1 */
 		getout (YES,
-			"Startup file: \"%s\" was made by revision %d of %s.\n\
-Delete it or give a filename after the %s command.",
+"Startup file: \"%s\" was made by revision %d of %s.\n\
+   Delete it or give a filename after the %s command.",
 			rfile, -i, progname, progname);
 	}
     }
 
     /* terminal type */
-    Block {
-	Reg2 Small nletters;
-	nletters = getshort (gbuf);
-	if (feoferr (gbuf))
-	    goto badstart;
-	getskip (nletters, gbuf);
-    }
+    nletters = getshort (gbuf);
+    if (feoferr (gbuf)) badstart (gbuf);
 
-    Block {
-	Reg2 Slines nlin;
-	Reg3 Scols ncol;
-	nlin = getc (gbuf) & 0377;
-	ncol = getc (gbuf) & 0377;
-	if (   nlin != term.tt_height
-	    || ncol != term.tt_width
-	   )
-	    getout (YES, "\
+    if ( dump_state ) {
+	printf ("nb of char in terminal name %d\n", nletters);
+	fread (strg, 1, nletters, gbuf);
+	printf ("terminal name \"%s\"\n", strg);
+    } else getskip (nletters, gbuf);
+
+    nlin = getc (gbuf) & 0377;
+    ncol = getc (gbuf) & 0377;
+    if ( nlin != term.tt_height || ncol != term.tt_width ) {
+	extern void set_tt_size (S_term *, int, int);
+	set_tt_size (&term, ncol, nlin);
+    }
+    if ( dump_state ) printf ("screen size column %d, line %d\n", ncol, nlin);
+    else new_image ();
+
+#if 0
+    /* old fashion, when resizing was not available */
+
+	getout (YES, "\
 Startup file: \"%s\" was made for a terminal with a different screen size. \n\
 (%d x %d).  Delete it or give a filename after the %s command.",
-		    rfile, nlin, ncol, progname);
+		rfile, nlin, ncol, progname);
+#endif
+
+    sttime = getlong (gbuf);
+    if ( dump_state ) {
+	char *asct;
+	asct = asctime (localtime (&sttime));
+	asct [strlen(asct) -1] = '\0';
+	printf ("edit session time : \"%s\"\n\n", asct);
     }
 
-    /* sttime     = */ getlong (gbuf);
+    ntabs = getshort (gbuf);
+    if ( dump_state ) printf ("ntabs %d\n", ntabs);
+    if ( ntabs ) {
+	int ind;
 
-    if (ntabs = getshort (gbuf)) Block {
-	Reg2 int ind;
-	if (feoferr (gbuf))
-	    goto badstart;
+	if (feoferr (gbuf)) badstart (gbuf);
+
 	stabs = max (ntabs, NTABS);
 	tabs = (ANcols *) salloc (stabs * sizeof *tabs, YES);
-	for (ind = 0; ind < ntabs; ind++)
+	for (ind = 0; ind < ntabs; ind++) {
 	    tabs[ind] = (ANcols) getshort (gbuf);
-	if (feoferr (gbuf))
-	    goto badstart;
+	    if ( dump_state ) {
+		printf ("tabs[%2d] %3d, ", ind, tabs[ind]);
+		if ( ((ind+1) % 5) == 0 ) printf ("\n");
+	    }
+	}
+	if (feoferr (gbuf)) badstart (gbuf);
+
+	if ( dump_state ) printf ("\n");
     }
 
     linewidth = getshort (gbuf);
+    if ( dump_state ) printf ("linewidth %d\n", linewidth);
 
-    Block {
-	Reg2 Short i;
-	if (i = getshort (gbuf)) {
-	    if (feoferr (gbuf))
-		goto badstart;
-	    searchkey = salloc (i, YES);
-	    fread (searchkey, 1, i, gbuf);
-	    if (feoferr (gbuf))
-		goto badstart;
-	}
+    if (i = getshort (gbuf)) {
+	if (feoferr (gbuf))  badstart (gbuf);
+
+	searchkey = salloc (i, YES);
+	fread (searchkey, 1, i, gbuf);
+	if (feoferr (gbuf)) badstart (gbuf);
+
+    }
+    if ( dump_state ) {
+	printf ("size of searchkey string %d\n", i);
+	if ( i ) printf ("  searchkey : \"%s\"\n", searchkey);
     }
 
     insmode = getc (gbuf);
+    if ( dump_state ) printf ("insmode %d\n", insmode);
 
-    if (getc(gbuf) || patmode)	patmode	= YES;	/* Added Purdue	CS 10/8/82 MAB */
+    dchr = getc (gbuf);
+    if ( dump_state ) printf ("patmode %d\n", dchr);
+    if ( dchr || patmode )  patmode = YES;  /* Added Purdue CS 10/8/82 MAB */
 
-    if (getc (gbuf)) {  /* curmark */
-	getskip (sizeof (long)
-		 + sizeof (short)
-		 + sizeof (char)
-		 + sizeof (short),
-		 gbuf);
+    dchr = getc (gbuf);
+    if ( dump_state ) printf ("curmark %d\n", dchr);
+    if (dchr) {  /* curmark */
+	int sz;
+	sz = sizeof (long)
+	     + sizeof (short)
+	     + sizeof (char)
+	     + sizeof (short);
+	getskip (sz, gbuf);
+	if ( dump_state ) printf ("skip %d char\n", sz);
     }
 
 #ifdef LMCV19
 #ifdef LMCAUTO
     autofill = getc (gbuf);
+    if ( dump_state ) printf ("autofill %d\n", autofill);
     autolmarg = getshort (gbuf);
-    info (inf_auto, 2, autofill ? "WP" : "  ");
+    if ( dump_state ) printf ("autolmarg %d\n", autolmarg);
+    if ( !dump_state ) info (inf_auto, 2, autofill ? "WP" : "  ");
 #else
     (void) getc (gbuf);
     (void) getshort (gbuf);
+    if ( dump_state ) printf ("skip 1 char and 1 short\n");
 #endif
 #endif
 
     nwinlist = getc (gbuf);
-    if (ferror(gbuf) || nwinlist > MAXWINLIST)
-	goto badstart;
+    if ( dump_state ) printf ("nwinlist %d\n", nwinlist);
+    if ( ferror(gbuf) || nwinlist > MAXWINLIST ) badstart (gbuf);
+
     winnum = getc (gbuf);
-    if (ichar != ALL_WINDOWS) Block {
-	Reg3 Short  n;
-	/* skip over windows until we get to the right window */
-	for (n = Z; n < winnum; n++) {
-	    getskip (sizeof (char)
-		     + sizeof (char)
-		     + sizeof (short)
-		     + sizeof (char)
-		     + sizeof (short)
-#ifdef LMCV19
-		     + sizeof (char)
-#endif
-		     , gbuf);
-	    Block {
-		Reg2 Short i;
-		if (i = getshort (gbuf)) {
-		    getskip (i, gbuf);
-		    getskip (sizeof (long)
-			     + sizeof (short)
-			     + sizeof (char)
-			     + sizeof (short),
-			     gbuf);
-		}
-	    }
-	    getskip (getshort (gbuf), gbuf);
-	    getskip (sizeof (long)
-		     + sizeof (short)
-		     + sizeof (char)
-		     + sizeof (short),
-		     gbuf);
-	    if (feoferr (gbuf))
-		goto badstart;
-	}
-	winnum = 0;
-	nwinlist = 1;
+    if ( dump_state ) printf ("curwin idx (winnum) %d\n", winnum);
+    if ( winnum < 0 ) winnum = 0;
+    if ( winnum >= nwinlist ) winnum = nwinlist -1;
+
+    /* set up window */
+    for ( widx = 0 ; widx < nwinlist ; widx++ ) {
+	one_window_state (ichar, dump_state, gbuf, widx, winnum);
     }
 
-    /* set up the windows */
-    Block {
-	Reg7 Small n;
-	for (n = Z; n < nwinlist; n++) Block {
-	    Reg6 Small gf;
-	    Reg5 S_window *window;
-	    window = winlist[n] = (S_window *) salloc (SWINDOW, YES);
-	    window->prevwin = getc (gbuf);
-	    if (ichar != ALL_WINDOWS)
-		window->prevwin = 0;
-	    Block {
-		Reg2 Scols   lmarg;
-		Reg3 Scols   rmarg;
-		Reg4 Slines  tmarg;
-		Slines  bmarg;
-#ifdef LMCV19
-		AFlag   winflgs;
-#endif
+    /* reload the history buffer */
+    history_reload (gbuf, dump_state);
 
-		tmarg = getc (gbuf);
-		lmarg = getshort (gbuf);
-		bmarg = getc (gbuf);
-		rmarg = getshort (gbuf);
-#ifdef LMCV19
-		winflgs = getc (gbuf);
-#endif
-		if (ichar != ALL_WINDOWS) {
-		    tmarg = 0;
-		    lmarg = 0;
-		    bmarg = term.tt_height - 1 - NPARAMLINES;
-		    rmarg = term.tt_width - 1;
-#ifdef LMCSTATE
-		    winflgs = 0;
-#endif
-		}
-		defplline = getshort (gbuf);
-		defmiline = getshort (gbuf);
-		defplpage = getshort (gbuf);
-		defmipage = getshort (gbuf);
-		deflwin = getshort (gbuf);
-		defrwin = getshort (gbuf);
-#ifdef LMCSTATE
-		setupwindow (window, lmarg, tmarg, rmarg, bmarg, winflgs, 1);
-#else
-		setupwindow (window, lmarg, tmarg, rmarg, bmarg, 1);
-#endif
-	    }
-	    if (n != winnum)
-		drawborders (winlist[n], WIN_INACTIVE);
-	    switchwindow (window);
-	    gf = 0;
-	    Block {
-		Reg3 Small nletters;
-		if (nletters = getshort (gbuf)) {   /* there is an alternate file */
-		    char *fname;
-		    if (feoferr (gbuf))
-			goto badstart;
-		    fname = salloc (nletters, YES);
-		    fread (fname, 1, nletters, gbuf);
-		    Block {
-			Reg2 Nlines  lin;
-			Reg4 Ncols   col;
-			Slines tmplin;
-			Scols tmpcol;
-			lin = getlong  (gbuf);
-			col = getshort (gbuf);
-			tmplin = getc (gbuf);
-			tmpcol = getshort (gbuf);
-			if (ichar != ONE_FILE) {
-			    if (editfile (fname, col, lin, 0, NO) == 1)
-				gf = 1;
-			    /* this sets them up to get copied into
-			       curwksp->ccol & clin */
-			    poscursor (curwksp->ccol = tmpcol,
-				       curwksp->clin = tmplin);
-			}
-			else
-			    poscursor (0, 0);
-		    }
-		    /*  do this so that editfile won't be cute about
-		     *  suppressing a putup on a file that is the same
-		     *  as the altfile
-		     **/
-		    curfile = NULLFILE;
-		}
-	    }
-	    Block {
-		Reg4 char *fname;
-		Block {
-		    Reg2 Small nletters;
-		    nletters = getshort (gbuf);
-		    if (feoferr (gbuf))
-			goto badstart;
-		    fname = salloc (nletters, YES);
-		    fread (fname, 1, nletters, gbuf);
-		}
-		Block {
-		    Reg2 Nlines  lin;
-		    Reg3 Ncols   col;
-		    Slines tmplin;
-		    Scols tmpcol;
-		    lin = getlong  (gbuf);
-		    col = getshort (gbuf);
-		    tmplin = getc (gbuf);
-		    tmpcol = getshort (gbuf);
-		    if (feoferr (gbuf))
-			goto badstart;
-		    if (n != winnum)
-			chgborders = 2;
-		    if (editfile (fname, col, lin, 0, n == winnum ? NO : YES)
-			== 1) {
-			gf = 2;
-			poscursor (curwksp->ccol = tmpcol,
-				   curwksp->clin = tmplin);
-		    }
-		    chgborders = 1;
-		}
-	    }
-	    if (gf < 2) {
-		if (n != winnum)
-		    chgborders = 2;
-		if (gf == 0) {
-		    eddeffile (n == winnum ? NO : YES);
-		    curwksp->ccol = curwksp->clin = 0;
-		}
-		else if (n != winnum)
-		    putupwin ();
-		chgborders = 1;
-	    }
-	}
+    if ( dump_state ) {
+	fclose (gbuf);
+	getout (YES, "\nEnd of state file dump\n");
     }
 
-    if ( feoferr (gbuf))
-badstart:
-	getout (YES, "Bad state file: \"%s\"\nDelete it and try again.",
-		 rfile);
+    if ( ferror (gbuf) ) badstart (gbuf);
 
     drawborders (winlist[winnum], WIN_ACTIVE);
     switchwindow (winlist[winnum]);
@@ -2562,15 +2722,15 @@ badstart:
 #ifdef COMMENT
 void
 getskip (num, file)
-    Reg2 int num;
-    Reg1 FILE *file;
+    int num;
+    FILE *file;
 .
     Skip 'num' bytes in 'file'.  'Num' must be > 0.
 #endif
 void
 getskip (num, file)
-Reg1 int num;
-Reg2 FILE *file;
+int num;
+FILE *file;
 {
     do {
 	getc (file);
@@ -2594,7 +2754,7 @@ void
 makestate (nofileflg)
 Flag nofileflg;
 {
-    Reg1 S_window *window;
+    S_window *window;
 
     nwinlist = 1;
     window = winlist[0] = (S_window *) salloc (SWINDOW, YES);
@@ -2603,18 +2763,14 @@ Flag nofileflg;
     tabs = (ANcols *) salloc (stabs * sizeof *tabs,YES);
     ntabs = 0;
 
-    setupwindow (winlist[0], 0, 0,
-#ifdef LMCSTATE
-		 term.tt_width - 1, term.tt_height - 1 - NPARAMLINES, 0, 1);
-#else
-		 term.tt_width - 1, term.tt_height - 1 - NPARAMLINES, 1);
-#endif
+    edit_setupwindow (window, 0);
+
     switchwindow (window);              /* switched this and next line */
     tabevery ((Ncols) default_tabs, (Ncols) 0, (Ncols) (((NTABS / 2) - 1) * default_tabs),
 	      YES);
     drawborders (window, WIN_ACTIVE);
     poscursor (0, 0);
-    if (nofileflg) {
+    if ( nofileflg ) {
 	edscrfile (NO);
 	poscursor (0, 0);
     }
@@ -2631,7 +2787,7 @@ infoint0 ()
 void
 infoint0 ()
 {
-    Reg1 Scols col;
+    Scols col;
 
     inf_insert = 0; col = 7;    /* "INSERT" */
 
@@ -2648,7 +2804,11 @@ infoint0 ()
     inf_area = col; col += 7;   /* "30x16" etc. */
 
     inf_at = col; col += 3;     /* "At"         */
+#ifdef LA_LONGFILES
+    inf_line = col; col += 7;   /* line         */
+#else
     inf_line = col; col += 6;   /* line         */
+#endif
     inf_in = col; col += 3;     /* "in"         */
     inf_file = col;             /* filename     */
 }
@@ -2672,7 +2832,7 @@ infoinit ()
 void
 infoinit ()
 {
-    Reg1 Scols col;
+    Scols col;
 
     inf_insert = 0; col = 8;    /* "INSERT" */
 
@@ -2688,7 +2848,11 @@ infoinit ()
 
     col = 42;
     inf_at = col; col += 3;     /* "At"         */
+#ifdef LA_LONGFILES
+    inf_line = col; col += 7;   /* line         */
+#else
     inf_line = col; col += 6;   /* line         */
+#endif
     inf_in = col; col += 3;     /* "in"         */
     inf_file = col;             /* filename     */
 #endif

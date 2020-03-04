@@ -8,7 +8,8 @@ CMD - This key is the primary key for changing the effects of other keys on
 ~1
 WIN LEFT - This key causes the window to move to the left 16 spaces.  If the
     leftmost column is already column one, this key has no effect.  If
-    preceeded by the CMD key, the window is moved all the way to the left.
+    preceeded by the CMD key, the window is moved all the way to the left
+    (default) or the specified (the command line value) number of columns.
 ~2
 ALT - This key switches the window between the current file and its
     alternate file.
@@ -24,8 +25,9 @@ INT - This key causes the an interruption in whatever may be going on in
     empty, the command string is saved as the previous command and could
     be recall later with the CMD ALT key stroke.
 ~4
-OPEN (Insert Line) - This key causes a single blank line to be opened above
-    the cursor's current position.
+OPEN (Insert Line) - This key causes a single (default) or n (the command
+    line value) blank line(s) to be opened above the cursor's current
+    position.
 ~5
 -SRCH - This key causes the editor to search the buffer from the current
     cursor location backwards to find a match for the contents of the match
@@ -33,12 +35,13 @@ OPEN (Insert Line) - This key causes a single blank line to be opened above
     buffer with the word that it is resting on (from the cursor loc to the
     next white space), and then search backwards for it.
 ~6
-CLOSE (Delete Line) - This key will copy the current line (or area) to the
+CLOSE (Delete Line) - This key will copy the current line (or area) (default)
+    or n lines (or the defined area) (the command line value) to the
     close buffer and remove it from the screen.  If MARK is used to
     delimit an area, the material to the right of the closed area will
-    move to the left, filling it in.  If preceeded by the CMD key, CLOSE
-    becomes UNCLOSE, returning the contents of the close buffer (same
-    action as "insert close").
+    move to the left, filling it in.
+    If preceeded by the CMD key, CLOSE becomes UNCLOSE, returning the
+    contents of the close buffer (same action as "insert close").
 ~7
 MARK - This key will mark the cursor's current location.  This key is
     generally used to mark the top-left corner of a rectangular area before
@@ -52,35 +55,54 @@ LEFT ARROW - This key causes the cursor position to be shifted one
     the cursor to the left edge of the window.
 ~9
 TAB - This key causes the cursor to be advanced to the next tab stop to the
-    right.  If there is no tab stop to the right of the current cursor
+    right (default) or the specified (the command line value) number of
+    tab stop.
+    If there is no tab stop to the right of the current cursor
     position, TAB is a no-operation.  When the editor is entered, tab stops
-    are established by default to columns 1, 9, 17,..., and may be changed
-    with the S/RTAB key and the typed commands "tab" and "tabs".
+    are established by default to columns 1, 5, 9, 13, 17,..., and may be
+    changed with the S/RTAB key and the typed commands "tab" and "tabs".
 ~10
 DOWN ARROW - This key causes the cursor to be moved down one character
     position.  If the cursor was on the last line of the window, the window
-    is redrawn to include the next line.  When used following CMD, this key
-    becomes >DOWN, which moves the cursor straight down to the last line
-    displayed on the window.
+    is redrawn to include the next line.
+    When used following CMD, this key becomes >DOWN, which moves the cursor
+    straight down to the last line displayed on the window.
+    In command mode, if preceeded by the CMD key, it is the entrance in
+    command history mode. In this mode UP and DOWN arrows provide navigation
+    in the command history list. Any other key will exit from history mode.
+    So, to navigate in the command history list, use the CMD CMD UP key
+    stroke (or alternatively CMD CMD DOWN).
+    In Edit navigation mode (navigation in the edited file list) DOWN key
+    move downwards in the list. To enter in edited file navigation use
+    'CMD edit ?' key stroke, 'edit' can be replace by any legal abreviation.
 ~11
 HOME - This key moves the cursor to the uppermost left character position
     on the current window.  When used following CMD, it becomes >HOME,
     which moves the cursor the leftmost position on the last line displayed
     in the current window.
 ~12
-PICK - This key will cause the area described (see MARK) to be copied to
-    the pick buffer, and no change to the screen occurs.  When this key
-    follows the CMD key, it becomes PUT, which causes the contents of the
-    the pick buffer to be copied into the text at the current cursor
-    position.  Any text formerly residing there is moved down if the pick
-    buffer contains whole lines, or to the right, if the buffer contains an
-    area.
+PICK - This key will cause the area described (see MARK) (default) or
+    defined by the command line value, to be copied to the pick buffer,
+    and no change to the screen occurs.
+    When this key follows the CMD key, it becomes PUT, which causes the
+    contents of the the pick buffer to be copied into the text at the
+    current cursor position.  Any text formerly residing there is moved
+    down if the pick buffer contains whole lines, or to the right, if the
+    buffer contains an area.
 ~14
 UP ARROW - This key causes the cursor to be moved up one character
     position.  If the cursor was on the first line of the window, the
-    window is redrawn to include the preceeding line.  When used following
-    CMD, this key becomes >UP, which moves the cursor straight up to the
-    top line displayed on the window.
+    window is redrawn to include the preceeding line.
+    When used following CMD, this key becomes >UP, which moves the cursor
+    straight up to the top line displayed on the window.
+    In command mode, if preceeded by the CMD key, it is the entrance in
+    command history mode. In this mode UP and DOWN arrows provide navigation
+    in the command history list. Any other key will exit from history mode.
+    So, to navigate in the command history list, use the CMD CMD UP key
+    stroke (or alternatively CMD CMD DOWN).
+    In Edit navigation mode (navigation in the edited file list) UP key
+    move upwards in the list. To enter in edited file navigation use
+    'CMD edit ?' key stroke, 'edit' can be replace by any legal abreviation.
 ~15
 INSRT - This key causes the editor to enter/exit the text-insert mode, in
     which data entered on the keyboard is inserted into the current line,
@@ -101,7 +123,8 @@ REPL - This key is used with the interactive replace command to cause the
     window length, bringing the data preceeding the current window into
     view.  When used following the CMD key, it becomes >-PAGE, which sets
     the window such that the first line in the file is at the top of the
-    window.
+    window (default) or move upwards the specified (the command line value)
+    number of pages.
 ~18
 +SRCH - This key causes the editor to search the buffer from the current
     cursor location forwards to find a match for the contents of the match
@@ -112,10 +135,12 @@ REPL - This key is used with the interactive replace command to cause the
 WIN RIGHT - This key will cause the window to be moved to the right 16
     character positions in the text.  If used following the CMD key +WIN
     RIGHT causes the window to be moved to the right until the end of the
-    longest line if the current window is exposed.
+    longest line if the current window is exposed (default) or the
+    specified (the command line value) number of columns.
 ~20
 +LINES - This key causes the window to be moved downwards in the text about
-    a third of the current window's length.
+    a third of the current window's length (default) or move downwards
+    the specified (the command line value) number of lines.
 ~21
 DELCH - This keys causes the character at the current cursor position to be
     closed (that is, deleted, with the characters to the right moving left
@@ -124,24 +149,29 @@ DELCH - This keys causes the character at the current cursor position to be
     right of it on the line.
 ~22
 RWORD - This key causes the cursor to seek to the right for the beginning
-    of the next word.  If there is no word to the right on the current
-    line, the search continues on the next line.
+    of the next word (default) or the nth (the command line value) words.
+    If there is no word to the right on the current line, the search
+    continues on the next line.
 ~23
 -LINES - This key causes the window to be moved upwards in the text about a
-    third of the current window's length.
+    third of the current window's length (default) or move upwards the
+    specified (the command line value) number of lines.
 ~24
 LWORD - This key causes the cursor to seek to the left for the beginning of
-    the previous word. If no word exists to the left of the cursor, it will
-    "wrap around" to the last word of the preceeding line.
+    the previous word (default) or the nth (the command line value) words.
+    If no word exists to the left of the cursor, it will "wrap around" to
+    the last word of the preceeding line.
 ~25
 +PAGE - This key will cause the window to move downwards in the text by one
     window length, bringing the data following the current window into
     view.  When used following the CMD key, it becomes >+PAGE, which sets
-    the window such that the last line in the file is in view.
+    the window such that the last line in the file is in view (default) or
+    move downwards the specified (the command line value) number of pages.
 ~26
 CHWIN - This key causes the current window to be moved into the background,
-    and the next window (in the sense of creation order) to be moved into
-    the foreground for editing.
+    and the next window (default) or the nth (the command line value) windows
+    (in the sense of creation order) to be moved into the foreground for
+    editing.
 ~27
 S/RTAB - This key causes a tab stop to be set at the column that the cursor
     is on.  If the key is preceeded by the CMD key, any tab stop at the
@@ -158,8 +188,9 @@ CTRLQ - This key causes the next character (in the ascii range @-_) to be
     (ctrl-I), which is expanded to blanks by the editor).
 ~29
 -TAB - This character causes the cursor to be moved backwards to the next
-    preceeding tab stop on the current line.  If there is no tab stop to
-    the left of the cursor, no action takes place.
+    preceeding tab stop on the current line (default) or the specified
+    (the command line value) number of tab stop.
+    If there is no tab stop to the left of the cursor, no action takes place.
 ~30
 DEL - This character has many uses, depending on whether it was preceeded by
     the CMD key, and whether the editor is in insert mode:
@@ -184,9 +215,11 @@ RIGHT ARROW - This key causes the cursor position to be shifted one
 ~33
     String of characters sends to the terminal on exit
 ~129
-ERASE - This key will erase the contents of the current line, leaving the
-    blank line in the text.  If this key follows the CMD key, an UNERASE is
-    done, copying the latest erased data back into the text.
+ERASE - This key will erase the contents of the current line (default),
+    or n lines, or the area, as defined by the command line value leaving
+    the blank line in the text.
+    If this key follows the CMD key, an UNERASE is done, copying the latest
+    erased data back into the text.
 ~130
 This key (whatever it was) is not implemented as an editor command.
 ~131
@@ -305,7 +338,8 @@ NULL - Nothing to be done
 DWORD - This key will delete the next word.  If there's no text remaining
     on the current line, a search is made for the next word, and that
     word is deleted.
-
+~184
+    This key value can be used only for replay, (entry of resizing command).
 ~---------------------- End of the key section ---------------------
 
 `open
@@ -432,9 +466,24 @@ EDIT [ filename ]
     "filename" becomes the current file and the current file becomes
     the alternate file. The ALT key switches between them.
 
+    If the "filename" is a single '?' character, the current edited
+    file list is displayed.
+
     Filename parameter can be expanded with the TAB key,
     If alternate name expansion exists, the UP ARROW and DOWN ARROW keys
     provide navigation in the name expansion list.
+
+    A navigation into the curent edited files list is provided. To enter
+    in the navigation state push the UP or DOWN ARROW key after the
+    "edit" (or any of the accepted abreviation) be entered in the
+    command line. Any other keys than UP or DOWN ARROW will end
+    the navigation mode.
+    When navigate in the list the normal and alternate file of the
+    active window are hidden. The are directly available in the
+    active window.
+
+    To look at the current edited file list use the "e ?" command or
+    look into the output of the "status" command.
 
 `redraw
 REDRAW - This command will cause the screen to be redrawn.
@@ -931,12 +980,12 @@ SEARCH [ text ] - Search the buffer in forwards direction
 
     File Style    : MicroSoft or Unix
 
-    Current state : a string "LPRDNS.ICFDU"
+    Current state : a string "(LPRDNS.ICFDU) M"
 		    If the state is set , the letter is shown,
 			else a '-' replace the letter.
 
 		    L = file pointed by a symbolink Link
-		    U = Update this file on exit
+		    U = Update this file on exit (if needed)
 		    R = file exists and will be Renamed on exit
 		    D = file exists and will be Deleted on exit
 		    N = desN't exist yet, will be created on exit
@@ -947,6 +996,8 @@ SEARCH [ text ] - Search the buffer in forwards direction
 		    F = File is writable
 		    D = Directory is writable
 		    I = file entry In use
+
+		    M = file as been modified, will be saved if U
 
     File Style on save : (MicroSoft or Unix) if it will be different
 			 from the current File Style
@@ -993,7 +1044,8 @@ CD [ pathname ]
 
 `status
 STATUS - display the current status of the editor.
-
+    Use 'help ?file' for detail on the file status info line
+    Use 'help set' command for details on SET value.
 `---------------------- End of the command section ---------------------
 
 #New_features_Linux -----------------------------------------------------
@@ -1015,6 +1067,32 @@ New Features of the Linux version 19 revision 51 (Oct 1999)
   File name command parameter can be expanded with the <tab> key,
     like in most of the shell. If alternate name expansion exits
     the <up arrow> and <down arrow> keys provide navigation in the list.
+
+New Features of the Linux version 19 revision 52 (Jan 2000)
+  Keyboard configuration files can use '#include <file name>' directive
+    to import common definition, and latter overwrite some of the 'included'
+    definition by specific one. If the 'file name' does not start with
+    a '/' character, the file name path is relative to the current
+    including file, else it is an absolue file name path.
+  Keyboard mapping on X window terminal emulator (like xterm, gnome-terminal)
+    try to use the X11 Keyboard Extension to get a better idea of the
+    keyboard mapping. It also try to know for xterm and gnome-terminal
+    emulator what is the character sequences generated by the BackSpace
+    and Delete keys. The command 'status' provide some information about
+    the current understanding of the keyboard in use.
+
+New Features of the Linux version 19 revision 53 (March 2000)
+  Screen resizing is supported during editing session, and at startup
+    when the screen size is different from what it was at the end of
+    the previous session.
+  Command line provide an history feature. To enter in command history
+    mode issue CMD CMD UP arrow key stroke (or CMD CMD DOWN). When in
+    history mode, UP and Down arrows provide navigation. Any other
+    key ends the history mode
+  Navigation into the current edited file list is provide within the
+    "edit" command (ref to "edit" command help).
+  Much more accurate help on key functions.
+  Some bug which was resulting in core dump are corrected.
 ------------------------------------------------------------------------------
 
 #Linux_key_mapping ------------------------------------------------------
@@ -1047,6 +1125,8 @@ Recommandations for X key mapping on Linux :
   !   This is an good compromise setting fo the rand editor.
   !   A link to this file is expected to be defined in
   !       "/usr/X11R6/lib/X11/xinit/.Xmodmap"
+  ! The keycode values are given for a XFree86 X11 server,
+  !     they must be replaced by the actual values of the X server vendor.
 
   ! keycode  22 = BackSpace
   ! keycode  23 = Tab KP_Tab

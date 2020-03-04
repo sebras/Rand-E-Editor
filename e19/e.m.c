@@ -68,6 +68,7 @@ void
 mainloop ()
 {
 extern int command_file ();
+extern void testandset_resize ();
 
 #ifdef LMCCMDS
 char *nix = "\0";
@@ -95,7 +96,7 @@ newnumber:
 	    nlines = curwksp->wlin + cursorline + 1;
 	    if (infoline != nlines) {
 #ifdef LA_LONGFILES
-		sprintf (ich, "%-5D", nlines);
+		sprintf (ich, "%-6d", nlines);
 #else
 		sprintf (ich, "%-5d", nlines);
 #endif
@@ -138,7 +139,7 @@ contin:
 		    ncols = -ncols;
 		if (marklines != nlines) {
 #ifdef LA_LONGFILES
-		    sprintf (mklinstr, "%D", nlines);
+		    sprintf (mklinstr, "%d", nlines);
 #else
 		    sprintf (mklinstr, "%d", nlines);
 #endif
@@ -179,7 +180,11 @@ contin:
 #ifdef LMCLDC
 	(*term.tt_xlate) (0);   /* reset the graphics if needed */
 #endif
+
+	testandset_resize (YES, NULL, NULL);
 	getkey (WAIT_KEY, nulsec);
+	testandset_resize (NO, NULL, NULL);
+
 	if (loopflags.hold) {
 	    loopflags.hold = NO;
 	    mesg (TELALL);
@@ -527,18 +532,22 @@ gotcmd:
 		case CCBACKSPACE:
 		    /* donetype can only be 0 */
 		    Block {
-			Reg2 Ncols  k;
-			k = curwksp->wcol;
-			if (insmode)
-			    donetype = ed (OPCLOSE, QCLOSE,
-					   curwksp->wlin + cursorline, k,
-					   (Nlines) 1, (Ncols) cursorcol, YES);
-			else {
-			    savecurs ();
-			    donetype = ed (OPERASE, QERASE,
-					   curwksp->wlin + cursorline, k,
-					   (Nlines) 1, (Ncols) cursorcol, YES);
-			    restcurs ();
+			Ncols  k;
+
+			if ( cursorcol > 0 ) {
+			    k = curwksp->wcol;
+			    if (insmode) {
+				donetype = ed (OPCLOSE, QCLOSE,
+					       curwksp->wlin + cursorline, k,
+					       (Nlines) 1, (Ncols) cursorcol, YES);
+				poscursor (0, cursorline);
+			    } else {
+				savecurs ();
+				donetype = ed (OPERASE, QERASE,
+					       curwksp->wlin + cursorline, k,
+					       (Nlines) 1, (Ncols) cursorcol, YES);
+				restcurs ();
+			    }
 			}
 		    }
 		    goto doneswitch;
@@ -632,7 +641,7 @@ gotcmd:
 			goto norecterr;
 
 		    default:
-			if ( command_file (NULL, NULL) ) goto notfilerr;
+			if ( command_file (NULL, NULL, NULL) ) goto notfilerr;
 			goto notinterr;
 		    }
 		    goto funcdone;

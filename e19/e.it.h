@@ -41,7 +41,7 @@ and other nodes are of the form:
 
 struct itable {
     char it_c;              /* Character to be matched */
-    unsigned int it_leaf:1; /* This is a leaf */
+    unsigned int it_leaf;   /* This is a leaf */
     union {
 	struct {
 	    char *it_lval;  /* Value (for leaves only) */
@@ -52,7 +52,23 @@ struct itable {
     struct itable *it_next; /* Next one to try */
 };
 
-#define TMPSTRLEN 1000   /* Has to be long for init strings */
+#undef OLD_H_VERSION
+#ifdef OLD_H_VERSION
+struct itable {
+    char it_c;              /* Character to be matched */
+    unsigned int it_leaf:1; /* This is a leaf (1 bit Bit-fields): not efficient */
+    union {
+	struct {
+	    char *it_lval;  /* Value (for leaves only) */
+	    int it_llen;    /* Length of it_lval */
+	} it_un_leaf;
+	struct itable *it_ulink; /* First child (for non-leaves) */
+    } it_un;
+    struct itable *it_next; /* Next one to try */
+};
+#endif
+
+#define TMPSTRLEN 1024   /* Has to be long enought for init strings */
 
 #define NULLIT (struct itable *)0
 

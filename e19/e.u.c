@@ -55,6 +55,30 @@ Cmdret dochangedirectory () {
 }
 
 
+/* display the list of edited files */
+
+static void edited_file ()
+{
+    extern char * filestatusString ();
+    int i, i0, nb;
+    char ch, *fname, *strg;
+
+    i0 = FIRSTFILE + NTMPFILES;
+    nb = MAXFILES - i0;
+
+    printf ("Edited file list (max nb of files %d)\n  In col 2 'N' : edited file of the active window, 'A' : alternate file\n\n", nb);
+    for ( i = i0 ; i < MAXFILES ; i++ ) {
+	if ( !(fileflags[i] & INUSE) ) continue;
+	strg = filestatusString (i, &fname);
+	if ( ! strg ) continue;
+	if ( i == curwin->wksp->wfile ) ch = 'N';
+	else if ( i == curwin->altwksp->wfile ) ch = 'A';
+	else ch = ' ';
+	printf ("%-2d %c %s%s\n", i - i0 +1, ch, strg, fname);
+    }
+}
+
+
 #ifdef COMMENT
 Cmdret
 edit ()
@@ -71,6 +95,13 @@ edit ()
 	switchfile ();
 	return CROK;
     }
+    sz = strlen (opstr);
+    if ( (sz == 1) && (*opstr == '?') ) {
+	extern void show_info (void (*info) ());
+	show_info (edited_file);
+	return CROK;
+    }
+
     if (*nxtop) {
 	/* for the case of DOS file name which can include space char ! */
 	/*      in this case, the file name must be quoted (with " or ') */
@@ -230,8 +261,14 @@ Flag    puflg;
 	    if ((nlas = la_open (file, "", &tlas, (La_bytepos) 0))
 		== NULL) {
 		intok = NO;
-		if (la_errno == LA_INT)
+		if ( la_errno == LA_INT )
 		    mesg (ERRALL + 1, "Interrupted");
+		else if ( la_errno == LA_NOMEM )
+		    mesg (ERRALL + 1, "No more memory available, please get out");
+		else if ( la_errno == LA_WRTERR )
+		    mesg (ERRALL + 1, "Disc write error (no more space available ?)");
+		else if ( la_errno == LA_ERRMAXL )
+		    mesg (ERRALL + 1, "Too large file, can't edit this file");
 		else
 		    mesg (ERRALL + 1, "Can't open the file");
 		Goret (0);

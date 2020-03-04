@@ -52,7 +52,8 @@ extern Scols tableft ();
 
 static AFlag   dtabs[MAXWIDTH]; /* array of tabstops */
 
-/*  */ Uchar  *image;           /* alloced memory array - screen image */
+static Uchar  *image = NULL;    /* allocated memory array - screen image */
+static int     imagesize = 0;   /* size of the allocated image memory array */
 static Short   icursor;         /* used as index into image */
 static Short   ocursor;         /* where the terminal cursor is */
 
@@ -81,56 +82,40 @@ Scols   icol;                   /* current internal image column */
 Scols   ocol;                   /* column position of the terminal */
 Slines  olin;                   /* line   position of the terminal */
 
-extern void d_init ();
-extern void d_write ();
-extern void putmult ();
-extern void rollifnec ();
-extern void scroll ();
-extern void clwindow ();
-extern void dbfill ();
-extern void dbmove ();
-extern void putscr ();
-extern void fresh ();
-extern Flag NoBell;
+static void d_init ();
+       void d_write ();
+       void putmult ();
+       void rollifnec ();
+       void scroll ();
+       void clwindow ();
+       void dbfill ();
+       void dbmove ();
+       void putscr ();
+       void fresh ();
+       Flag NoBell;
 #ifdef LMCVBELL
-extern Flag VBell;
+       Flag VBell;
 #endif
 
 
-#ifdef COMMENT
-void
-d_init (clearmem, clearscr)
-    Flag clearmem;
-    Flag clearscr;
-.
-    Initialize the screen manager.
-    NOTE: The first character in the first call to d_write must be VCCINI.
-#endif
-void
-d_init (clearmem, clearscr)
-Flag clearmem;
-Flag clearscr;
+static void d_new_image (Flag clearmem, Flag clearscr)
 {
-    register Short i;
+    Short i;
 
-    if (image == NULL) {
-	screensize = term.tt_width * term.tt_height;
-	image = (Uchar *) salloc (screensize, YES);
-    }
+    if ( ! image ) return;
+
     ocursor = 0;
     icursor = 0;
     lincurs = 0;
     ilin = 0;
     icol = 0;
-    if (clearmem)
-	dbfill (' ', 0, screensize, NO, YES);
+    if (clearmem) dbfill (' ', 0, screensize, NO, YES);
     if (clearscr) {
 	MCLEAR ();
 	MHOME ();
     }
     fflush (stdout);
-    if (redraw)
-	return;
+    if (redraw) return;
 
     winl = 0;
     winr = term.tt_width - 1;
@@ -147,11 +132,56 @@ Flag clearscr;
     wrapmode = 1;
     cwrapmode = 1;
     noclear = 0;
+}
 
+
+
+/* build a new image storage */
+void new_image ()
+{
+    Uchar * old_image;
+
+    old_image = image;
+    screensize = term.tt_width * term.tt_height;
+    if ( image && (screensize > imagesize) ) {
+	sfree (image);
+	imagesize = 0;
+	image = NULL;
+    }
+    if ( ! image ) {
+	image = (Uchar *) salloc (screensize, YES);
+	imagesize = screensize;
+    }
+    memset (image, 0, imagesize);
+    redraw = NO;
+    d_new_image (YES, YES);
+}
+
+
+#ifdef COMMENT
+void
+d_init (clearmem, clearscr)
+    Flag clearmem;
+    Flag clearscr;
+.
+    Initialize the screen manager.
+    NOTE: The first character in the first call to d_write must be VCCINI.
+#endif
+static void
+d_init (clearmem, clearscr)
+Flag clearmem;
+Flag clearscr;
+{
+    Short i;
+
+    if ( ! image ) new_image ();
+
+    d_new_image (clearmem, clearscr);
+
+    /* init the tabs stop array to default default */
     i = (sizeof dtabs / sizeof dtabs[0]) - 1;
     do  dtabs[i] = ((i & 7) ? 0 :1);
 	while (i--);
-    return;
 }
 
 #ifdef COMMENT
@@ -1601,3 +1631,29 @@ fresh ()
     return;
 }
 
+#if 0
+void new_screen ()
+{
+    savecurs ();
+    redraw = YES;
+    d_init (YES, YES);
+    d_write (image, screensize);
+    redraw = NO;
+    restcurs ();
+    return;
+}
+#endif
+
+/* save / restaure on line from the screen image */
+int svrs_image_line (char *saved,  int lnb, int sz, Flag save_flg)
+{
+    int pos, lsz;
+
+    if ( save_flg ) {
+	memcpy (saved, (char *) &image[icursor], sz);
+    }
+    else {
+	memcpy ((char *) &image[icursor], saved, sz);
+    }
+    return icursor;
+}

@@ -8,7 +8,7 @@
 #endif
 
 /* MAXWIDTH is the maximum of all defined widths in e.tt.h */
-#define MAXWIDTH 160            /* length of longest possible screen line */
+#define MAXWIDTH 255            /* length of longest possible screen line +1 */
 /* if (MAXWIDTH > 127)  then you must define WIDE */
 #define WIDE
 #ifdef WIDE

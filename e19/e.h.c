@@ -21,6 +21,10 @@ file e.h.c
 #define KBINIT  040     /* Must not conflict with CC codes */
 #define KBEND   041
 
+/* these flags are set by in_file routine from e.it.c */
+static int Esc_flg = 0;     /* Escape was just pushed flag, not yet used by the UNIX version*/
+       int CtrlC_flg = 0;   /* Ctrl C was just pushed flag */
+
 
 /* browse_keyboard : display the description of the pushed key assigned function */
 /* ----------------------------------------------------------------------------- */
@@ -31,14 +35,30 @@ file e.h.c
 
 static void browse_keyboard (char *msg)
 {
+    extern char * itsyms_by_val (short val);
     static int help_description ();
-    int go;
-    Short qq;
+    char blank [128];
+    char *str;
+    int qq, ctrlc, sz;
 
-    for ( go = YES ; go ; ) {
-	qq = wait_keyboard (msg);
+    sz = (msg) ? strlen (msg) : 0;
+    if ( sz > (sizeof (blank) -2) ) sz = sizeof (blank) -2;
+    memset (blank, ' ', sizeof (blank));
+    blank [sz] = '\r';
+    blank [sz +1] = '\0';
+    for ( ; ; ) {
+	ctrlc = wait_keyboard (msg, &qq);
 	if ( qq == CCRETURN ) break;
-	go = help_description ('~', -1, key, NULL, NULL, NULL);
+	if ( (qq >= ' ') && (qq <= '~') ) putchar ('\007');
+	else {
+	    str = itsyms_by_val (key);
+	    if ( !str ) str = "???";
+	    fputs (blank, stdout);
+	    (void) help_description ('~', -1, key, NULL, str, NULL);
+	}
+#if 0
+	else (void) help_description ('~', -1, key, NULL, NULL, NULL);
+#endif
     }
 }
 
@@ -58,18 +78,19 @@ static FILE * open_help_file () {
     return (helpin);
 }
 
-static void check_new_page (int *nbli, int nl)
+static int check_new_page (int *nbli, int nl)
 {
-    int sz;
+    int sz, ctrlc;
 
     sz = term.tt_height -2;
     if ( nl ) sz++;
-    if ( *nbli < sz ) return;
+    if ( *nbli < sz ) return NO;
 
-    wait_keyboard ("Push a key to complete the description");
+    ctrlc = wait_keyboard ("Push a key to complete the description, <Ctrl C> to exit", NULL);
     fputs ("\r                                          \r", stdout);
     *nbli = 0;
     (*term.tt_addr) (term.tt_height -2, 0);
+    return ctrlc;
 }
 
 /* help_description :
@@ -78,20 +99,22 @@ static void check_new_page (int *nbli, int nl)
  *   The command major name is given in cmd_str.
  */
 
-static int help_description (sep, nbli, val, cmd_str, str, abreviation)
+static int help_description_ext (sep, nbli, val, cmd_str, str, abreviation, nlnb_pt)
 char sep;   /* separator character : ~ (keyfunc) ` (coomand) # (info) */
 int nbli;   /* number of line already displayed on the screen (-1 : nocheck) */
 int val;    /* message value : command or key function value */
 char *cmd_str;  /* if defined, the message is a command description */
 char *str, *abreviation;    /* current command and mini abreviation */
+int *nlnb_pt;   /* when not NULL just count the number of line in the text */
 {
-
+    extern Flag verbose_helpflg;
     FILE *helpin, *fopen();
-    int go, n, sz, nl;
+    int go, n, sz, nl, nl_nb, ctrlc;
     char buf [256];
     char *type;
 
     type = "???";
+    ctrlc = NO;
 
     helpin = open_help_file ();
     if ( helpin == NULL) {
@@ -99,36 +122,39 @@ char *str, *abreviation;    /* current command and mini abreviation */
     }
 
     go = nl = NO;
-
-    if ( nbli == 0 ) (*term.tt_home) ();
+    nl_nb = 0;
+    if ( (nbli == 0) && !nlnb_pt ) (*term.tt_home) ();
 
     if ( (sep != '#') && str ) {
 	/* display the header for keyfunc and command */
 	if ( sep == '`' ) {    /* message by string name */
 	    type = "Command";
-	    printf ("%s (%d) : Editor %s", str, val, type);
+	    if ( !nlnb_pt ) printf ("%s (%d) : Editor %s", str, val, type);
 	    if ( strlen (abreviation) < strlen (str) )
-		printf (", abreviated down to \"%s\"", abreviation);
+		if ( !nlnb_pt ) printf (", abreviated down to \"%s\"", abreviation);
 	} else if ( sep == '~' ) {
 	    type = ((val == KBINIT) || (val == KBEND))
 		 ? "Defined String" : "Key Function";
-	    printf ("%s (%d) : %s", str, val, type);
+	    if ( !nlnb_pt ) printf ("%s (%d) : %s", str, val, type);
 	}
-	puts ("\n");    /* 2 nl ! */
+	if ( !nlnb_pt ) puts ("\n");    /* 2 nl ! */
 	nbli +=2;
+	nl_nb +=2;
 	nl = YES;
     }
 
-    putchar ( (nbli >= 0 ) ? '\r' : '\n');
+    if ( !nlnb_pt ) putchar ( (nbli >= 0 ) ? '\r' : '\n');
     while ( fgets (buf, sizeof buf, helpin) != NULL ) {
 	if ( go ) {
 	    if ( buf [0] == sep ) break;
 	    if ( nl && (buf [0] == '\n') ) continue;
-	    fputs (buf, stdout);
+	    if ( !nlnb_pt ) fputs (buf, stdout);
 	    nl = (buf [0] == '\n');
-	    if ( nbli >= 0 ) {
+	    nl_nb +=1;
+	    if ( (nbli >= 0) && !nlnb_pt ) {
 		nbli++;
-		check_new_page (&nbli, nl);
+		ctrlc = check_new_page (&nbli, nl);
+		if ( ctrlc && !verbose_helpflg ) break;
 	    }
 	}
 	else if ( buf [0] == sep ) {
@@ -147,15 +173,43 @@ char *str, *abreviation;    /* current command and mini abreviation */
         }
     }
 
-    if ( !nl ) fputc ('\n', stdout);
-    if ( (sep != '#') && !go ) {
-	printf ("A description is not available for this %s in\n    %s\n\n",
-		type, xdir_help);
+    if ( !nl ) {
+	if ( !nlnb_pt ) fputc ('\n', stdout);
+	nl_nb +=1;
+    }
+    if ( (sep != '#') && !go && !ctrlc ) {
+	if ( !nlnb_pt ) printf ("A description is not available for this %s in\n    %s\n\n",
+				type, xdir_help);
+	nl_nb +=3;
     }
     if ( nl) go--;
     fclose (helpin);
-    fflush (stdout);
+    if ( !nlnb_pt ) fflush (stdout);
+    if ( nlnb_pt ) *nlnb_pt = nl_nb;
     return (go);
+}
+
+static int help_description (sep, nbli, val, cmd_str, str, abreviation)
+char sep;   /* separator character : ~ (keyfunc) ` (coomand) # (info) */
+int nbli;   /* number of line already displayed on the screen (-1 : nocheck) */
+int val;    /* message value : command or key function value */
+char *cmd_str;  /* if defined, the message is a command description */
+char *str, *abreviation;    /* current command and mini abreviation */
+{
+    help_description_ext (sep, nbli, val, cmd_str, str, abreviation, NULL);
+}
+
+
+/* get the number of line in the help output */
+static int help_description_check (sep, nbli, val)
+char sep;   /* separator character : ~ (keyfunc) ` (coomand) # (info) */
+int nbli;   /* number of line already displayed on the screen (-1 : nocheck) */
+int val;    /* message value : command or key function value */
+{
+    int nlnb;
+
+    help_description_ext (sep, nbli, val, NULL, NULL, NULL, &nlnb);
+    return (nlnb);
 }
 
 /* help_cmd :
@@ -195,7 +249,6 @@ static void not_yet ()
 static void keymap_term ()
 {
     extern void display_keymap ();
-    int cc;
 
     display_keymap (NO);
 }
@@ -340,6 +393,8 @@ char *helparg;
 	defined in the file : e.m.c in "mainloop" routine
 */
 
+static char retmsg [] = "--- Press ENTER (CR or RETURN) or <Ctrl C> to return to the Edit session ---";
+
 Cmdret help_std (helparg)
 char *helparg;
 
@@ -350,6 +405,7 @@ extern S_looktbl cmdtable[];
 extern char * get_cmd_name ();
 static void browse_cmdhelp ();
 static void browse_keyfhelp ();
+extern int get_ctrlc_fkey ();
 
 static char stmsg [] = "\n\
 \"help status\"         Display the actual editor parameters value\n\
@@ -369,14 +425,14 @@ Now press a key (or keys combination) for description of the assigned action.\
 
 static int stmsg_nbln = 0;  /* number of lines in stmsg string */
 
-static char retmsg[] = "--- Press ENTER (CR or RETURN) to return to the Edit session ---";
 Short qq;
-int i, idx;
+int i, idx, fkey;
 char ch;
 int cmd;
 char *cmd_str, *str;
 int oflag;
-int col, lin, nbli;
+int col, lin, nbli, nb, sz, ctrlc;
+
 extern void showstatus ();
 extern int set_crlf ();
 extern void reset_crlf ();
@@ -410,6 +466,16 @@ extern char verstr[];
 
 	nbli = stmsg_nbln;
 	fputs (stmsg, stdout);
+	fkey = get_ctrlc_fkey ();
+	if ( fkey != CCRETURN ) {
+	    nb = help_description_check ('~', -1, fkey);
+	    sz = term.tt_height -(nbli + nb) -3;
+	    if ( sz >= 0 ) {
+		for ( ; sz >= 0 ; sz -- ) fputc ('\n', stdout);
+		fputs ("<Ctrl C> is assigned to :", stdout);
+		(void) help_description ('~', -1, fkey, NULL, NULL, NULL);
+	    }
+	}
 	browse_keyboard (retmsg);
         }
 
@@ -417,13 +483,13 @@ extern char verstr[];
 	fprintf (stdout, "%s\n\n", verstr);
 	nbli = 2;
 	(void) help_info ("New_features_Linux", &nbli);
-	check_new_page (&nbli, 1);
-	wait_keyboard (retmsg);
+	ctrlc = check_new_page (&nbli, 1);
+	ctrlc = wait_keyboard (retmsg, NULL);
 	}
 
     else if ( strcmp (helparg, "status") == 0 ) {
         showstatus ();
-	wait_keyboard (retmsg);
+	ctrlc = wait_keyboard (retmsg, NULL);
 	}
 
     else if ( strcmp (helparg, "keymap") == 0 ) {
@@ -450,17 +516,17 @@ extern char verstr[];
         cmd = cmdtable[idx].val;
         str = cmdtable[idx].str;
         (void) help_cmd (cmd, cmd_str, str, helparg);
-	wait_keyboard (retmsg);
+	ctrlc = wait_keyboard (retmsg, NULL);
 	}
 
     else if ( idx == -2 ) {
 	printf ("\n\r\"%s\" : Ambiguous Editor command\r\n", helparg);
-	wait_keyboard (retmsg);
+	ctrlc = wait_keyboard (retmsg, NULL);
 	}
 
     else {
 	printf ("\n\r\"%s\" : Unknow Editor Command or HELP parameter\r\n", helparg);
-	wait_keyboard (retmsg);
+	ctrlc = wait_keyboard (retmsg, NULL);
 	}
 
     reset_crlf (oflag);
@@ -471,17 +537,38 @@ extern char verstr[];
     return CROK ;
 }
 
+
+/* utility to display some info and wait for keyboard */
+
+void show_info (void (*info) ())
+{
+    extern int set_crlf ();
+    extern void reset_crlf ();
+    int oflag, col, lin, ctrlc;
+
+    col = cursorcol; lin = cursorline;
+    savecurs ();
+    ( *term.tt_clear ) ();
+    ( *term.tt_home ) ();
+    poscursor (0, term.tt_height -1);
+    oflag = set_crlf ();
+
+    (*info) ();
+    ctrlc = wait_keyboard (retmsg, NULL);
+
+    reset_crlf (oflag);
+    mesg (TELALL+1, " ");
+    fflush (stdout);
+    fresh ();
+    restcurs ();
+}
+
 /* ----------------------------------------------------------------------- */
 
 S_looktbl *keyftable = NULL;
 int keyftable_sz = 0;   /* nb of entry in keyftable */
 
 static FILE *outst = NULL;  /* stdout or the file stream */
-
-/* these flags are not yet used by the UNIX version */
-static int Esc_flg = 0;     /* Escape was just pushed flag */
-static int CtrlC_flg = 0;   /* Ctrl C was just pushed flag */
-
 
 
 static int sort_looktb (obj1, obj2)
@@ -707,7 +794,7 @@ static void wait_msg (short nl) {
     (*term.tt_addr)  (term.tt_height -1, 0);
     ch = '@' + GetCccmd ();
     if ( nl ) putchar ('\n');
-    printf ("Push a key to continue, <Ctrl %c> or <cmd>Key to end, UP and DOWN to navigate\r", ch);
+    printf ("Push a key: next; <Ctrl C>, <Ctrl %c>, <cmd>Key: exit; <UP>, <DOWN>: navigate\r", ch);
     fflush (stdout);
 }
 
@@ -752,20 +839,32 @@ static int wait_key ()
 /* wait_keyboard : wait for any key pushed on the keyboard */
 /* ------------------------------------------------------- */
 /*
-    return the result of getkey
+    return the result of getkey in *gk_pt (if not NULL)
+    return True (YES) if <Ctrl C> key was pushed
 */
 
-int wait_keyboard (char *msg)
+int wait_keyboard (char *msg, int *gk_pt)
 {
-    Short qq;
+    extern void switch_ctrlc ();
+    int qq;
+
+    if ( CtrlC_flg ) return CtrlC_flg;
 
     if ( msg ) {
 	(*term.tt_addr)  (term.tt_height -1, 0);
 	fputs (msg, stdout); fputc ('\r', stdout);
     }
     keyused = YES;
+    switch_ctrlc (YES);
     qq = getkey (WAIT_KEY);
-    return (qq);
+    if ( gk_pt ) *gk_pt = qq;
+    switch_ctrlc (NO);
+    return CtrlC_flg;
+}
+
+/* call 'reset_ctrlc' to be sure that 'wait_keyboard' will wait for input */
+void reset_ctrlc () {
+    CtrlC_flg = NO;
 }
 
 /* wait_continue : wait for a key pushed on the keyboard */

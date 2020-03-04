@@ -63,6 +63,13 @@ To do a local customization of the keyboard definition,
     The content of /usr/local/Rand/kbfiles must not be edited, these files
 	could be modified during installation of a new release.
 
+  New feature for customization of the keyboard definition (version >= E19.52)
+    Keyboard configuration files can use '#include <file name>' directive
+      to import common definition, and latter overwrite some of the 'included'
+      definition by specific one. If the 'file name' does not start with
+      a '/' character, the file name path is relative to the current
+      including file, else it is an absolue file name path.
+
 Instalation with the RPM package manager :
 ------------------------------------------
 

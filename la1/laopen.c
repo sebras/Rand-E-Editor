@@ -5,6 +5,7 @@
 #include "la.local.h"
 
 #include <sys/stat.h>
+#include <limits.h>
 
 /* these are the actual global definitions */
 int         la_maxchans = _NFILE;/* maximum system opens allowed to la */
@@ -19,9 +20,28 @@ La_stream  *la_firststream;     /* first stream is always the changes file */
 La_stream  *la_laststream;
 int         la_errno;           /* last non-La_stream error that occurred */
 
+static long max_lines = 0;      /* max number of line in a file */
+
 extern La_stream  *la_newstream ();
 extern La_stream  *la_ffopen ();
 extern char *malloc ();
+
+static max_lines_nb ()
+{
+    max_lines = (sizeof (La_linepos) == sizeof (short)) ? SHRT_MAX : INT_MAX;
+}
+
+char * la_max_size ()
+{
+    static char buf [128];
+    long sz;
+
+    if ( ! max_lines ) max_lines_nb ();
+    sprintf (buf, "max line size : %d, max number of lines : %d",
+	    la_maxline, max_lines);
+    return buf;
+}
+
 
 /* VARARGS3 */
 La_stream *
@@ -321,8 +341,8 @@ char          *buf;
     short           nfsb;       /* number of fsdbytes */
     La_bytepos      totchcnt;   /* total character count */
     long            fsdchcnt;   /* fsd character count (long is correct) */
-    short           lcnt;       /* fsd line count */
-    short           totlcnt;    /* total # lines in this new chain */
+    long            lcnt;       /* fsd line count */
+    long            totlcnt;    /* total # lines in this new chain */
     long            curpos;     /* current pos for ff_point */
     La_linesize     maxline;    /* maximum chars in any line we have parsed */
 #ifdef LA_LONGLINES
@@ -343,6 +363,8 @@ char          *buf;
     toobigfsd = NO;
     nonewline = 0;
     maxline = plaf->la_maxline;
+
+    if ( ! max_lines ) max_lines_nb ();
 
     if (nchars < 0) {
 	la_errno = LA_NEGCOUNT;
@@ -376,11 +398,18 @@ char          *buf;
 	    || totchcnt >= nchars
 	    || nfsb >= LA_FSDBMAX - 2
 	   ) {
+ makefsd:   if (totlcnt + lcnt >= max_lines) {
+		/* can only happen if La_linepos is typedefed to short */
+		la_errno = LA_ERRMAXL;
+		goto err;
+	    }
+#if 0
  makefsd:   if (totlcnt + lcnt < totlcnt) {
 		/* can only happen if La_linepos is typedefed to short */
 		la_errno = LA_ERRMAXL;
 		goto err;
 	    }
+#endif
 	    if (la_int ()) {
 		la_errno = LA_INT;
 		goto err;

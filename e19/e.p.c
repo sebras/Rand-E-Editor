@@ -484,6 +484,8 @@ dodword (ind)
 	if (clineno != sav_clineno)
 	    getline(ln);
     } else {           /* ind=NO ==> restore the last deleted word */
+	if ( ! deletdwd ) return CROK;
+
 	fcline = YES;
 	putupdelta = strlen (deletdwd);
 	if (xcline)

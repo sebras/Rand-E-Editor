@@ -410,6 +410,8 @@ savestate ()
 Flag
 savestate ()
 {
+    extern void history_dump (FILE *stfile);
+
     register Short  i;
     char   *fname;
     register S_window *window;
@@ -527,6 +529,10 @@ savestate ()
 	fclose (stfile);
 	return NO;
     }
+
+    /* dump the history buffer */
+    history_dump (stfile);
+
     fseek (stfile, 0L, 0);
     putshort (revision, stfile);   /* state file is OK */
     fclose (stfile);

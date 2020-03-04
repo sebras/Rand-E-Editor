@@ -1,26 +1,33 @@
-/* ====================================================================== */
-/*
-    keyboard_map.c : keyboard mapping package :
-	Assess and test the keyboard mapping for IBM PC 101 keys
-	keyboard style.
-	v1 : linux version only
-    by : Fabien Perriollat : Fabien.Perriollat@cern.ch
-    version 1.0 Nov 1998
-*/
-/* ---------------------------------------------------------------------- */
-/*  Exported routines :
-	Flag get_keyboard_map (char *terminal, int strg_nb, char *strg1, ...
-	char * get_keyboard_mode_strg ()
-	void all_string_to_key (char *escp_seq, ...
-	void check_keyboard ()
-	void display_keymap (Flag verbose)
-*/
-/* ====================================================================== */
-static const char version[] = "version 1.0 Nov 1998 by Fabien.Perriollat@cern.ch";
+/* ==========================================================================
+ *
+ *   keyboard_map.c : keyboard mapping package :
+ *      Assess and test the keyboard mapping for IBM PC 101 keys
+ *      keyboard style.
+ *      v1 : linux version only
+ *   by : Fabien Perriollat : Fabien.Perriollat@cern.ch
+ *   version 1.0 Nov 1998
+ *   last update 23 Jan 2000 : Fabien.Perriollat@cern.ch
+ * --------------------------------------------------------------------------
+ *  Exported routines :
+ *      Flag get_keyboard_map (char *terminal, int strg_nb, char *strg1, ...
+ *      char * get_keyboard_mode_strg ()
+ *      void all_string_to_key (char *escp_seq, ...
+ *      void check_keyboard ()
+ *      void display_keymap (Flag verbose)
+ *
+ * --------------------------------------------------------------------------
+ *  To be done :
+ *      Add handling for X server other than XFree (which is the default for
+ *          Linux),
+ *      Add keysym to escape seq for other X Terminal emulator than
+ *          xterm, nxterm and gnome-terminal.
+ * ========================================================================
+ */
+static const char version[] = "version 2.0 Jan 2000 by Fabien.Perriollat@cern.ch";
 
-/* #define TEST_PROGRAM */
-/* build an autonomous program to test of this code */
-
+/* #define TEST_PROGRAM
+ *  Build an autonomous program to test of this code
+ */
 /* ---------------------------------------------------------------------- */
 
 #ifdef TEST_PROGRAM
@@ -41,7 +48,17 @@ typedef char Flag;
 #include <stdio.h>
 #include <linux/kd.h>
 #include <linux/keyboard.h>
+
+#include <X11/Xlib.h>
+#include <X11/Intrinsic.h>
+#include <X11/Xutil.h>
+#include <X11/Xatom.h>
 #include <X11/keysym.h>
+#include <X11/XKBlib.h>
+#include <X11/extensions/XKBfile.h>
+#include <X11/extensions/XKBgeom.h>
+
+extern Flag verbose_helpflg;    /* from e.c */
 
 struct _keyboard_struct {
     int idx;    /* index in keyboard_desc of 1st key of the class */
@@ -52,23 +69,24 @@ struct _keyboard_struct {
 	{ 0, 12, "Function keys" },
 	{ 0,  4, "Cursor key" },
 	{ 0,  6, "Extended key pad" },
-	{ 0, 17, "Numeric Key Pad" },
+	{ 0, 18, "Numeric Key Pad" },
 	{ 0,  2, "Miscellaneous key" }
     };
 #define pc101_keyboard_struct_nb (sizeof (pc101_keyboard_struct) / sizeof (pc101_keyboard_struct[0]))
 
 /* --------------------------------------------------------------------
-    It is assumed that the modifier keys use the standard mapping :
-	man keytables(5) :
-	    (By default Shift, AltGr, Control
-	    and Alt are bound to the keys that bear a similar  label;
-	    AltGr may denote the right Alt key.)
-	    Note that you should be very careful when binding the mod-
-	    ifier keys, otherwise you can end up with an unusable key-
-	    board  mapping.
-*/
+ *  It is assumed that the modifier keys use the standard mapping :
+ *      man keytables(5) :
+ *          (By default Shift, AltGr, Control
+ *          and Alt are bound to the keys that bear a similar  label;
+ *          AltGr may denote the right Alt key.)
+ *          Note that you should be very careful when binding the mod-
+ *          ifier keys, otherwise you can end up with an unusable key-
+ *          board  mapping.
+ */
 
 static Flag get_map_flg = NO;   /* package init done flag */
+static Flag verbose = NO;       /* verbose printout */
 
 /* Loock only in plain, Shift, Control and Alt map */
 /*   Ref : man page for keytables(5) for the value of the modifier key */
@@ -87,7 +105,7 @@ static char *key_shift_msg [nb_kbmap] = { "", "Shift ", "Ctrl ", "Alt " };
 
 typedef struct _Key_Assign {
     short lkcode;           /* linux keycode (as displayed by "showkey -k" XLATE mode) */
-    short Xkcode;           /* X11 keycode (use xev or showkey progs to display value) */
+    short Xkeysym;          /* X11 keycode (use xev or showkey progs to display value) */
     char *klabel;           /* label for listing and display */
     int kcode;              /* keycode linux console or X11 */
     int ktfunc [nb_kbmap];  /* key function (retuned by linux key mapping) */
@@ -97,8 +115,8 @@ typedef struct _Key_Assign {
 /* --------------------------------------------------- */
 
 static Key_Assign pc_keyboard_desc [] = {
-			/* lkcode  Xkcode label */
-    /* === Function Keys === */                         /* keycode for linux X server */
+			/* lkcode  Xkeysym label */         /* keycode for */
+    /* === Function Keys === */                             /* XFree server*/
     /*  F1          */      {  59, XK_F1 , "F1"  },             /*   67 */
     /*  F2          */      {  60, XK_F2 , "F2"  },             /*   68 */
     /*  F3          */      {  61, XK_F3 , "F3"  },             /*   69 */
@@ -141,7 +159,7 @@ static Key_Assign pc_keyboard_desc [] = {
 
     /*  KP +        */      {  78, XK_KP_Add    ,  "KP-PLUS" }, /*   86 */
     /*  KP ENTER    */      {  96, XK_KP_Enter  , "KP-ENTER" }, /*  108 */
-    /*  KP .        */      {  83, XK_KP_Separator, "KP-DOT" }, /*   91 */
+    /*  KP .        */      {  83, XK_KP_Delete ,   "KP-DOT" }, /*   91 */
 
     /*  KP NUM LOCK */      {  69, XK_Num_Lock   , "KP-NLOCK" }, /*   77 */
     /*  KP /        */      {  98, XK_KP_Divide  , "KP-DIV"   }, /*  112 */
@@ -155,9 +173,10 @@ static Key_Assign pc_keyboard_desc [] = {
     };
 
 #define pc_keyboard_desc_nb (sizeof (pc_keyboard_desc) / sizeof (pc_keyboard_desc[0]))
-static int nb_key = pc_keyboard_desc_nb;
+static const int nb_key = pc_keyboard_desc_nb;
 
-#if 0
+#undef COMMENTS
+#ifdef COMMENTS
 /* -------------------------------------------------------------
     Usefull reading : "The Linux Keyboard and Console HOWTO"
 	in Linux doc. (file : /usr/doc/HOWTO/Keyboard-and-Console-HOWTO)
@@ -234,6 +253,18 @@ static int nb_key = pc_keyboard_desc_nb;
 		using synonyms if needed.
 	    2 - found in /usr/include/linux/keyboard.h to found
 		the Kxxx symbol for the function value.
+
+    The string generated by a Function key, and Editing key is defined
+    by the "char func_buf[]" array (function value in the range 0x01xx),
+    the index in func_buf[] array is the value xx.
+    For example the key which is mapped to "Remove" (0x0116), like normaly
+    the Delete key in the Editing key pad, the string generated is
+    func_buf[(0x0166 & 0x00ff)] which is : '\033', '[', '3', '~', '\0'
+    See "KT_FN descriptor" arrays later in this file.
+    The default map arrays can be produced by
+    "loadkeys --mktable defkeymap.map"
+    The map used to build the kernel is defined in
+    /usr/src/linux-2.2.12/drivers/char/defkeymap.c
 
     The string generated for the numerical key pad and the cursor keys
     is build in the keyboard driver and cannot be redefined by "loadkeys"
@@ -329,7 +360,7 @@ struct _all_ktdesc {
     int kt_type;            /* KT type for linux / console, not used for xterm */
     char *type_name;        /* label for the group */
     struct KTdesc **ktdesc_array;   /* pointer to the descriptor array */
-    int *ktdesc_nb;         /* numberof element in the array */
+    int *ktdesc_nb;         /* number of elements in the array */
     };
 
 /* Terminal related global variables */
@@ -343,7 +374,7 @@ static Flag keypad_appl_mode = NO; /* application (Yes) or numeric (NO) */
 static Flag cursor_alt_mode  = NO; /* alternate (Yes) or normal (NO) */
 
 static Flag assess_cursor_flg, assess_keypad_flg;   /* terminal mode to be assessed */
-static int kt_void;             /* not use entry in kt description array */
+static int kt_void;             /* not in use entry in kt description array */
 
 static struct _all_ktdesc *inuse_ktdesc = NULL; /* all_ktdesc or all_Xktdesc */
 static int inuse_ktdesc_nb;     /* nb of elements in inuse_ktdesc [] */
@@ -531,6 +562,7 @@ static struct KTdesc kt_desc_fn [] = {
 
 static struct KTdesc kt_desc_latin [] = {
 	{ '\t'  ,  NULL ,  "\t"   },  /* horizontal tab */
+	{ '\b'  ,  NULL ,  "\b"   },  /* <Ctrl H> back space */
 	{ '\177',  NULL ,  "\177" },  /* back space */
     };
 #define KT_LATIN_nb (sizeof (kt_desc_latin) / sizeof (struct KTdesc))
@@ -566,18 +598,18 @@ static struct _all_ktdesc all_ktdesc [] = {
 /* --------------------- */
 
 /* It is assumed thet the VT100 emulation is in use, the VT52 mode is not
-	supported and the 3270 is not handle.
-
-    In the old version of xterm (or in nxterm ...) the string generated
-	for XK_Home, XK_KP_Home, XK_End, XK_KP_End, XK_Begin, XK_KP_Begin
-	are not properly defined. In this case it is necessary to
-	override the translation table for XTerm  with :
-
-
-    Ref :
-	"/usr/include/X11/keysymdef.h"  for symbol definition.
-	XFree xterm source : "input.c" file for the way use by xtrem
-	    terminal emulator to generate the escape sequence.
+ *      supported and the 3270 is not handle.
+ *
+ *  In the old version of xterm (or in nxterm ...) the string generated
+ *      for XK_Home, XK_KP_Home, XK_End, XK_KP_End, XK_Begin, XK_KP_Begin
+ *      are not properly defined. In this case it is necessary to
+ *      override the translation table for XTerm  with :
+ *
+ *
+ *  Ref :
+ *      "/usr/include/X11/keysymdef.h"  for symbol definition.
+ *      XFree xterm source : "input.c" file for the way use by xtrem
+ *          terminal emulator to generate the escape sequence.
 */
 
 /*
@@ -613,6 +645,8 @@ It is assumed that this translation and keymapping is done on Linux X server
 # !   This is an good compromise setting fo the rand editor.
 # !   A link to this file is expected to be defined in
 # !       "/usr/X11R6/lib/X11/xinit/.Xmodmap"
+# ! The keycode values are given for a XFree86 X11 server,
+# !     they must be replaced by the actual values of the X server vendor.
 #
 # ! keycode  22 = BackSpace
 # ! keycode  23 = Tab KP_Tab
@@ -652,6 +686,44 @@ It is assumed that this translation and keymapping is done on Linux X server
 #-----------------------------------------------------------------------------
 */
 
+/* X Terminal emulator parameters */
+/* ------------------------------ */
+
+typedef enum { unknow, xterm, gnome } Terminal_Class;
+
+static const char unknow_dpy_name [] = "--Unknown--";
+static const char undef_dpy_name [] = "--Undefined--";
+
+char *emul_name = NULL, *emul_class = NULL;
+
+static Display *dpy = NULL;
+static char *dpy_name = NULL;
+static char *dpy_msg = NULL;
+static char *Xvendor_name = NULL;
+static int min_keycode = 0, max_keycode = 0;
+static int max_shift_level = 0;
+static Window emul_window;
+static XClassHint class_hints;
+static KeySym *x_keyboard_map = NULL;
+static int keysym_per_keycode;
+static Flag use_XKB_flg = NO;
+static Terminal_Class x_terminal_class = unknow;
+static Flag gnome_swap_flg = NO;
+static Flag xterm_backarrow_flg = NO;
+static char *xkb_ext_msg = NULL;    /* why XKB is not used */
+static XkbDescRec * xkb_rec = NULL;
+static char *keycodes_str, *geometry_str, *symbols_str,
+	    *types_str, *compat_str, *phys_symbols_str;
+
+/* Keyboard structure : keyboard sections (for XFree sever)
+ *   The "Alpha" section must be the last one.
+ */
+static unsigned char *section_names [] = {
+	"Function", "Editing", "Keypad", "Alpha"
+    };
+#define num_section_names (sizeof (section_names) / sizeof (section_names[0]))
+static int section_idx [num_section_names];
+
 
 /* Cursor control & motion */
 /*      sensitive to cursor mode (DECCKM) : normal or alternate */
@@ -662,17 +734,17 @@ static struct KTdesc Xkt_desc_cursor [] = {
     { XK_Insert   , "Insert"   , "\033[2~",   NULL     ,   NULL     },
     { XK_Delete   , "Delete"   , "\033[3~",   NULL     ,   NULL     },
 
-    { XK_Home     , "Home"     ,  NULL     , "\033[H"  ,  "\033OH"  },
-    { XK_Left     , "Left"     ,  NULL     , "\033[D"  ,  "\033OD"  },   /* Move left, left arrow */
-    { XK_Up       , "Up"       ,  NULL     , "\033[A"  ,  "\033OA"  },   /* Move up, up arrow */
-    { XK_Right    , "Right"    ,  NULL     , "\033[C"  ,  "\033OC"  },   /* Move right, right arrow */
-    { XK_Down     , "Down"     ,  NULL     , "\033[B"  ,  "\033OB"  },   /* Move down, down arrow */
-    { XK_Prior    , "Prior"    , "\033[5~" ,  NULL     ,   NULL     },   /* Prior, previous */
-    { XK_Page_Up  , "Page_Up"  , "\033[5~" ,  NULL     ,   NULL     },
-    { XK_Next     , "Next"     , "\033[6~" ,  NULL     ,   NULL     },   /* Next */
-    { XK_Page_Down, "Page_Down", "\033[6~" ,  NULL     ,   NULL     },
-    { XK_End      , "End"      ,  NULL     , "\033[F"  ,  "\033OF"  },   /* EOL */
-    { XK_Begin    , "Begin"    ,  NULL     , "\033[E"  ,  "\033OE"  },   /* BOL */
+    { XK_Home        , "Home"        ,  NULL     , "\033[H"  ,  "\033OH"  },
+    { XK_Left        , "Left"        ,  NULL     , "\033[D"  ,  "\033OD"  },   /* Move left, left arrow */
+    { XK_Up          , "Up"          ,  NULL     , "\033[A"  ,  "\033OA"  },   /* Move up, up arrow */
+    { XK_Right       , "Right"       ,  NULL     , "\033[C"  ,  "\033OC"  },   /* Move right, right arrow */
+    { XK_Down        , "Down"        ,  NULL     , "\033[B"  ,  "\033OB"  },   /* Move down, down arrow */
+    { XK_Prior       , "Prior"       , "\033[5~" ,  NULL     ,   NULL     },   /* Prior, previous */
+    { XK_Page_Up     , "Page_Up"     , "\033[5~" ,  NULL     ,   NULL     },
+    { XK_Next        , "Next"        , "\033[6~" ,  NULL     ,   NULL     },   /* Next */
+    { XK_Page_Down   , "Page_Down"   , "\033[6~" ,  NULL     ,   NULL     },
+    { XK_End         , "End"         ,  NULL     , "\033[F"  ,  "\033OF"  },   /* EOL */
+    { XK_Begin       , "Begin"       ,  NULL     , "\033[E"  ,  "\033OE"  },   /* BOL */
 
 	/* XK_KP_Home ... XK_KP_Begin are mapped into XK_Home ... XK_Begin by xterm routines */
 						 /* normal      alternate */
@@ -761,9 +833,50 @@ static struct KTdesc Xkt_desc_fn [] = {
 
 static struct KTdesc Xkt_desc_latin [] = {
     { XK_Tab,       "Tab",        "\t"  ,  NULL, NULL },
-    { XK_BackSpace, "BackSpace",  "\177",  NULL, NULL },
+    { XK_BackSpace, "BackSpace",  "\b"  ,  NULL, NULL },
+    { XK_Delete,    "Delete",     "\177",  NULL, NULL },
 };
 #define XKT_LATIN_nb (sizeof (Xkt_desc_latin) / sizeof (struct KTdesc))
+
+
+/* Overwrite XTerm KTdesc for various classes of X terminal emulator */
+
+/* This description must correspond to the normal setting
+ *  of back space and delete keys (see in menu :
+ *      Setting, Preferences, Swap DEL/Backspace
+ * See routine "zvt_term_key_press" in gnome_terminal source,
+ *      in file ".../gnome/lib/zvt/zvtterm.c"
+ */
+static struct KTdesc Xkt_desc_GnomeTerminal [] = {
+    { XK_BackSpace, "BackSpace", "\b"      , NULL,  NULL },
+    { XK_Delete   , "Delete"   , "\177"    , NULL , NULL },
+    { XK_End      , "End"      , "\033[4~" , NULL , NULL },
+    { XK_Home     , "Home"     , "\033[1~" , NULL , NULL },
+    { XK_KP_End   , "End"      , "\033[4~" , NULL , NULL },
+    { XK_KP_Home  , "Home"     , "\033[1~" , NULL , NULL },
+    { XK_F1       , "F1"       , "\033OP"  , NULL , NULL },
+    { XK_F2       , "F2"       , "\033OQ"  , NULL , NULL },
+    { XK_F3       , "F3"       , "\033OR"  , NULL , NULL },
+    { XK_F4       , "F4"       , "\033OS"  , NULL , NULL },
+};
+#define XKT_GnomeTerminal_nb (sizeof (Xkt_desc_GnomeTerminal) / sizeof (struct KTdesc))
+
+/* XTerm class when BackarrowKey is "false" (default is "True"). */
+static struct KTdesc Xkt_desc_XTerm [] = {
+    { XK_BackSpace, "BackSpace", "\177"     , NULL,  NULL },
+};
+#define XKT_XTerm_nb (sizeof (Xkt_desc_XTerm) / sizeof (struct KTdesc))
+
+static struct _terminal_overwrite {
+	char * class_name;
+	struct KTdesc *Xkt_desc_overwrite;
+	int overwrite_nb;   /* number of elements in the overwrite array */
+	Terminal_Class class;
+    } terminal_overwrite [] = {
+	{ "GnomeTerminal", Xkt_desc_GnomeTerminal, XKT_GnomeTerminal_nb, gnome },
+	{ "XTerm", Xkt_desc_XTerm, XKT_XTerm_nb, xterm },
+	{  NULL, NULL, 0, unknow }
+    };
 
 
 static struct KTdesc *Xktcur_desc_pt = Xkt_desc_cursor;
@@ -794,17 +907,17 @@ static int Xkt_desc_pt_nb;
 
 /* special case of badly handle key in old xterm version and in nxterm */
 /*  The handling for these key is correctly done in new version of xterm,
-	we assume that a "#VT100.Translation: #override" is done
-	in app_defaults ("/usr/X11R6/lib/X11/app_defaults/NXTerm")
-	to provide the escape sequence of the new xterm. But this
-	cannot provide the adequate handling of the cursor mode.
-	A special case in "string_to_key" routine is done to go
-	arround this problem.
-*/
+ *      we assume that a "#VT100.Translation: #override" is done
+ *      in app_defaults ("/usr/X11R6/lib/X11/app_defaults/NXTerm")
+ *      to provide the escape sequence of the new xterm. But this
+ *      cannot provide the adequate handling of the cursor mode.
+ *      A special case in "string2key_label" routine is done to go
+ *      arround this problem.
+ */
 
 static struct _nxterm_special {
     int ktfunc;
-    struct KTdesc *Xkt_desc_pt;
+    struct KTdesc *Xktdesc_special_pt;
     } nxterm_special [] = {
 	{ XK_Home    , NULL },
 	{ XK_End     , NULL },
@@ -816,9 +929,10 @@ static struct _nxterm_special {
 #define nxterm_special_nb (sizeof (nxterm_special) / sizeof (nxterm_special[0]))
 
 /* In Linux xterm, which is compiled with the OPT_VT52_MODE keys F1-F4
-    are interpreted as PF1-PF4 (see input.c in Input routine.
-    A back translation as to be done for a correct handling of F1-F4
-*/
+ *  are interpreted as PF1-PF4 (see input.c in Input routine.
+ *  A back translation as to be done for a correct handling of F1-F4
+ *  see routine 'overwrite_PF1PF4' called by 'getkbfile' during initialization.
+ */
 
 static struct _xterm_F1F4_keys {
     char *PFstring;
@@ -1056,9 +1170,9 @@ static char *get_linux_kt_strg (int *ktcode_pt, unsigned int shift)
 /* Routines specific for the xterm family terminal */
 /* ----------------------------------------------- */
 
-static int compare_keyboard_desc (Key_Assign **kdesc1, Key_Assign **kdesc2)
+static int compare_Key_Assign_keysym (Key_Assign **kdesc1, Key_Assign **kdesc2)
 {
-    return ((*kdesc1)->Xkcode - (*kdesc2)->Xkcode );
+    return ((*kdesc1)->Xkeysym - (*kdesc2)->Xkeysym );
 }
 
 static int compare_Xkt_desc_tcap (struct KTdesc **Xkt_desc1, struct KTdesc **Xkt_desc2)
@@ -1071,6 +1185,33 @@ static int compare_Xkt_desc_keysym (struct KTdesc **Xkt_desc1, struct KTdesc **X
     return ((*Xkt_desc1)->ktfunc - (*Xkt_desc2)->ktfunc);
 }
 
+/* Build and sort the Ktdesc according to keysym (ktfunc) value */
+static void sort_keysym_desc ()
+{
+    struct KTdesc **Xktdesc_ptpt, *Xktdesc_pt, Xktdesc;
+    int i, j, idx, nb;
+
+    if ( Xkt_desc_pt ) return;  /* already done */
+
+    /* array for keysymb description */
+    for ( i = Xkt_desc_pt_nb = 0 ; i < all_Xktdesc_nb ; i++ ) {
+	Xkt_desc_pt_nb += *(all_Xktdesc [i].ktdesc_nb);
+    }
+    Xkt_desc_pt = (struct KTdesc *(*)[]) calloc (Xkt_desc_pt_nb, sizeof (struct KTdesc **));
+    if ( ! Xkt_desc_pt ) return;    /* nothing can be done */
+
+    for ( i = idx = 0 ; i < all_Xktdesc_nb ; i++ ) {
+	nb = *(all_Xktdesc [i].ktdesc_nb);
+	for ( j = 0 ; j < nb ; j++ ) {
+	    (*Xkt_desc_pt) [idx++] = &((*(all_Xktdesc [i].ktdesc_array))[j]);
+	}
+    }
+    /* sort Xkt_desc_pt by ktfunc (keysym) values */
+    qsort ((void *)Xkt_desc_pt , Xkt_desc_pt_nb,
+	   sizeof (struct KTdesc *), (int (*)()) compare_Xkt_desc_keysym);
+}
+
+
 static get_xterm_map (char * xmodmap_filename)
 {
     Key_Assign *keyboard_desc_pt [pc_keyboard_desc_nb];
@@ -1081,29 +1222,74 @@ static get_xterm_map (char * xmodmap_filename)
     char line [256], *sp, *sp1;
     char * ksym_strg [nb_kbmap];
 
-    /* build arrays for quick search */
-    /* array for keyboard description */
+    int nb_ksym;
+    KeySym keysym;
+
+    sort_keysym_desc ();
+
+    /* build arrays of keyboard descriptor for quick search */
     for ( i = 0 ; i < pc_keyboard_desc_nb ; i++ )
 	keyboard_desc_pt [i] = &pc_keyboard_desc [i];
     qsort ((void *)keyboard_desc_pt , pc_keyboard_desc_nb,
-	   sizeof (Key_Assign *), (int (*)()) compare_keyboard_desc);
+	   sizeof (Key_Assign *), (int (*)()) compare_Key_Assign_keysym);
 
-    /* array for keysymb descrition */
-    for ( i = Xkt_desc_pt_nb = 0 ; i < all_Xktdesc_nb ; i++ )
-	Xkt_desc_pt_nb += *(all_Xktdesc [i].ktdesc_nb);
-    Xkt_desc_pt = (struct KTdesc *(*)[]) calloc (Xkt_desc_pt_nb, sizeof (struct KTdesc **));
-    if ( ! Xkt_desc_pt ) return;    /* nothing can be done */
+#ifndef USE_XMODMAP
+    /* parse the keyboard mapping */
+    nb_ksym = max_keycode - min_keycode +1;
+    if ( x_keyboard_map ) {
+	for ( i = 0 ; i < nb_ksym ; i++ ) {
+	    kbdesc_val_pt = &kbdesc;
+	    kbdesc_val_pt->kcode = i + min_keycode;
 
-    for ( i = idx = 0 ; i < all_Xktdesc_nb ; i++ ) {
-	nb = *(all_Xktdesc [i].ktdesc_nb);
-	for ( j = 0 ; j < nb ; j++ ) {
-	    (*Xkt_desc_pt) [idx++] = &((*(all_Xktdesc [i].ktdesc_array))[j]);
+	    /* setup the keyboard descriptor (for the case where
+	     * X Keyboard extension is not available */
+	    kbdesc_pt = NULL;
+	    for ( j = 0 ; j < max_shift_level ; j ++ ) {
+		keysym = x_keyboard_map [keysym_per_keycode*i +j];
+		if ( keysym == NoSymbol ) continue; /* nothing assigned */
+
+		Xktdesc.ktfunc = keysym;
+		Xktdesc.tcap = XKeysymToString (keysym);
+		Xktdesc_pt = &Xktdesc;
+		Xktdesc_ptpt = (struct KTdesc **) bsearch (&Xktdesc_pt,
+				*Xkt_desc_pt, Xkt_desc_pt_nb,
+				sizeof (struct KTdesc *),
+				(int (*)()) compare_Xkt_desc_keysym);
+		if ( ! Xktdesc_ptpt ) continue;
+
+		Xktdesc_pt = *Xktdesc_ptpt;
+		if ( j == 0 ) {
+		    /* the unshifted assignement is supposed to be 'regular' */
+		    /* get the key for this value */
+		    kbdesc_val_pt->Xkeysym = Xktdesc_pt->ktfunc;    /* keysymb value */
+		    kbdesc_ptpt = (Key_Assign **) bsearch (&kbdesc_val_pt, keyboard_desc_pt,
+				    pc_keyboard_desc_nb, sizeof (Key_Assign *),
+				    (int (*)()) compare_Key_Assign_keysym);
+		    if ( ! kbdesc_ptpt ) {
+			/* not found, try for the key shifted symbol */
+			kbdesc_val_pt->Xkeysym = x_keyboard_map [keysym_per_keycode*i +1];
+			kbdesc_ptpt = (Key_Assign **) bsearch (&kbdesc_val_pt, keyboard_desc_pt,
+					pc_keyboard_desc_nb, sizeof (Key_Assign *),
+					(int (*)()) compare_Key_Assign_keysym);
+		    }
+		    if ( kbdesc_ptpt ) {
+			kbdesc_pt = *kbdesc_ptpt;
+			kbdesc_pt->kcode = kbdesc_val_pt->kcode;
+		    }
+		}
+		if ( kbdesc_pt ) {
+		    kbdesc_pt->ktfunc [j] = Xktdesc_pt->ktfunc;
+		}
+	    }
 	}
     }
+#endif /* - USE_XMODMAP */
+
+#ifdef USE_XMODMAP
+    /* parse the output of "xmodmap -pke" to get the mapping */
     qsort ((void *)Xkt_desc_pt , Xkt_desc_pt_nb,
 	   sizeof (struct KTdesc *), (int (*)()) compare_Xkt_desc_tcap);
 
-    /* parse the output of "xmodmap -pke" to get the mapping */
     xmodmap_file = fopen (xmodmap_filename, "r");
     if ( xmodmap_file == NULL ) return;
 
@@ -1152,10 +1338,10 @@ static get_xterm_map (char * xmodmap_filename)
 	    if ( j == 0 ) {
 		/* the unshifted assignement is supposed to be 'regular' */
 		/* get the key for this value */
-		kbdesc_val_pt->Xkcode = Xktdesc_pt->ktfunc;     /* keysymb value */
+		kbdesc_val_pt->Xkeysym = Xktdesc_pt->ktfunc;    /* keysymb value */
 		kbdesc_ptpt = (Key_Assign **) bsearch (&kbdesc_val_pt, keyboard_desc_pt,
 				pc_keyboard_desc_nb, sizeof (Key_Assign *),
-				(int (*)()) compare_keyboard_desc);
+				(int (*)()) compare_Key_Assign_keysym);
 		if ( kbdesc_ptpt ) {
 		    kbdesc_pt = *kbdesc_ptpt;
 		    kbdesc_pt->kcode = kbdesc_val_pt->kcode;
@@ -1166,29 +1352,34 @@ static get_xterm_map (char * xmodmap_filename)
 	    }
 	}
     }
-
     fclose (xmodmap_file);
-    /* re-order the array to be used by "get_xterm_kt_escseq" */
+#endif /* USE_XMODMAP */
+
+    /* re-order the array to be used by "xterm_keysym2string" */
     qsort ((void *)Xkt_desc_pt, Xkt_desc_pt_nb,
 	   sizeof (struct KTdesc *), (int (*)()) compare_Xkt_desc_keysym);
 
-    /* build the special case array of cursor key for nxterm */
-    for ( i = 0 ; i < nxterm_special_nb ; i++ ) {
-	struct KTdesc Xktdesc, *Xktdesc_pt, **Xktdesc_ptpt;
-	Xktdesc.ktfunc = nxterm_special [i].ktfunc;
-	Xktdesc_pt = &Xktdesc;
-	Xktdesc_ptpt = (struct KTdesc **) bsearch (&Xktdesc_pt,
-			*Xkt_desc_pt, Xkt_desc_pt_nb,
-			sizeof (struct KTdesc *),
-			(int (*)()) compare_Xkt_desc_keysym);
-	if ( ! Xktdesc_ptpt ) continue;
-	nxterm_special [i].Xkt_desc_pt = *Xktdesc_ptpt;
+    if ( x_terminal_class == xterm ) {
+	/* build the special case array of cursor key for nxterm */
+	for ( i = 0 ; i < nxterm_special_nb ; i++ ) {
+	    struct KTdesc Xktdesc, *Xktdesc_pt, **Xktdesc_ptpt;
+	    Xktdesc.ktfunc = nxterm_special [i].ktfunc;
+	    Xktdesc_pt = &Xktdesc;
+	    Xktdesc_ptpt = (struct KTdesc **) bsearch (&Xktdesc_pt,
+			    *Xkt_desc_pt, Xkt_desc_pt_nb,
+			    sizeof (struct KTdesc *),
+			    (int (*)()) compare_Xkt_desc_keysym);
+	    if ( ! Xktdesc_ptpt ) continue;
+	    nxterm_special [i].Xktdesc_special_pt = *Xktdesc_ptpt;
+	}
     }
 }
 
-/* get_xterm_kt_escseq : get the escape sequence for a given kt (keysym) code */
+/* xterm_keysym2string : get the terminal emulator string generated
+ *   for the given keysym code
+ */
 
-static char *get_xterm_kt_escseq (int keysym, char **tcap_strg)
+static char *xterm_keysym2string (int keysym, char **tcap_strg)
 {
     static char latin[2];
     struct KTdesc Xktdesc, *Xktdesc_pt, **Xktdesc_ptpt;
@@ -1201,7 +1392,7 @@ static char *get_xterm_kt_escseq (int keysym, char **tcap_strg)
 	return (latin);
     }
 
-    /* --------------
+    /* -------------- old XTerm version --------------
     if ( (keysym >= XK_KP_Home) && (keysym <= XK_KP_Begin) ) {
 	keysym += XK_Home - XK_KP_Home;
     }
@@ -1218,31 +1409,6 @@ static char *get_xterm_kt_escseq (int keysym, char **tcap_strg)
     Xktdesc_pt = *Xktdesc_ptpt;
     if ( tcap_strg ) *tcap_strg = Xktdesc_pt->tcap;
     return (Xktdesc_pt->strg);
-}
-
-/* get_xterm_kt_strg : get the string for a given kt (keysym) code */
-
-static char *get_xterm_kt_strg (int *keysym_pt, unsigned int shift)
-{
-    static char latin[2];
-    char *strg;
-    int keysym;
-
-    keysym = *keysym_pt;
-    if ( (keysym >= XK_space) && (keysym <= XK_asciitilde) ) {
-	latin [0] = (keysym - XK_space) + ' ';
-	latin [1] = '\0';
-	return (latin);
-    }
-
-    /* -------------
-    if ( (keysym >= XK_KP_Home) && (keysym <= XK_KP_Begin) ) {
-	keysym += XK_Home - XK_KP_Home;
-	*keysym_pt = keysym;
-    }
-    */
-    strg = get_xterm_kt_escseq (keysym, NULL);
-    return (strg);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -1380,7 +1546,7 @@ static void get_kb_map (char *terminal, char *init_strg,
 
     /* reset the keyboard description according to the terminal class */
     for ( i = 0 ; i < nb_key ; i++ ) {
-	pc_keyboard_desc[i].kcode = ( Xterminal_flg ) ? XK_VoidSymbol : pc_keyboard_desc[i].lkcode;
+	pc_keyboard_desc[i].kcode = ( Xterminal_flg ) ? NoSymbol : pc_keyboard_desc[i].lkcode;
 	for ( j = 0 ; j < nb_kbmap ; j++ ) {
 	    /* reset to no action mapped */
 	    pc_keyboard_desc[i].ktfunc[j] = kt_void;
@@ -1389,7 +1555,6 @@ static void get_kb_map (char *terminal, char *init_strg,
 
     if ( init_strg ) get_terminal_mode (init_strg, app_mode, alt_cursor_mode);
 
-    if ( ! xmodmap_filename ) Xterminal_flg = NO;
     if ( Xterminal_flg ) get_xterm_map (xmodmap_filename);
     else                 get_linux_map (xmodmap_filename);
     if ( xmodmap_filename ) (void) unlink (xmodmap_filename);
@@ -1398,39 +1563,525 @@ static void get_kb_map (char *terminal, char *init_strg,
     get_map_flg = YES;
 }
 
-/* terminal_type : test for X terminal case and build xmodmap file */
-/* --------------------------------------------------------------- */
+/* X KEYBOARD Extension processing */
+/* ------------------------------- */
+
+static void swap_backspace_del (struct KTdesc **Xktdesc_ptpt, int nb,
+				char *bksp_str, char *del_str,
+				Flag swap_flg )
+{
+    int i;
+
+    for ( i = 0 ; i < nb ; i++, Xktdesc_ptpt++ ) {
+	if ( (*Xktdesc_ptpt)->ktfunc == XK_BackSpace ) {
+	    (*Xktdesc_ptpt)->strg = swap_flg ? del_str : bksp_str;
+	}
+	else if ( (*Xktdesc_ptpt)->ktfunc == XK_Delete ) {
+	    (*Xktdesc_ptpt)->strg = swap_flg ? bksp_str : del_str;
+	}
+    }
+}
+
+/* Specific X terminal emulator setting */
+/* ------------------------------------ */
+
+static void get_gnome_normal_bksp_del_strg (char **bksp_strg_pt,
+					    char **del_strg_pt)
+{
+    int i;
+
+    for ( i = 0 ; i < XKT_GnomeTerminal_nb ; i++ ) {
+	if ( Xkt_desc_GnomeTerminal[i].ktfunc == XK_BackSpace )
+	    *bksp_strg_pt = Xkt_desc_GnomeTerminal[i].strg;
+	if ( Xkt_desc_GnomeTerminal[i].ktfunc == XK_Delete )
+	    *del_strg_pt = Xkt_desc_GnomeTerminal[i].strg;
+    }
+}
+
+/* Swap in cmd list backspace and delete cmd */
+void swap_cmd_back_del ( char *bksp_str, char *del_str, Flag swap_flg)
+{
+    extern int itgetleave (char *strg, struct itable **it_leave, struct itable *head);
+    extern struct itable *ithead;
+
+    static char bksp_cmd, del_cmd;
+    static Flag init_done = NO;
+
+    char *bksp_strg, *del_strg;
+    struct itable *it_leave_bksp, *it_leave_del;
+
+    bksp_strg = bksp_str;
+    del_strg = del_str;
+    if ( !bksp_strg || !del_strg )
+	get_gnome_normal_bksp_del_strg (&bksp_strg, &del_strg);
+    if ( !bksp_strg || !del_strg ) return;
+
+    it_leave_bksp = it_leave_del = NULL;
+    (void) itgetleave (bksp_strg, &it_leave_bksp, ithead);
+    (void) itgetleave (del_strg,  &it_leave_del,  ithead);
+
+    if ( !it_leave_bksp || !it_leave_del ) return;
+    if (   (it_leave_bksp->it_len != 1)
+	|| (it_leave_del->it_len  != 1) ) return;
+
+    if ( ! init_done ) {
+	bksp_cmd = *(it_leave_bksp->it_val);
+	del_cmd  = *(it_leave_del->it_val);
+	init_done = YES;
+    }
+    *(it_leave_bksp->it_val) = swap_flg ? del_cmd  : bksp_cmd;
+    *(it_leave_del->it_val)  = swap_flg ? bksp_cmd : del_cmd;
+}
+
+
+static void gnome_setting ()
+{
+    static char gnome_term_conf [] = "/.gnome/Terminal";
+    static char swap [] = "swap_del_and_backspace";
+    static char conf [] = "[Config]";
+    static char true [] = "true";
+
+    char fname [PATH_MAX], line[256];
+    FILE *file;
+    Flag config, swap_flg;
+    char *str, *bksp_str, *del_str;
+    int i;
+
+    gnome_swap_flg = NO;
+    if ( x_terminal_class != gnome ) return ;
+
+    memset (fname, 0, sizeof (fname));
+    memset (line, 0, sizeof (line));
+    str = getenv ("HOME");
+    if ( !str && !*str ) return;
+    strcpy (fname, str);
+    strcat (fname, gnome_term_conf);
+    file = fopen (fname, "r");
+    if ( file == NULL ) return;
+
+    config = NO;
+    while ( fgets (line, sizeof (line), file) != NULL ) {
+	if ( line[0] == '[' ) config = (strncmp (line, conf, sizeof (conf) -1) == 0);
+	if ( ! config ) continue;
+
+	if ( strncmp (swap, line, sizeof (swap) -1) != 0 ) continue;
+	str = strchr (line, '=');
+	if ( ! str ) continue;
+	gnome_swap_flg = swap_flg = (strncasecmp (str+1, true, sizeof (true) -1) == 0);
+    }
+    fclose (file);
+
+    /* swap DEL and Backspace keysym to string convertion */
+    bksp_str = del_str = NULL;
+    get_gnome_normal_bksp_del_strg (&bksp_str, &del_str);
+    if ( !bksp_str || !del_str ) return;
+
+    swap_backspace_del (&(*Xkt_desc_pt) [0], Xkt_desc_pt_nb,
+			bksp_str, del_str, swap_flg);
+
+    /* swap also in the cmd list */
+    swap_cmd_back_del (bksp_str, del_str, swap_flg);
+}
+
+/* Get the X terminal emulator class */
+static Terminal_Class get_terminal_class ()
+{
+    struct _terminal_overwrite *tover;
+
+    x_terminal_class = unknow;
+    if ( ! emul_class ) return;
+
+    for ( tover = &terminal_overwrite [0] ; tover->class_name  ; tover++ ) {
+	if ( strncasecmp (tover->class_name, emul_class, strlen (tover->class_name)) == 0 ) break;
+    }
+    if ( ! tover->class_name ) return;
+    x_terminal_class = tover->class;
+}
+
+
+/* Overwrite entry in the KTdesc for the given X terminal emulator */
+static void overwrite_ktdesc (char * emul_class)
+{
+    int ksym, i, j, k, nb;
+    struct _terminal_overwrite *tover;
+    struct KTdesc *ktdsc;
+
+    if ( x_terminal_class == unknow ) (void) get_terminal_class ();
+
+    for ( tover = &terminal_overwrite [0] ; tover->class_name  ; tover++ ) {
+	if ( tover->class == x_terminal_class ) break;
+    }
+    if ( (tover->overwrite_nb == 0) || !tover->Xkt_desc_overwrite ) return;
+
+    for ( i = 0 ; i < all_Xktdesc_nb ; i++ ) {
+	nb = *(all_Xktdesc [i].ktdesc_nb);
+	for ( j = 0 ; j < nb ; j++ ) {
+	    ktdsc = &((*(all_Xktdesc [i].ktdesc_array))[j]);
+	    ksym = ktdsc->ktfunc;
+	    for ( k = tover->overwrite_nb -1 ; k >= 0 ; k-- ) {
+		if ( tover->Xkt_desc_overwrite[k].ktfunc != ksym ) continue;
+		*ktdsc = tover->Xkt_desc_overwrite[k];
+		break;
+	    }
+	}
+    }
+
+    if ( Xkt_desc_pt ) {
+	/* force to rebuild the KTdesc */
+	free (Xkt_desc_pt);
+	Xkt_desc_pt = NULL;
+    }
+    sort_keysym_desc ();
+    if ( x_terminal_class == gnome ) gnome_setting ();
+}
+
+
+
+/* Provide for 'status' command some info */
+void xkb_info (char *buf)
+{
+    char *str1, *str2, *str3, *str4;
+    if ( xkb_ext_msg )
+	sprintf (buf, "  %s\n", xkb_ext_msg);
+    else {
+	sprintf (buf, "  Keyboard \"%s, %s, %s", keycodes_str, geometry_str,
+		 symbols_str);
+	if ( phys_symbols_str ) sprintf (&buf[strlen(buf)], ", engraved %s)\"\n",
+					 phys_symbols_str);
+	else sprintf (&buf[strlen(buf)], "\"\n");
+    }
+    if ( x_terminal_class  == xterm ) {
+	sprintf (&buf[strlen(buf)], "  When XTerm was started Backspace key generate %s\n",
+		 xterm_backarrow_flg ? "\"<Bksp>(^H)\" (default value)"
+				     : "\"<Del>('\\177')\"");
+	sprintf (&buf[strlen(buf)], "  see in XTerm 'Main Menu' entry 'Backarrow Key' %s\n",
+		 xterm_backarrow_flg ? "on (checked)"
+				     : "off (un-checked)");
+    } else if ( x_terminal_class  == gnome ) {
+       if ( gnome_swap_flg )
+	    sprintf (&buf[strlen(buf)], "  Backspace and Delete keys are swapped\n");
+    }
+}
+
+/* Get the X Keyboard data */
+static void get_xkb_data (Display *dpy)
+{
+    Status cc1, cc2, cc3;
+    char *sName;
+    int i, j;
+
+    keycodes_str = geometry_str = symbols_str = types_str = compat_str = phys_symbols_str = NULL;
+    xkb_rec = NULL;
+    if ( ! use_XKB_flg ) return;    /* cannot do any thing */
+
+    /* I do not understand how XkbGetKeyboard is working !!
+     * xkb_rec = XkbGetKeyboard (dpy, XkbNamesMask, XkbUseCoreKbd);
+     */
+    xkb_rec = XkbGetMap (dpy, XkbAllMapComponentsMask, XkbUseCoreKbd);
+    if ( ! xkb_rec ) {
+	xkb_ext_msg = "Cannot read XKB mapping";
+	use_XKB_flg = NO;
+	return;
+    }
+    cc1 = XkbGetNames (dpy, XkbAllNamesMask, xkb_rec);
+    cc2 = XkbGetGeometry (dpy, xkb_rec);
+
+    if ( xkb_rec->names ) {
+	keycodes_str = XkbAtomGetString (dpy, xkb_rec->names->keycodes);
+	geometry_str = XkbAtomGetString (dpy, xkb_rec->names->geometry);
+	symbols_str  = XkbAtomGetString (dpy, xkb_rec->names->symbols);
+	types_str    = XkbAtomGetString (dpy, xkb_rec->names->types);
+	compat_str   = XkbAtomGetString (dpy, xkb_rec->names->compat);
+	phys_symbols_str   = XkbAtomGetString (dpy, xkb_rec->names->phys_symbols);
+    }
+
+    /* get the keyboard section order */
+    memset (section_idx, -1, sizeof (section_idx));
+    for ( i = 0 ; i < xkb_rec->geom->num_sections ; i++ ) {
+	sName = XkbAtomGetString (xkb_rec->dpy, (xkb_rec->geom->sections)[i].name);
+	for ( j = 0 ; j < num_section_names ; j++ ) {
+	    if ( strcasecmp (sName, section_names [j]) != 0 ) continue;
+	    section_idx [j] = i;
+	}
+    }
+
+}
+
+/* Check and init the XKB extension library */
+Flag CheckXKBExtention (Display *dpy, int *reason,
+				  Flag *xkb_extension)
+{
+    int  major_num, minor_num;
+    int  *major_rtrn, *minor_rtrn;
+    int  ev_rtrn, err_rtrn;
+    char *dpyName;
+    Flag flg;
+    FILE *out;
+
+    xkb_ext_msg = NULL;
+    out = stdout;
+    if ( xkb_extension ) *xkb_extension = True;
+
+    if ( dpy == NULL ) {
+	if ( reason ) *reason = XkbOD_ConnectionRefused;
+	return False;
+    }
+
+    dpyName = DisplayString (dpy);
+    major_num = XkbMajorVersion;
+    minor_num = XkbMinorVersion;
+    major_rtrn = &major_num;
+    minor_rtrn = &minor_num;
+    if ( ! XkbLibraryVersion (major_rtrn, minor_rtrn) ) {
+	if ( reason ) *reason = XkbOD_BadLibraryVersion;
+	xkb_ext_msg = "X library supports incompatible version";
+	if ( verbose_helpflg ) {
+	    fprintf (out, "%s was compiled with XKB version %d.%02d\n",
+		     progname, XkbMajorVersion, XkbMinorVersion);
+	    fprintf (out, "X library supports incompatible version %d.%02d\n",
+		     major_num, minor_num);
+	}
+	return False;
+    }
+
+    major_num = XkbMajorVersion;
+    minor_num = XkbMinorVersion;
+    flg = XkbQueryExtension (dpy, NULL, &ev_rtrn, &err_rtrn,
+			     major_rtrn, minor_rtrn);
+    if ( ! flg ) {
+	if ( *major_rtrn || *minor_rtrn ) {
+	    if ( reason ) *reason= XkbOD_BadServerVersion;
+	    xkb_ext_msg = "X server uses incompatible X Keyboard Extension version";
+	    if ( verbose_helpflg ) {
+		fprintf (out, "%s was compiled with XKB version %d.%02d\n",
+			 progname, XkbMajorVersion, XkbMinorVersion);
+		fprintf (out, "X server \"%s\" uses incompatible version %d.%02d\n",
+			 dpyName, major_num, minor_num);
+	    }
+	} else {
+	    xkb_ext_msg = "X Keyboard Extension not present on your X11 server";
+	    if ( reason ) *reason= XkbOD_NonXkbServer;
+	    if ( xkb_extension ) *xkb_extension = False;
+	    if ( verbose_helpflg )
+		fprintf (out, "XKB Extension not present on your X11 server %s\n",
+			 dpyName);
+	}
+	return False;
+    }
+    if ( reason ) *reason= XkbOD_Success;
+    return True;
+}
+
+
+/* terminal_type : test for X terminal case and get the keyboard mapping */
+/* --------------------------------------------------------------------- */
 /*  If the terminal name is neither "linux" nor "console" (standard names for linux console)
-	use a call to "xmodmap -pke" to produce the file which will be
-	parsed to get the keyboard mapping.
-	If the call to xmodmap return an error, it assumes that the user
-	terminal is not an X terminal.
-*/
+ *    - Try to know which class of X Terminal emulator is used
+ *      by the value of  "WINDOWID" and window properties.
+ *    - Get keyboard mapping by a call to "XGetKeyboardMapping"
+ *    - Try to found emulator envoronemnt for sensitive value, like
+ *      the BackSpace and Delete key transaltion.
+ *
+ *  Old style (use by version less than 19.52)
+ *      use a call to "xmodmap -pke" to produce the file which will be
+ *      parsed to get the keyboard mapping.
+ *      If the call to xmodmap return an error, it assumes that the user
+ *      terminal is not an X terminal.
+ */
+
+
+static Flag get_xterm_backarrow (Display *dpy, Window wind, char *name, char *class)
+{
+    XtAppContext app_context;
+    XrmDatabase db;
+    int nb, argc;
+    char name_str[128], class_str[128], *str_type;
+    XrmValue value;
+    Bool cc;
+    Flag backarrow_flg;
+    Status status;
+    XTextProperty tp;
+
+    backarrow_flg = YES;    /* XTerm default */
+    argc = 0;
+    XtToolkitInitialize ();
+    app_context = XtCreateApplicationContext ();
+    XtDisplayInitialize (app_context, dpy, "rand", "Rand", NULL, 0, &argc, NULL);
+    db = XtScreenDatabase (DefaultScreenOfDisplay (dpy));
+    if ( ! db ) return backarrow_flg;
+
+    strcpy (name_str, name);
+    strcat (name_str, ".vt100.backarrowKey");
+    strcpy (class_str, class);
+    strcat (class_str, ".VT100.BackarrowKey");
+    cc = XrmGetResource (db, name_str, class_str, &str_type, &value);
+    if ( cc )
+	backarrow_flg = ( strcasecmp (value.addr, "false") != 0 );
+    XrmDestroyDatabase (db);
+
+    /* get the emulator command and options */
+    if ( XGetTextProperty (dpy, wind, &tp, XA_WM_COMMAND) ) {
+	nb = tp.nitems;
+	/* for the time be no option define the Backarrow state */
+    }
+    return backarrow_flg;
+}
 
 static char * terminal_type (char *terminal)
 {
     static char strg [PATH_MAX + 64];
     static char *tfname = NULL;
+    static char dpy_msg_buf [128];
+
     char tnm [64];
     int cc;
+    char *str, *str1;
+    long int lival;
+    Window wind, root, parent, *children;
+    int nchildren;
+    XClassHint class_hints;
+    XrmDatabase db;
+    Flag overwrite;
 
-    Xterminal_flg = NO;     /* default */
-    if ( ! terminal ) return;
-    if (   (strcasecmp (terminal, "linux") == 0)
-	|| (strcasecmp (terminal, "console") == 0) ) return (NULL);
+    /* default */
+    (void *) x_keyboard_map = (void *) tfname = NULL;
+    use_XKB_flg = Xterminal_flg = NO;
+    x_terminal_class  == unknow;
+    emul_name  = "unknown";
+    emul_class = "Unknown";
+    max_shift_level = keysym_per_keycode = nb_kbmap;
+    min_keycode = max_keycode = 0;
+    dpy_name = Xvendor_name = (char *) unknow_dpy_name;
+    dpy = NULL;
+    dpy_msg = NULL;
 
-    /* can be a X terminal emulator */
+    if ( ! terminal ) return (NULL);
+    if (   (strcasecmp  (terminal, "linux")   == 0)
+	|| (strcasecmp  (terminal, "console") == 0)
+	|| (strncasecmp (terminal, "vt", 2)   == 0) ) return (NULL);
+
+    /* By default we assume to be running with a X11 server */
+    Xterminal_flg = YES;
+    x_terminal_class  == xterm;
+
+#if 0
+    if (   (strcasecmp (terminal, "xterm")  == 0)
+	|| (strcasecmp (terminal, "dtterm") == 0) ) {
+	/* we assume to be running with a X11 server */
+	Xterminal_flg = YES;
+	x_terminal_class  == xterm;
+    }
+#endif
+
+    dpy = XOpenDisplay (NULL);
+    if ( ! dpy ) {
+	str = getenv ("DISPLAY");
+	if ( ! str ) {
+	    dpy_msg = "  but \"DISPLAY\" variable\n  is not defined\n";
+	    dpy_name = (char *) undef_dpy_name;
+	} else {
+	    sprintf (dpy_msg_buf, "  but X11 connection is refused to \"DISPLAY\" %s\n", str);
+	    dpy_msg = dpy_msg_buf;
+	    dpy_name = malloc (strlen (str) +1);
+	    if ( dpy_name ) strcpy (dpy_name, str);
+	    else dpy_name = (char *) unknow_dpy_name;
+	}
+	return (NULL);
+    }
+
+    /* Running on a X server, set default terminal type */
+    Xterminal_flg = YES;
+    x_terminal_class  == xterm;
+    max_shift_level = nb_kbmap;
+
+    /* display name and vendor name */
+    str = DisplayString (dpy);
+    dpy_name = malloc (strlen (str) +1);
+    if ( dpy_name ) strcpy (dpy_name, str);
+    else dpy_name = (char *) unknow_dpy_name;
+
+    str = XServerVendor (dpy);
+    Xvendor_name = malloc (strlen (str) +1);
+    Xvendor_name = malloc (strlen (str) +1);
+    if ( Xvendor_name ) strcpy (Xvendor_name, str);
+    else Xvendor_name = (char *) unknow_dpy_name;
+
+    /* get the keyboard mapping */
+    (void) XDisplayKeycodes (dpy, &min_keycode, &max_keycode);
+    x_keyboard_map = XGetKeyboardMapping (dpy, min_keycode,
+					  max_keycode - min_keycode +1,
+					  &keysym_per_keycode);
+    if ( ! x_keyboard_map ) {
+	dpy_msg = "The X Keyboard mapping cannot be read\n";
+	XCloseDisplay (dpy);
+	dpy = NULL;
+	return (NULL);
+    }
+    max_shift_level = (nb_kbmap < keysym_per_keycode) ? nb_kbmap : keysym_per_keycode;
+    sort_keysym_desc ();
+
+    /* Try to get more info on the X terminal emulator in use */
+    str = getenv ("WINDOWID");
+    if ( !str || !*str ) {
+	XCloseDisplay (dpy);
+	dpy = NULL;
+	dpy_msg = "Define the environment variable \"WINDOWID\" with the window id\n  (using \"xwininfo\" or \"xprop\") for better result\n";
+	return (NULL);
+    }
+
+    /* running with a XTerm familly terminal emulator */
+    lival = strtol (str, &str1, 0);
+    if ( *str1 ) {  /* invalid value */
+	XCloseDisplay (dpy);
+	dpy = NULL;
+	return (NULL);
+    }
+    emul_window = (Window) lival;
+    root = (Window) 0;
+    cc = 0;
+    for ( wind = emul_window ; wind != root ; wind = parent ) {
+	cc = XGetClassHint (dpy, wind, &class_hints);
+	if ( cc ) break;
+	if ( ! XQueryTree (dpy, wind, &root, &parent, &children, &nchildren) ) break;
+    }
+    if ( cc ) {
+	emul_name  = class_hints.res_name;
+	emul_class = class_hints.res_class;
+    }
+    str = strchr (emul_class, ':');
+    if ( str ) *str ='\0';
+
+    /* try to get the keyboard keycode to key name mapping with X Keyboard extension */
+    use_XKB_flg = CheckXKBExtention (dpy, NULL, NULL);
+    if ( use_XKB_flg ) get_xkb_data (dpy);
+
+    (void) get_terminal_class ();
+
+    overwrite = YES;
+    if ( x_terminal_class  == xterm ) {
+	xterm_backarrow_flg = get_xterm_backarrow (dpy, wind, emul_name, emul_class);
+	overwrite = ! xterm_backarrow_flg;  /* only if it is not the default */
+    }
+    if ( overwrite ) overwrite_ktdesc (emul_class);
+
+#ifdef USE_XMODMAP
     memset (strg, 0, sizeof (strg));
     strcpy (strg, "xmodmap -pke > ");
     tfname = tmpnam (strg + strlen (strg));
-    if ( ! tfname ) return;
+    if ( tfname ) {
 
-    cc = system (strg);
-    if ( cc != 0 ) {
-	unlink (tfname);
-	return (NULL);
+	cc = system (strg);
+	if ( cc != 0 ) {
+	    unlink (tfname);
+	    tfname = NULL;
+	}
     }
+#endif
+
+    sort_keysym_desc ();
     Xterminal_flg = YES;
+    XCloseDisplay (dpy);
+    dpy = NULL;
     return (tfname);
 }
 
@@ -1441,6 +2092,8 @@ Flag get_keyboard_map (char *terminal, int strg_nb,
 		       char *strg1, char *strg2, char *strg3,
 		       char *strg4, char *strg5, char *strg6)
 {
+    static char *init_msg = NULL;
+
     int i, sz;
     Flag app_mode, alt_cursor_mode;
     char *strg[6];
@@ -1454,7 +2107,8 @@ Flag get_keyboard_map (char *terminal, int strg_nb,
     strg [4] = strg5;
     strg [5] = strg6;
 
-    init_msg = NULL;
+    if ( init_msg ) return;     /* already done */
+
     for ( sz = i = 0 ; i < strg_nb ; i++ )
 	if ( strg[i] ) sz += strlen (strg[i]);
     if ( sz ) {
@@ -1551,7 +2205,7 @@ static char *get_kt_strg (int ktcode, char **tcap_strg)
 
     if ( tcap_strg ) *tcap_strg = NULL;
     if ( ktcode == kt_void ) return (NULL);
-    sp = ( Xterminal_flg ) ? get_xterm_kt_escseq (ktcode, tcap_strg)
+    sp = ( Xterminal_flg ) ? xterm_keysym2string (ktcode, tcap_strg)
 			   : get_linux_kt_escseq (ktcode, tcap_strg);
     return (sp);
 }
@@ -1572,9 +2226,9 @@ static Flag xterm_terminal ()
     extern char *tname;
 
     if ( !Xterm_flg ) return (NO);
-    if ( strcasecmp (tname, "xterm") != 0 ) return (NO);
-
-    return (YES);
+    if ( strcasecmp (tname, "xterm") != 0 ) return NO;
+    if ( emul_class && (strcasecmp (emul_class, "xterm") != 0) ) return NO;
+    return YES;
 }
 
 
@@ -1614,13 +2268,181 @@ static void reverse_xterm_F1F4 (char *escp)
     }
 }
 
-/* string_to_key : get the key and modifier for a given string */
-/* ----------------------------------------------------------- */
-/*  To start a new scan ; *key = -1
-    Return key label and modifier string,
-	  or NULL if nothing or no more key
-*/
+/* String to key using XKB extension */
+/* --------------------------------- */
 
+/* must be in alphabetic order of name */
+static struct _pretty_label {
+	char *name;
+	char *label;
+    } pretty_label [] = {
+	{ "DELE",   "Delete" },
+	{ "INS",    "Insert" },
+	{ "KPAD",   "KP-Add" },
+	{ "KPDL",   "KP-Dot" },
+	{ "KPDV",   "KP-Div" },
+	{ "KPEN",   "KP-Enter"  },
+	{ "KPMU",   "KP-Mul" },
+	{ "KPSU",   "KP-Minus" },
+	{ "NMLK",   "KP-NumLock" },
+	{ "PAUS",   "Pause"  },
+	{ "PGDN",   "PageDown" },
+	{ "PGUP",   "PageUp" },
+	{ "PRSC",   "PrintScreen" },
+	{ "SCLK",   "ScrollLock" }
+    };
+#define pretty_label_nb (sizeof (pretty_label) / sizeof (pretty_label[0]))
+
+static int compare_pretty_label (struct _pretty_label *prname1, struct _pretty_label *prname2)
+{
+    return (strcasecmp (prname1->name, prname2->name));
+}
+
+
+static char * pretty_key_label (char *keyname)
+{
+    static char keylabel [XkbKeyNameLength+16];
+    int i;
+    char *chpt;
+    struct _pretty_label prname, *prname_pt;
+
+    memset (keylabel, 0, sizeof (keylabel));
+    memcpy (keylabel, keyname, XkbKeyNameLength);
+
+    prname.name = keylabel;
+    prname_pt = (struct _pretty_label *) bsearch (&prname,
+		    pretty_label, pretty_label_nb,
+		    sizeof (struct _pretty_label),
+		    (int (*)()) compare_pretty_label);
+    if ( prname_pt ) return (prname_pt->label);
+
+    if ( strncmp (keylabel, "FK", 2) == 0 ) {
+	i = ( keylabel[2] == '0' ) ? 2 : 1;
+	keylabel[i] = 'F';
+	return (&keylabel[i]);
+    }
+    if ( strncmp (keylabel, "KP", 2) == 0 ) {
+	keylabel[3] = keylabel[2];
+	keylabel[2] = '-';
+	return (keylabel);
+    }
+    for ( chpt = keylabel +1 ; *chpt ; chpt++ ) *chpt = tolower (*chpt);
+    return (keylabel);
+}
+
+
+static char * keycode2keylabel (int keycode)
+{
+    char *str;
+    int i;
+
+    if ( (keycode < min_keycode) ||
+	 (keycode > max_keycode) ) return NULL;
+
+    if ( use_XKB_flg && xkb_rec->names ) {
+	/* X Keyboard extension available */
+	str = pretty_key_label ((char *) &xkb_rec->names->keys [keycode]);
+	return str;
+    }
+
+    /* X Keyboard extension is not available */
+    for ( i = 0 ; i < pc_keyboard_desc_nb ; i++ ) {
+	if ( pc_keyboard_desc[i].kcode == keycode )
+	    return (pc_keyboard_desc[i].klabel);
+    }
+    return "???";
+}
+
+/* walk across keymap for all <keycde, shift> for a given keysym
+ *  start with *keycode = 0
+ *  end when return 0;
+ */
+static int keysymb2keycode (KeySym keysym, int *keycode, int *shift)
+{
+    int i, j;
+    KeySym ksym;
+
+    if ( keysym == NoSymbol ) return 0;
+    if ( ! x_keyboard_map ) return 0;
+
+    if ( *keycode < min_keycode ) {
+	*keycode = min_keycode;
+	*shift = -1;
+    }
+    j = *shift;
+    i = *keycode - min_keycode;
+    for ( ; i <= max_keycode ; i++ ) {
+	for (  ; j < max_shift_level ; j++ ) {
+	    ksym = x_keyboard_map [keysym_per_keycode*i +j];
+	    if ( (ksym == NoSymbol) ) continue;
+	    if ( ksym == keysym ) {
+		*keycode = i + min_keycode;
+		*shift = j;
+		return *keycode;
+	    }
+	}
+	j = 0;
+    }
+    return 0;
+}
+
+/* Walk across excape strings for all keysym
+ *  start with *idx <= 0;
+ *  end when return NoSymbol;
+ */
+static KeySym string2keysym (char *strg, int *idx)
+{
+    struct KTdesc *ktd;
+
+    if ( !strg || !*strg ) return NoSymbol;
+    if ( *idx < 0 ) *idx = 0;
+    for ( ; *idx < Xkt_desc_pt_nb ; (*idx)++ ) {
+	ktd = (*Xkt_desc_pt)[*idx];
+	if ( (ktd->ktfunc == NoSymbol) ||
+	     !ktd->strg ) continue;
+	if ( strcmp (ktd->strg, strg) != 0 ) continue;
+	return ktd->ktfunc ;
+    }
+    return NoSymbol;
+}
+
+/* string2key_label, x_string2key_label : return the key label
+ * -----------------------------------------------------------
+ *  Get the key and modifier for a given string (escape sequence)
+ *  To start a new scan ; *key = -1
+ *  Return key label and modifier string,
+ *      or NULL if nothing or no more key
+ */
+
+static char * x_string2key_label (char *strg, int *keycode, int *idx,
+				  int *shift, char **modstrg)
+{
+    KeySym keysym, ks;
+    int kc;
+    char *str;
+
+    if ( !strg || !*strg ) return NULL;
+    if ( *keycode < 0 ) *idx = *keycode = *shift = 0;
+    else (*shift)++;
+    for ( ks = NoSymbol ; ; (*idx)++ ) {
+	keysym = string2keysym (strg, idx);
+	if ( keysym == NoSymbol ) break;
+	if ( keysym == ks ) continue;   /* to prevent duplication */
+	ks = keysym;
+	for ( ; ; ) {
+	    kc = keysymb2keycode (keysym, keycode, shift);
+	    if ( kc == 0 ) break;
+	    if ( modstrg ) *modstrg = key_shift_msg [*shift];
+	    str = keycode2keylabel (*keycode);
+	    return str;
+	}
+	*keycode = *shift = 0;
+    }
+    return NULL;
+}
+
+
+/* special processing for old xterm emulator */
 static Flag nxterm_special_case (int ktf, char *strg)
 {
     int i;
@@ -1631,19 +2453,20 @@ static Flag nxterm_special_case (int ktf, char *strg)
     /* try for special cursor case (in case of translation overrride) */
     for ( i = nxterm_special_nb ; i >= 0 ; i-- ) {
 	if ( nxterm_special [i].ktfunc != ktf ) continue;
-	if ( ! nxterm_special [i].Xkt_desc_pt ) continue;
+	if ( ! nxterm_special [i].Xktdesc_special_pt ) continue;
 	strg1 = ( cursor_alt_mode )
-		? nxterm_special [i].Xkt_desc_pt->norstrg
-		: nxterm_special [i].Xkt_desc_pt->altstrg;
+		? nxterm_special [i].Xktdesc_special_pt->norstrg
+		: nxterm_special [i].Xktdesc_special_pt->altstrg;
 	if ( strcmp (strg, strg1) == 0 ) return (YES);
     }
     return (NO);
 }
 
 
-static char * string_to_key (char *strg, int *key, int *idx, int *shift, char **modstrg)
+static char * string2key_label (char *strg, int *key, int *idx,
+				int *shift, char **modstrg)
 {
-    static char * kcode_to_string (int, unsigned int, Flag, Flag, int *, char **, char **);
+    static char * kcode2string (int, unsigned int, Flag, Flag, int *, char **, char **);
 
     int i, j;
     int ktf;
@@ -1667,7 +2490,7 @@ static char * string_to_key (char *strg, int *key, int *idx, int *shift, char **
 	    if ( keyboard_map[j] < 0 ) continue;
 	    ktf = pc_keyboard_desc [i].ktfunc[j];
 	    if ( ktf == kt_void ) continue;
-	    ktstrg = kcode_to_string (pc_keyboard_desc [i].kcode, (unsigned int) j,
+	    ktstrg = kcode2string (pc_keyboard_desc [i].kcode, (unsigned int) j,
 		     keypad_appl_mode, cursor_alt_mode,
 		     &ktf, &klb, &shf);
 	    if ( ! ktstrg ) continue;
@@ -1685,6 +2508,7 @@ static char * string_to_key (char *strg, int *key, int *idx, int *shift, char **
     if ( i >= nb_key ) *key = -1;
     return (NULL);
 }
+
 
 /* all_string_to_key : all keys label for a given escape sequence */
 /* -------------------------------------------------------------- */
@@ -1726,13 +2550,16 @@ void all_string_to_key (char *escp_seq,
 	memset (kfnd_flg, 0, sizeof (kfnd_flg));
 
 	/* get the best value for the number of usefull key maps */
-	nbkbmap = *keys_nb;
-	if ( nbkbmap > nb_kbmap ) nbkbmap = nb_kbmap;
-	for ( i = nb = 0 ; i < nbkbmap ; i++ ) {
-	    if ( keyboard_map [i] < 0 ) continue;
-	    nb++;
+	if ( Xterminal_flg ) nbkbmap = max_shift_level;
+	else {
+	    nbkbmap = *keys_nb;
+	    if ( nbkbmap > nb_kbmap ) nbkbmap = nb_kbmap;
+	    for ( i = nb = 0 ; i < nbkbmap ; i++ ) {
+		if ( keyboard_map [i] < 0 ) continue;
+		nb++;
+	    }
+	    if ( nb < nbkbmap ) nbkbmap = nb;   /* usefull number of map */
 	}
-	if ( nb < nbkbmap ) nbkbmap = nb;     /* usefull number of map */
 	*keys_nb = nbkbmap;
 
 	label_sz = buf_sz / nbkbmap;
@@ -1747,7 +2574,11 @@ void all_string_to_key (char *escp_seq,
     }
 
     for ( key_code = shift = -1 ; ; ) {
-	key_label = string_to_key (escp_seq, &key_code, &idx, &shift, &modf_label);
+	key_label = ( Xterminal_flg )
+		    ? x_string2key_label (escp_seq, &key_code, &idx,
+					  &shift, &modf_label)
+		    :   string2key_label (escp_seq, &key_code, &idx,
+					  &shift, &modf_label);
 	if ( ! key_label ) break;
 	if ( shift >= nbkbmap ) continue;
 	if ( ! *key_label ) continue;
@@ -1758,19 +2589,21 @@ void all_string_to_key (char *escp_seq,
 	    strcpy (&keys[shift][sz], ": ");
 	}
 
-	if ( kfnd_flg [idx][shift] ) continue;  /* already catched */
+	if ( !Xterminal_flg )
+	    if ( kfnd_flg [idx][shift] ) continue;  /* already catched */
 
 	/* leave space at the end for an extra separator character */
 	if ( (strlen (key_label) + strlen (keys[shift]) +2) < (label_sz -1) )
 	    sprintf (&keys[shift][strlen (&keys[shift][0])], "%s ", key_label);
-	kfnd_flg [idx][shift] = YES;
+
+	if ( !Xterminal_flg ) kfnd_flg [idx][shift] = YES;
     }
 }
 
-/* kcode_to_string : get the string for a given key and console state */
-/* ------------------------------------------------------------------ */
+/* kcode2string : get the string for a given key and console state */
+/* --------------------------------------------------------------- */
 
-static char * kcode_to_string (int kcode, unsigned int shift,
+static char * kcode2string (int kcode, unsigned int shift,
 		     Flag applic_mode, Flag curs_mode,
 		     int *ktcodept,
 		     char **shift_strg, char **key_label)
@@ -1779,6 +2612,8 @@ static char * kcode_to_string (int kcode, unsigned int shift,
     int i;
     int ktcode;
     char *strg;
+
+    if ( Xterminal_flg ) return NULL;
 
     *shift_strg = *key_label = NULL;
     *ktcodept = kt_void;
@@ -1794,7 +2629,7 @@ static char * kcode_to_string (int kcode, unsigned int shift,
     ktcode = pc_keyboard_desc [i].ktfunc[shift];
     if ( ktcode == kt_void ) return (NULL);  /* nothing assigned to this key */
 
-    strg = ( Xterminal_flg ) ? get_xterm_kt_strg (&ktcode, shift)
+    strg = ( Xterminal_flg ) ? xterm_keysym2string  (ktcode, NULL)
 			     : get_linux_kt_strg (&ktcode, shift);
     *ktcodept = ktcode;
     return (strg);
@@ -1857,14 +2692,37 @@ static void checkkeyb (Flag echo)
     }
 }
 
+/* Build a message for status like command */
+void xterm_msg (char *buf)
+{
+    if ( ! x_keyboard_map ) {
+	strcat (buf, "It is assumed to be a X-Terminal emulator\n");
+	if ( dpy_msg ) strcat (buf, dpy_msg);
+    }
+    sprintf (buf + strlen (buf), "X-Terminal \"%s\" on X11-Server DISPLAY \"%s\"\n",
+	     tname, dpy_name);
+    sprintf (buf + strlen (buf), "  by vendor \"%s\"\n", Xvendor_name);
+    sprintf (buf + strlen (buf), "  Terminal emulator name \"%s\", class \"%s\"\n",
+	     emul_name, emul_class);
+    if ( x_keyboard_map && dpy_msg ) strcat (buf, dpy_msg);
+    xkb_info (buf + strlen (buf));
+}
+
 #ifndef TEST_PROGRAM
 /* check_keyboard : interactive check fo keyboard state */
 /* ---------------------------------------------------- */
 
 void check_keyboard ()
 {
+
+static char xmapping_warning [] = "\n\
+    If the mapping seem to be strange, check the xmodemap mapping\n\
+    and you can use xkeycaps or xev to see if the mapping is 'regular' :\n\
+	F1 mapped to F1 key ...\n\n\
+";
+
     static char * escseqstrg ();
-    char *st, *st1;
+    char *st, *st1, buf [1024];
     int applmod, cursmod;
 
     /* save the initial terminal mode */
@@ -1878,13 +2736,13 @@ void check_keyboard ()
     printf ("    <kbinit> (from kbfile) : %s\n\n", escseqstrg (kbinistr));
 
     if ( Xterminal_flg ) {
-	printf ("    If the mapping seem to be strange, check the xmodemap mapping\n");
-	printf ("    and you can use xev to see if the mapping is 'regular' :\n");
-	printf ("        F1 mapped to F1 key ...\n\n");
-
+	xterm_msg (buf + strlen (buf));
+	fputs (buf, stdout);
     }
-    if ( xterm_terminal () ) {
-	printf ("    Warning : for xterm terminal type PF1 .. PF4 are mapped to F1 .. F4\n\n");
+    if ( Xterm_flg ) {
+	if ( Xterminal_flg ) fputs (xmapping_warning, stdout);
+	if ( xterm_terminal () )
+	    printf ("    Warning : for XTerm Emulator key PF1 .. PF4 are mapped to F1 .. F4\n\n");
     }
 
     checkkeyb (YES);
@@ -1902,8 +2760,9 @@ static char * escseqstrg (char *escst)
     memset (st, 0, sizeof (st));
     for ( sp = escst; (ch = *sp) ; sp++ ) {
 	if ( ch == '\033' ) strcat (st, "<Esc>");
-	else if ( ch == '\t' ) strcat (st, "<Tab>");
-	else if ( ch == '\177' ) strcat (st, "<Bksp>");
+	else if ( ch == '\t' )   strcat (st, "<Tab>");
+	else if ( ch == '\177' ) strcat (st, "<Del>('\\177')");
+	else if ( ch == '\b' )   strcat (st, "<Bksp>(^H)");
 	else if ( ch < ' ' ) {
 	    st[strlen(st)] = '^';
 	    st[strlen(st)] = '@' + ch;
@@ -1992,7 +2851,7 @@ static Flag catch_escape_seq (Flag echo, char ch, int *idx, Flag *nl_pt)
     char small_strg [2];
 
     if ( !*idx && (ch != '\033') ) {
-	if ( (ch == '\t') || (ch == '\177') ) {
+	if ( (ch == '\t') || (ch == '\177') || (ch == '\b') ) {
 	    small_strg [0] = ch;
 	    small_strg [1] = '\0';
 	    print_keys (small_strg, nl_pt);
@@ -2151,43 +3010,270 @@ static void display_ctrl ()
 /* linux_keymap : display the current key map */
 /* ------------------------------------------ */
 
-void display_keymap (Flag verbose)
+
+static int new_page (int *nbnl, int min_size)
 {
-    /* verbose flag must be used only for "-help -verbose" option case */
+    int ctrlc;
+
+    if ( verbose || ((*nbnl + min_size +2) <= term.tt_height) ) return NO;
+
+    ctrlc = wait_keyboard ("\nPush a key to continue, <Ctrl C> to exit", NULL);
+    fputs ("\r                              \r", stdout);
+    *nbnl = 1;
+    return ctrlc;
+}
+
+
+static char * print1key_func (int *nbnl, int ktcode, int kcode, int shift,
+			      char *klabel, char *strg, Flag skip, int *ctrlc_pt)
+{
+    extern S_term term;
+    extern S_looktbl itsyms[];
+    extern struct itable *ithead;
+
+    int k, nb, cc, cmd, ctrlc;
+    char strg1 [256], *cmdstrg, *cmdstrg0, *sp;
+
+    if ( ctrlc_pt ) *ctrlc_pt = NO;
+    cmdstrg = NULL;
+    if ( strg ) {
+	nb = strlen (strg);
+	sp = strg;
+	cc = itget (&sp, &nb, ithead, strg1);
+	if ( cc > 0  ) {
+	    cmd = (unsigned char) strg1[0];
+	    for ( k = 0 ; itsyms [k].str ; k++ ) {
+		if ( itsyms [k].val != cmd ) continue;
+		cmdstrg = itsyms [k].str;
+		break;
+	    }
+	}
+    }
+    if ( !cmdstrg && skip ) return NULL;
+
+    if ( shift == 0 ) {
+	ctrlc = new_page (nbnl, 1);
+	if ( ctrlc && !verbose && ctrlc_pt ) {
+	    *ctrlc_pt = ctrlc;
+	    return NULL;
+	}
+
+	if ( Xterminal_flg ) {
+	    if ( kcode != NoSymbol )
+		printf ("\n%+13s %3d :", klabel, kcode);
+	    else
+		printf ("\n%+13s     :", klabel);
+	}
+	else printf ("\n%+14s :", klabel);
+	(*nbnl)++;
+    }
+    if ( verbose ) {
+	if ( Xterminal_flg ) {
+	    char strg1[24];
+	    (void) xterm_keysym2string (ktcode, &sp);
+	    sprintf (strg1, "0x%4X %s", ktcode, (sp) ? sp : "");
+	    printf (" ((%-19s) -> %-9s)", strg1, (strg) ? escseqstrg (strg) : "null");
+	} else
+	    printf (" ((%d,%3d) -> %-9s)", (ktcode/256), (ktcode%256), (strg) ? escseqstrg (strg) : "null");
+    }
+    if ( verbose ) printf ( " %-9s, ", (cmdstrg) ? cmdstrg : "");
+    else printf ( "%+10s, ", (cmdstrg) ? cmdstrg : "");
+    return cmdstrg;
+}
+
+
+/* Display 1 key mapping (all level) */
+
+static void display1Xkey (int keycode, char *keylabel, Flag skip, int *nbnl)
+{
+    int j, ctrlc;
+    char *strg, *cmdstrg;
+    KeySym keysym, keysym_l0;
+
+    if ( ! x_keyboard_map ) return;
+
+    for ( j = 0 ; j < max_shift_level ; j++ ) {
+	keysym = x_keyboard_map [keysym_per_keycode * (keycode - min_keycode) +j];
+	if ( keysym == XK_Escape && (j == 0) ) return;  /* do not display ESC key */
+	if ( j == 0 ) keysym_l0 = keysym;
+	else if ( keysym == 0 ) keysym = keysym_l0;
+	strg = xterm_keysym2string (keysym, NULL);
+	cmdstrg = print1key_func (nbnl, keysym, keycode, j, keylabel,
+				  strg, skip, &ctrlc);
+	if ( ctrlc ) return;
+	if ( !cmdstrg && (j == 0) && skip )
+	    return;      /* do not print all Alpha section keys */
+    }
+}
+
+
+/* Display the linux console (non X11) keyboard mapping,
+ *  or for X terminal emulator if X Keyboard Extension (or geometry)
+ *  is not available.
+ */
+static void display_keyboard_map (int *nbnl)
+{
+    Key_Assign *kap;
+    int i, j, k, nb, keycode, ktcode, ctrlc;
+    char *strg, *shift_strg, *klabel, *cmdstrg;
+
+    for ( i = 0 ; i < nb_key ; i++ ) {
+	for ( k = 0 ; k < pc101_keyboard_struct_nb ; k++ ) {
+	    if ( pc101_keyboard_struct [k].idx != i ) continue;
+	    ctrlc = new_page (nbnl, pc101_keyboard_struct [k].nb +4);
+	    if ( ctrlc && !verbose ) return;
+
+	    printf ("\n\n%-23s", pc101_keyboard_struct [k].label);
+	    (*nbnl)++;
+	    nb = Xterminal_flg ? max_shift_level : nb_kbmap;
+	    for ( j = 0 ; j < nb ; j++ ) {
+		if ( !Xterminal_flg && keyboard_map [j] < 0 ) continue;
+		if ( verbose ) printf ("                %-7s         ", key_shift_msg [j]);
+		else printf ("%-7s      ", key_shift_msg [j]);
+	    }
+	    break;
+	}
+	kap = &pc_keyboard_desc[i];
+	keycode = kap->kcode;
+	if ( ! Xterminal_flg ) {
+	    for ( j = 0 ; j < nb ; j++ ) {
+		if ( keyboard_map [j] < 0 ) continue;
+		strg = kcode2string (keycode, j,
+				     keypad_appl_mode, cursor_alt_mode,
+				     &ktcode, &shift_strg, &klabel);
+		cmdstrg = print1key_func (nbnl, ktcode, keycode, j,
+					  klabel, strg, NO, &ctrlc);
+		if ( ctrlc ) return;
+	    }
+	} else {
+	    klabel = pc_keyboard_desc [i].klabel;
+	    display1Xkey (keycode, klabel, NO, nbnl);
+	}
+    }
+    putchar ('\n');
+}
+
+/* Display the X11 current terminal emulator keyboard mapping
+ *   using XKB Extension (need geometry description)
+ */
+static void display_xkb_map (int *nbnl)
+{
+    Flag something;
+    XkbGeometryPtr geom;
+    XkbSectionPtr xsec;
+    XkbRowPtr xrow;
+    XkbKeyRec *xkey;
+    KeySym keysym, keysym_l0;
+
+    char *strg, *cmdstrg;
+    int i, j, si, ri, ki, kk, ctrlc;
+    char *kname, *klabel;
+
+    if ( ! use_XKB_flg ) return;
+    geom = xkb_rec->geom;
+
+    /* print the keys mapping */
+    something = NO;
+    for ( i = 0 ; i < num_section_names ; i++ ) {
+	si = section_idx [i];
+	if ( si < 0 ) continue;
+
+	putchar ('\n');
+	(*nbnl)++;
+	ctrlc = new_page (nbnl, 1);
+	if ( ctrlc && !verbose ) return;
+
+	printf ("\n%-23s", section_names [i]);
+	(*nbnl)++;
+	for ( j = 0 ; j < max_shift_level ; j++ ) {
+	    if ( verbose ) printf ("                %-7s         ", key_shift_msg [j]);
+	    else printf ("%-7s      ", key_shift_msg [j]);
+	}
+
+	something = YES;
+	xsec = &geom->sections[si];
+	for ( ri = 0 ; ri < xsec->num_rows ; ri++ ) {
+	    xrow = &xsec->rows[ri];
+	    for ( ki = 0 ; ki < xrow->num_keys ; ki++ ) {
+		xkey = &xrow->keys[ki];
+		kname = xkey->name.name;
+		kk = XkbFindKeycodeByName (xkb_rec, kname, True);
+		if ( kk == NoSymbol ) continue;
+
+		klabel = pretty_key_label (kname);
+		display1Xkey (kk, klabel, (i == (num_section_names -1)), nbnl);
+	    }
+	}
+    }
+    putchar ('\n');
+}
+
+
+/* Display the current keyboard mapping
+ *   verbose flag must be used only for "-help -verbose" option case
+ */
+void display_keymap (Flag prg_verbose)
+{
+    /* prg_verbose flag must be used only for "-help -verbose" option case */
     extern S_term term;
     extern S_looktbl itsyms[];
     extern struct itable *ithead;
     int i, j, k, idx, nbnl;
     Key_Assign *kap;
-    struct KTdesc *ktpt;
     int ktcode, cc, nb, cmd;
-    int dispsz;
+    int ctrlc;
     char *shift_strg, *klabel;
     char *strg, strg1 [256], *cmdstrg, *cmdstrg0, *sp;
+    char buf [1024];
+    S_looktbl *keyftable;
+    int sz;
 
-    dispsz = term.tt_height;
-    if ( verbose ) dispsz = 100000;     /* very very large : do not hold the screen */
+    verbose = prg_verbose;
     if ( pc101_keyboard_struct [1].idx == 0 ) {
 	for ( idx = k = 0 ; k < pc101_keyboard_struct_nb ; k++ ) {
 	    pc101_keyboard_struct [k].idx = idx;
 	    idx += pc101_keyboard_struct [k].nb;
 	}
     }
-    if ( ! verbose ) fputs ("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n", stdout);
-    printf ("\n-- \"%s\" PC-101 style keyboard map, (%s) --", terminal_name, get_keyboard_mode_strg ());
+
+    /* display the header */
+    if ( verbose ) putc ('\n', stdout);
+    else fputs ("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n", stdout);
     nbnl = 1;
     if ( Xterminal_flg ) {
-	fputs ("\n    X terminal which use the output of \"xmodmap -pke\" to get the key mapping", stdout);
-	fputs ("\n    The mapping of the plain keys is assumed to be 'regular' :", stdout);
-	fputs ("\n        F1 mapped to F1 key ...", stdout);
-	nbnl += 3;
+	memset ( buf, 0, sizeof (buf));
+	sprintf (buf, "X-Terminal \"%s\" keyboard map\n", emul_class);
+	nbnl++;
+	if ( ! x_keyboard_map ) {
+	    strcat (buf, "  Warning : keyboard mapping is not available !!\n");
+	    nbnl++;
+	}
+	if ( use_XKB_flg && !xkb_ext_msg ) {
+	    sprintf (&buf[strlen(buf)], "    \"%s, %s, %s", keycodes_str, geometry_str,
+		     symbols_str);
+	    if ( phys_symbols_str ) sprintf (&buf[strlen(buf)], ", engraved %s)\"\n",
+					     phys_symbols_str);
+	    else sprintf (&buf[strlen(buf)], "\"\n");
+	    nbnl++;
+	    if ( xkb_rec && xkb_rec->geom )
+		strcat (buf, "    Using X Keyboard Extension geometry description.\n");
+	    else
+		strcat (buf, "    X Keyboard Extension does not provide geometry description.\n");
+	    nbnl++;
+	} else if ( xkb_ext_msg ) {
+	    strcat (buf, xkb_ext_msg);
+	    buf [strlen (buf)] = '\n';
+	    nbnl++;
+	}
+	fputs (buf, stdout);
+    } else {
+	printf ("\n-- \"%s\" PC-101 style keyboard map, (%s) --", terminal_name, get_keyboard_mode_strg ());
+	nbnl++;
     }
+
     if ( verbose ) {
 	if ( Xterminal_flg ) {
-	    fputs ("\n    X terminal which use the output of \"xmodmap -pke\" to get the key mapping", stdout);
-	    fputs ("\n  Keyboard mapping is normaly defined by a call to \"xmodmap\" during X11 startup", stdout);
-	    fputs ("\n    see \"xinitrc\" and \".Xmodmap\" in \"/etc/X11/xinit\".", stdout);
-	    nbnl += 3;
+	    fputs (buf, stdout);
 	} else {
 	    fputs ("\n  Keyboard mapping is normaly defined by a call to \"loadkeys\" during startup.", stdout);
 	    nbnl += 1;
@@ -2199,96 +3285,37 @@ void display_keymap (Flag verbose)
 	printf ("\n    For each key : key code (ref /usr/include/linux/keyboard.h),\n                  Escape Sequence, Rand key function");
 	nbnl += 2;
     }
-    for ( i = 0 ; i < nb_key ; i++ ) {
-	for ( k = 0 ; k < pc101_keyboard_struct_nb ; k++ ) {
-	    if ( pc101_keyboard_struct [k].idx != i ) continue;
-	    if ( ! verbose ) {
-		if ( (nbnl + pc101_keyboard_struct [k].nb) +4 > dispsz ) {
-		    wait_keyboard ("\nPush a key to continue");
-		    fputs ("\r                              ", stdout);
-		    nbnl = 0;
-		}
-	    }
-	    printf ("\n\n%-20s", pc101_keyboard_struct [k].label);
-	    nbnl++;
-	    for ( j = 0 ; j < nb_kbmap ; j++ ) {
-		if ( keyboard_map [j] < 0 ) continue;
-		if ( verbose ) printf ("                %-7s         ", key_shift_msg [j]);
-		else printf ("%-7s      ", key_shift_msg [j]);
-	    }
-	    break;
-	}
-	kap = &pc_keyboard_desc[i];
-	for ( j = 0 ; j < nb_kbmap ; j++ ) {
-	    if ( keyboard_map [j] < 0 ) continue;
 
-	    cmdstrg = NULL;
-	    strg = kcode_to_string (kap->kcode, j,
-				keypad_appl_mode, cursor_alt_mode,
-				&ktcode, &shift_strg, &klabel);
-	    if ( j == 0 ) {
-		if ( Xterminal_flg ) {
-		    if ( kap->kcode != kt_void )
-			printf ("\n%+10s %3d :", klabel, kap->kcode);
-		    else
-			printf ("\n%+10s     :", klabel);
-		}
-		else printf ("\n%+14s :", klabel);
-		nbnl++;
-	    }
-	    if ( verbose ) {
-		if ( Xterminal_flg ) {
-		    char strg1[24];
-		    (void) get_xterm_kt_escseq (ktcode, &sp);
-		    sprintf (strg1, "0x%4X %s", ktcode, (sp) ? sp : "");
-		    printf (" ((%-19s) -> %-9s)", strg1, (strg) ? escseqstrg (strg) : "null");
-		} else
-		    printf (" ((%d,%3d) -> %-9s)", (ktcode/256), (ktcode%256), (strg) ? escseqstrg (strg) : "null");
-	    }
-	    if ( strg ) {
-		nb = strlen (strg);
-		cc = itget (&strg, &nb, ithead, strg1);
-		if ( cc > 0  ) {
-		    cmd = (unsigned char) strg1[0];
-		    for ( k = 0 ; itsyms [k].str ; k++ ) {
-			if ( itsyms [k].val != cmd ) continue;
-			cmdstrg = itsyms [k].str;
-			break;
-		    }
-		}
-	    }
-	    if ( j == 0 ) cmdstrg0 = cmdstrg;   /* default value for shift ... */
-	    if ( ! cmdstrg0 ) cmdstrg0 = "";
-	    if ( verbose ) printf ( " %-9s, ", (cmdstrg) ? cmdstrg : "");
-	    else printf ( "%+10s, ", (cmdstrg) ? cmdstrg : cmdstrg0);
+    if ( !(Xterminal_flg && !x_keyboard_map) ) {
+	/* display main mapping if available */
+	if ( Xterminal_flg && xkb_rec && xkb_rec->geom ) display_xkb_map (&nbnl);
+	else display_keyboard_map (&nbnl);
+	if ( ! verbose ) {
+	    ctrlc = wait_keyboard ("Push a key to continue with Control keys, <Ctrl C> to exit", NULL);
+	    fputs ("\r                                              ", stdout);
+	    nbnl = 0;
+	    if ( ctrlc ) return;
 	}
     }
-    putchar ('\n');
 
-    if ( ! verbose ) {
-	wait_keyboard ("Push a key to continue with Control keys");
-	fputs ("\r                                              ", stdout);
-	nbnl = 0;
-    }
+    /* display control key mapping */
     display_ctrl ();
-    if ( ! verbose )
-	wait_keyboard ("Push a key to return to edition session");
+    if ( ! verbose ) {
+	ctrlc = wait_keyboard ("Push a key to return to edition session", NULL);
+	return;
+    }
 
-    if ( verbose ) {
-	/* display the defined Key Functions */
-	S_looktbl *keyftable;
-	int sz;
-	for ( sz = 0 ; itsyms [sz].str ; sz++ ) ;
-	keyftable = (S_looktbl *) calloc (sz, sizeof (keyftable[0]));
-	if ( keyftable ) {
-	    memcpy (keyftable, itsyms, sizeof (keyftable[0]) * sz);
-	    qsort (keyftable, sz, sizeof (keyftable[0]),
-		   (int (*)(const void *,const void *)) sort_looktb);
-	    printf ("Defined (%d) Rand Key Functions\n", sz);
-	    print_sorted (keyftable, looktbl_print, sz, 5, 14, 1);
-	    putchar ('\n');
-	    free (keyftable);
-	}
+    /* "verbose" case : display the defined Key Functions */
+    for ( sz = 0 ; itsyms [sz].str ; sz++ ) ;
+    keyftable = (S_looktbl *) calloc (sz, sizeof (keyftable[0]));
+    if ( keyftable ) {
+	memcpy (keyftable, itsyms, sizeof (keyftable[0]) * sz);
+	qsort (keyftable, sz, sizeof (keyftable[0]),
+	       (int (*)(const void *,const void *)) sort_looktb);
+	printf ("Defined (%d) Rand Key Functions\n", sz);
+	print_sorted (keyftable, looktbl_print, sz, 5, 14, 1);
+	putchar ('\n');
+	free (keyftable);
     }
 
 }
@@ -2463,7 +3490,7 @@ static void program_option (int argc, char *argv[])
 		prog_help (argv[0]);
 	    }
 	} else {
-	    printf ("Unknow option : %s\n", strg);
+	    printf ("Unknown option : %s\n", strg);
 	    prog_help (argv[0]);
 	}
     }
@@ -2511,7 +3538,7 @@ main (int argc , char *argv[])
 
     if ( mode_flg && noinit_flg ) {
 	st = st1 = "?????";
-	fputs ("\nTerminal mode is not set : use the current unknow mode.\n", stdout);
+	fputs ("\nTerminal mode is not set : use the current unknown mode.\n", stdout);
 	fputs ("Push a \"Cursor Key\" and \"Key-Pad 5\" key to try to assess the current mode.\n", stdout);
 	assess_cursor_flg = assess_keypad_flg = YES;
     } else {
@@ -2526,7 +3553,7 @@ main (int argc , char *argv[])
 	for ( i = 0 ; i < nb_key ; i++ ) {
 	    kap = &pc_keyboard_desc[i];
 	    for ( j = 0 ; j < nb_kbmap ; j++ ) {
-		strg = kcode_to_string (kap->kcode, j, 1, 1, &ktcode, &shift_strg, &klabel);
+		strg = kcode2string (kap->kcode, j, 1, 1, &ktcode, &shift_strg, &klabel);
 		if ( j == 0 ) printf ("\nkcode %3d %+12s :", kap->kcode, klabel);
 		if ( !strg ) continue;
 		printf ( " %s 0x%03x, ",  shift_strg, ktcode);

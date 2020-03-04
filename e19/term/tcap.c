@@ -302,6 +302,54 @@ S_term t_tcap =
 #define UNKNOWN -1
 #define OK  0
 
+static void check_tt_size (int *width, int *height)
+{
+    if ( width && (*width >= MAXWIDTH) ) *width = MAXWIDTH -1;
+    /* do not over run the max size allowed by poscursor :
+     * see : poscursor () routine
+     */
+    if ( width  && (*width  > (255 - 041)) ) *width  = (255 - 041);
+    if ( height && (*height > (255 - 041)) ) *height = (255 - 041);
+    /* ensure enough room for the editing window */
+    if ( width  && (*width  < 3) ) *width = 3;
+    if ( height && (*height < (NPARAMLINES +3)) ) *height = NPARAMLINES +3;
+}
+
+/* Get the terminal size by ioctl call */
+void get_tt_size (int * width, int * height)
+{
+#ifdef TIOCGWINSZ
+    struct winsize windowsz;
+#endif
+
+    if ( !width || !height ) return;
+
+#ifdef TIOCGWINSZ
+    if ( ioctl (0, TIOCGWINSZ, &windowsz) == 0 ) {
+	if ( windowsz.ws_col ) *width  = windowsz.ws_col;
+	if ( windowsz.ws_row ) *height = windowsz.ws_row;
+    }
+#endif
+    check_tt_size (width, height);
+}
+
+/* Set the terminal size into the terminal descriptor */
+void set_tt_size (S_term *term_pt, int width, int height)
+{
+    int wid, hei;
+
+    wid = width;
+    hei = height;
+    check_tt_size (&wid, &hei);
+    term_pt->tt_width  = wid;
+    term_pt->tt_height = hei;
+
+    /* build the "blanks line" (not used any more ?) */
+    memset (blanks, '\0', MAXWIDTH+1);
+    memset (blanks, ' ', term_pt->tt_width);
+}
+
+
 Small
 getcap (term)
      char *term;
@@ -314,6 +362,7 @@ getcap (term)
     static char dit[] = ";";
 #endif
     int cc;
+    int width, height;
 
     cc = tgetent (tcbuf, term);
     switch (cc) {
@@ -323,6 +372,13 @@ getcap (term)
     }
     cp = salloc (2048, YES);
 
+    /* get the screen size */
+    width  = tgetnum ("co");
+    height = tgetnum ("li");
+    get_tt_size (&width, &height);
+    set_tt_size (&t_tcap, width, height);  /* overwrite by ioctl value */
+
+#if 0
     if ((t_tcap.tt_width = tgetnum ("co")) < 0
 	|| (t_tcap.tt_height = tgetnum ("li")) < 0
 	)
@@ -338,6 +394,8 @@ getcap (term)
 	}
     }
 #endif
+#endif
+
     if (tgetflag ("xv") > 0)
 	t_tcap.tt_width--;	/* vt100 brain damage */
 /* if no home command, fake it with cursor movement. */
