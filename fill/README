@@ -1,0 +1,4 @@
+newfill.c is in the middle of being fixed.  fill -l0 loops.
+
+I also coded it so it won't ignore non-printing characters,
+but that is not tested at all yet.  may not even compile.

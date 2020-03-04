@@ -1,0 +1,14 @@
+Unfortunately, these docs are riddled with
+things for internal Rand use which will
+probably just confuse you, like the naming of the keys,
+and the references to NED did this, NED did that.
+
+Also, in E14doc there is this false sentence:
+
+A comprehensive guide to E has been written by David
+Yost and Judith Westbury and will be published soon.
+
+For more documentation, see ../e15/Changes and ../term/Keyboard
+
+dave yost
+Tuesday,  9 Mar 1982 23:53:43-PST

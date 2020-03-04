@@ -1,0 +1,45 @@
+# Ann arbor ambassador
+# Redone 6/22 by Mike O'Brien and Dave Yost at Rand
+# For compatibility with older ann arbor terminals, we use locally
+# the following keypad definitions which we don't recommend outside of Rand:
+#       :ku=\E[H:kd=\E[B:kl=\EF:kr=\EG:kh=\E[A:ko=dc,dl,ce,cd:
+aaa1|ann arbor ambassador:\
+	:al=\E[L:am:bs:\
+	:cd=\E[J:ce=\E[K:cl=275\E[H\E[J:cm=\E[%i%d;%dH:co#80:\
+	:dc=\E[P:dl=\E[M:dm=:\
+	:ed=:ei=\E[4l:ho=\E[H:im=\E[4h:\
+	:ku=\E[A:kd=\E[B:kl=\E[D:kr=\E[C:kh=\E[H:ko=dc,dl,ce,cd:\
+	:mi:nd=\E[C:pt:se=\E[m:so=\E[7m:up=\E[A:vs=\E[1Q:
+aaa18|ann arbor ambassador/18 lines:\
+	:ti=\E[H\E[J\E[18;0;0;18p:te=\E7\E[60;0;0;18p\E8:\
+	:is=\E[60;0;0;18p\E[H\E[J\E[Q\E[m\E[>20;30l:li#18:tc=aaa1:
+aaa20|ann arbor ambassador/20 lines:\
+	:ti=\E[H\E[J\E[20;0;0;20p:te=\E7\E[60;0;0;20p\E8:\
+	:is=\E[60;0;0;20p\E[H\E[J\E[Q\E[m\E[>20;30l:li#20:tc=aaa1:
+aaa22|ann arbor ambassador/22 lines:\
+	:ti=\E[H\E[J\E[22;0;0;22p:te=\E7\E[60;0;0;22p\E8:\
+	:is=\E[60;0;0;22p\E[H\E[J\E[Q\E[m\E[>20;30l:li#22:tc=aaa1:
+aaa24|ann arbor ambassador/24 lines:\
+	:ti=\E[H\E[J\E[24;0;0;24p:te=\E7\E[60;0;0;24p\E8:\
+	:is=\E[60;0;0;24p\E[H\E[J\E[Q\E[m\E[>20;30l:li#24:tc=aaa1:
+aaa26|ann arbor ambassador/26 lines:\
+	:ti=\E[H\E[J\E[26;0;0;26p:te=\E7\E[60;0;0;26p\E8:\
+	:is=\E[60;0;0;26p\E[H\E[J\E[Q\E[m\E[>20;30l:li#26:tc=aaa1:
+aaa28|ann arbor ambassador/28 lines:\
+	:ti=\E[H\E[J\E[28;0;0;28p:te=\E7\E[60;0;0;28p\E8:\
+	:is=\E[60;0;0;28p\E[H\E[J\E[Q\E[m\E[>20;30l:li#28:tc=aaa1:
+aaa30|ann arbor ambassador/30 lines:\
+	:ti=\E[H\E[J\E[30;0;0;30p:te=\E7\E[60;0;0;30p\E8:\
+	:is=\E[60;0;0;30p\E[H\E[J\E[Q\E[m\E[>20;30l:li#30:tc=aaa1:
+aaa36|ann arbor ambassador/36 lines:\
+	:ti=\E[H\E[J\E[36;0;0;36p:te=\E7\E[60;0;0;36p\E8:\
+	:is=\E[60;0;0;36p\E[H\E[J\E[Q\E[m\E[>20;30l:li#36:tc=aaa1:
+aaa40|ann arbor ambassador/40 lines:\
+	:ti=\E[H\E[J\E[40;0;0;40p:te=\E7\E[60;0;0;40p\E8:\
+	:is=\E[60;0;0;40p\E[H\E[J\E[Q\E[m\E[>20;30l:li#40:tc=aaa1:
+Mb|aaa|aaa48|ambas|ambassador|ann arbor ambassador/48 lines:\
+	:ti=\E[H\E[J\E[48;0;0;48p:te=\E7\E[60;0;0;48p\E8:\
+	:is=\E[60;0;0;48p\E[H\E[J\E[Q\E[m\E[>20;30l:li#48:tc=aaa1:
+aaa60|ann arbor ambassador/60 lines:\
+	:is=\E[60;0;0;60p\E[H\E[J\E[Q\E[m\E[>20;30l:li#60:tc=aaa1:
+	:mi:nd=\E[C:pt:se=\E[m:so=\E[7m:up=\E[A:vs=\E[1Q:

@@ -1,0 +1,54 @@
+-------
+8/1/80
+
+E has been changed to handle aborted and crashed sessions better.
+If E detects that either of those cases has occurred, you will be prompted
+with some options and asked how you would like to proceed.  If you need the
+editor to ignore whether or not a crash or abort happened, invoke:
+    e -norecover
+
+-------
+8/18/80
+
+E now provides two new ways to exit:
+    CMD: exit nosave
+This is like normal exit except that no saves happen.  This is handy if you
+want to be able to come back into the editor next time at the same spot but
+don't want to save any files you may have modified.
+    CMD: exit quit
+This is like "exit abort", but deletes the keystroke file.  If you don't
+plan to do a replay, then this is preferred over "exit abort".
+
+		  saves   updates      deletes     deletes
+		  files  state file   keystroke    'changes'
+			   (.es1)    file (.ek1)  file (.ec1)
+		  -----  ----------  -----------  -----------
+    exit           YES      YES          YES         YES
+    exit nosave     -       YES          YES         YES
+    exit quit       -        -           YES         YES
+    exit abort      -        -            -          YES
+    exit dump       -        -            -           -
+
+The "exit load" is obsolete and has been withdrawn.
+
+-------
+9/15/80
+
+Mods made to include weirdo datamedia terminal for mike obrien.
+
+-------
+9/19/80
+
+SHELL environment variable is used for shpath in runlines() in e.ru.c.
+-------
+10/1/80
+
+-terminal=ttype argument added.
+-------
+4/13/81
+
+Removed secret feature that would position the window to lin and col
+if those numeric arguments followed the filename.
+
+Added feature that second filename becomes alt file.
+-------

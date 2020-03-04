@@ -1,0 +1,47 @@
+set v = ""
+if $1x != -vx goto doit
+set v = $1
+shift
+: doit
+cd off
+load $v -c -O -I..\
+../close \
+../fd    \
+../flush \
+../free  \
+../getc  \
+../open  \
+../pos   \
+../putc  \
+../read  \
+../seek  \
+../size  \
+../write \
+../alloc \
+../blk   \
+../sort
+
+cd ../offd
+load $v -c -O -DDEBUG -I..\
+../close \
+../fd    \
+../flush \
+../free  \
+../getc  \
+../open  \
+../pos   \
+../putc  \
+../read  \
+../seek  \
+../size  \
+../write \
+../alloc \
+../blk   \
+../sort
+
+cd ..
+echo updating libff.a
+Updlib $v ff
+echo updating libffd.a
+Updlib $v ffd
+echo $0 done

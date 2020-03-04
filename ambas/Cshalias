@@ -1,0 +1,13 @@
+The following Cshell alias can be useful for
+use with the Ambassador:
+
+    alias aaa    'setenv TERM aaa\!^; tset -e -Q'
+
+Beware that there is a control-H immediately after the -e in
+the previous example.
+
+What you do is issue a command like
+
+    aaa 30
+
+and the aaa alias sets TERM and does a tset.

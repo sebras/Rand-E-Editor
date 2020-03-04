@@ -1,0 +1,118 @@
+
+struct string {
+    char name;
+    char *s;
+ };
+
+struct strings {
+    struct string s_header;
+    struct string s_trailer;
+    struct string s_res1;
+    struct string s_enq;
+    struct string s_null;
+    struct string s_da;
+ };
+
+struct strings ini_strings = {
+    {' ', "" },                 /* s_header  Header string   */
+    {'!', "" },                 /* s_trailer Trailer string  */
+    {'"', "" },                 /* s_res1    [Reserved]      */
+    {'#', "" },                 /* s_enq     ENQ string      */
+    {'$', "\033[>01;07c" },     /* s_da      DA string       */
+    {'\0' }
+ };
+
+struct keys {
+    struct string k_send;
+    struct string k_setup;
+    struct string k_break;
+    struct string k_shbreak;
+    struct string k_pause;
+    struct string k_return;
+    struct string k_mvup;
+    struct string k_shmvup;
+    struct string k_mvdown;
+    struct string k_shmvdown;
+    struct string k_zero;
+    struct string k_one;
+    struct string k_two;
+    struct string k_three;
+    struct string k_four;
+    struct string k_five;
+    struct string k_six;
+    struct string k_seven;
+    struct string k_eight;
+    struct string k_nine;
+    struct string k_ten;
+    struct string k_null;
+ };
+struct keys ini_strings = {
+    {'%', "y\033S" },            /* k_send  Send             */
+    {'&', "y\033d" },            /* k_send  Setup            */
+ };
+\033P`%y~[S\033\\               // Send
+\033P`&y~[{D}\033\\             // Setup
+\033P`(y~[{E}\033\\             // Break
+\033P`)y~[{E}\033\\             // Break sh
+\033P`*y~[{G}\033\\             // Pause
+\033P`+~M\033\\                 // Return
+\033P`,y~[[S\033\\              // Move Up          SU
+\033P`-y~[{I}\033\\             // Move Up sh
+\033P`.y~[[T\033\\              // Move Down        SD
+\033P`/y~[{J}\033\\             // Move Down sh
+\033P`0\033\\                   // 0 sh             (null)
+\033P`1~[F\033\\                // 1 sh             SSA
+\033P`2~V2\033\\
+\033P`3~V3\033\\
+\033P`4~V4\033\\
+\033P`5~V5\033\\
+\033P`6~V6\033\\
+\033P`7~V7\033\\
+\033P`8~V8\033\\
+\033P`9~V9\033\\
+
+\033P`(~@\033\\
+\033P`@~V@\033\\
+\033P`?~V?\033\\
+\033P`>~V>\033\\
+\033P`<~V<\033\\
+\033P`=~V=\033\\
+\033P`:~V:\033\\
+\033P`/~V/\033\\
+\033P`.~V.\033\\
+\033P`-~V-\033\\
+\033P`,~V,\033\\
+
+\033P`A~VA\033\\
+\033P`B~VB\033\\
+\033P`C~VC\033\\
+\033P`D~VD\033\\
+\033P`E~VE\033\\
+\033P`F~VF\033\\
+\033P`G~VG\033\\
+\033P`H~VH\033\\
+\033P`I~VI\033\\
+\033P`J~VJ\033\\
+\033P`K~VK\033\\
+\033P`L~VL\033\\
+\033P`M~VM\033\\
+\033P`N~VN\033\\
+\033P`O~VO\033\\
+\033P`P~VP\033\\
+\033P`Q~VQ\033\\
+\033P`R~VR\033\\
+\033P`S~VS\033\\
+\033P`T~VT\033\\
+\033P`U~VU\033\\
+\033P`V~VV\033\\
+\033P`W~VW\033\\
+\033P`X~VX\033\\
+\033P`Y~VY\033\\
+\033P`Z~VZ\033\\
+\033P`[~V[\033\\
+\033P`\~V\\033\\
+\033P`]~V]\033\\
+\033P`^~V^\033\\
+\033P`_~V_\033\\
+
+done.

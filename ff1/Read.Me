@@ -1,0 +1,32 @@
+	FFIO -- "fast file" direct access i/o package
+
+This package is totally contained within this directory and its
+subdirectories.  To update the ffio library (libff.a), simply
+execute the compile shell file "Updall".  If you are building it
+for the first time, then after doing the Updall, you must run
+"Crlib" to creat the library in the correct order.  The result is
+the library libff.a which references routines in malloc.o of
+stdio (this is part of libc.a on V7) and the standard system
+calls from the library libc.a (/lib/libc.a typically).  If you
+don't have the program called "load", then change Updall to read
+"cc -c -O ...".  This will cause all modules to be recompiled
+rather than only those which have been modified since last
+compilation.  Or you can use a makefile on V7.
+
+The header ff.h.debug has DEBUG defined, which causes extra code
+in blk, read, and write to be included for self-consistency
+checks within the ffio package.  This should only be necessary to
+find bugs within the ffio package, which has been running bug-
+free for several months. (A built "debug" version is in the
+library "libffd.a".)
+
+The header file ff.h uses recursive structure definitions, so it
+will only compile with a relatively late model c compiler, such
+as V6+.  If it won't work under your c compiler, modify ff.h to
+declare the forward structure pointers as char pointers.  This
+will not bother the code as there are no array references within
+the package.
+
+
+Bruce Borden    October 14, 1978
+David Yost      August 20, 1979
