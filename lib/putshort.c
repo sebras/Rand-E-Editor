@@ -1,10 +1,11 @@
 #include	<stdio.h>
+#include        <c_env.h>
 
 putshort (i, iop)
 short i;
 register FILE *iop;
 {
-    register tmp;
+    register int tmp;
     register char *cp;
 
     cp = (char *) &i;

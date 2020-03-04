@@ -1,9 +1,9 @@
 #ifdef COMMENT
-	Copyright abandoned, 1983, The Rand Corporation
+Copyright       abandoned, 1983, The Rand Corporation
 #endif
 
 #ifdef COMMENT
-
+/*
     center
 
     +----------------------------------------------+
@@ -57,42 +57,49 @@
     Exits 0 if done OK.
     Exits -1 if error encountered and nothing touched.
     Exits -2 if error encountered after doing some output.
+*/
 
 #endif
 
-/**/
+    /*      * */
 #define RWSTDIO
 #include <stdio.h>
-#include <ctype.h>      /* uptovax  WG */
+#include <ctype.h>		/* uptovax  WG */
 #include <sys/types.h>
+/* XXXXXXXXXXXXXXXXXXXX
 #include <sgtty.h>
+*/
 #include <sys/stat.h>
 
 #define BELL 07
 
-int numargs,            /* global copy of argc                             */
-    curarg;             /* current arg to look at                          */
-char **argarray,        /* global copy of argv                             */
-     *curargchar,       /* current arg character to look at                */
-     *progname;         /* global copy of argv[0] which is program name    */
+    int             numargs,	/* global copy of argc                             */
+                    curarg;	/* current arg to look at                          */
+    char          **argarray,	/* global copy of argv                             */
+                   *curargchar,	/* current arg character to look at                */
+                   *progname;	/* global copy of argv[0] which is program
+				 * name    */
 
-int opterrflg = 0,      /* option error encountered                          */
-    badfileflg = 0;     /* bad file encountered                            */
+    int             opterrflg = 0,	/* option error encountered                          */
+                    badfileflg = 0;	/* bad file encountered                            */
 
-int opt_abort_flg = 1,  /* abort entirely if any option errors encountered */
-    opt_stop_flg = 0;   /* stop processing at first option error           */
-			/* do not turn this on if opt_abort_flg is on      */
+    int             opt_abort_flg = 1,	/* abort entirely if any option
+					 * errors encountered */
+                    opt_stop_flg = 0;	/* stop processing at first option
+					 * error           */
+    /* do not turn this on if opt_abort_flg is on      */
 
-int fil_abort_flg = 0,  /* abort entirely if any bad files encountered     */
-    fil_stop_flg = 0;   /* stop processing at first bad file               */
-			/* do not turn this on if fil_abort_flg is on      */
+    int             fil_abort_flg = 0,	/* abort entirely if any bad files
+					 * encountered     */
+                    fil_stop_flg = 0;	/* stop processing at first bad file               */
+    /* do not turn this on if fil_abort_flg is on      */
 
-int show_errs_flg;      /* print error diagnostics to stderr               */
-int output_done = 0;    /* set to one if any output done                   */
+    int             show_errs_flg;	/* print error diagnostics to stderr               */
+    int             output_done = 0;	/* set to one if any output done                   */
 
-FILE *input;
-/********************* end of standard filter declarations *****************/
-#define MAXINBUF 1024           /* must be at least 512                    */
+    FILE           *input;
+    /********************* end of standard filter declarations *****************/
+#define MAXINBUF 1024		/* must be at least 512                    */
 #define MAXINT 32767
 #define MAXUNS 65535
 #define TABCOL 8
@@ -103,24 +110,24 @@ FILE *input;
 #define min(a,b) (a<b? a: b)
 #define max(a,b) (a>b? a: b)
 
-char inbuf[MAXINBUF];
-int indent = INDENTDEFLT;       /* indent is part of lineleng              */
-int indent_flg = 0;             /* use first printing col of 1st line proc.*/
-int lineleng = LINELENGDEFLT;   /* lineleng of centering area              */
-unsigned int start = 1;         /* line number to start with (first is 1)  */
-unsigned int nlines = MAXUNS;   /* number of lines to do                   */
-int frstcol = 0;                /* first col of input line                 */
-int inlinel = 0;                /* line length of printing text on inp line*/
+    char            inbuf[MAXINBUF];
+int             indent = INDENTDEFLT;	/* indent is part of lineleng              */
+int             indent_flg = 0;	/* use first printing col of 1st line proc. */
+int             lineleng = LINELENGDEFLT;	/* lineleng of centering area              */
+unsigned int    start = 1;	/* line number to start with (first is 1)  */
+unsigned int    nlines = MAXUNS;/* number of lines to do                   */
+int             frstcol = 0;	/* first col of input line                 */
+int             inlinel = 0;	/* line length of printing text on inp line */
 
-/**/
+/*  * */
 main(argc, argv)
-int argc;
-char **argv;
+    int             argc;
+    char          **argv;
 {
     numargs = argc;
     curarg = 0;
     argarray = argv;
-/*  curargchar = *argarray[curarg];     uptovax WG */
+    /* curargchar = *argarray[curarg];     uptovax WG */
     curargchar = *(argarray + curarg);
 
     input = stdin;
@@ -130,42 +137,41 @@ char **argv;
     show_errs_flg = 0;
 
     do {
-	getoptions(1);          /* check for option errors      */
-	filterfiles(1);         /* check for bad files          */
+	getoptions(1);		/* check for option errors      */
+	filterfiles(1);		/* check for bad files          */
     } while (curarg < numargs);
 
-    if ( (opterrflg && !opt_stop_flg) || (badfileflg && !fil_stop_flg) ) {
+    if ((opterrflg && !opt_stop_flg) || (badfileflg && !fil_stop_flg)) {
 	curarg = 1;
 	opterrflg = badfileflg = 0;
 	show_errs_flg = 1;
 	do {
-	    getoptions(1);          /* check for option errors      */
-	    filterfiles(1);         /* check for bad files          */
+	    getoptions(1);	/* check for option errors      */
+	    filterfiles(1);	/* check for bad files          */
 	} while (curarg < numargs);
-	if ( (opterrflg && opt_abort_flg) || (badfileflg && fil_abort_flg) ) {
-	    fprintf(stderr,"%s: not performed.\n",progname);
+	if ((opterrflg && opt_abort_flg) || (badfileflg && fil_abort_flg)) {
+	    fprintf(stderr, "%s: not performed.\n", progname);
 	    exit(-2);
 	}
     }
-
     curarg = 1;
     opterrflg = badfileflg = 0;
 
     if (intss())
-	setbuf(stdout,NULL);
+	setbuf(stdout, NULL);
     do {
 	opterrflg = 0;
 	show_errs_flg = opt_stop_flg;
 	getoptions(0);
 	if (opterrflg && opt_stop_flg) {
-	    fprintf(stderr,"%s: stopped.\n",progname);
+	    fprintf(stderr, "%s: stopped.\n", progname);
 	    exit(-1 - output_done);
 	}
 	badfileflg = 0;
 	show_errs_flg = fil_stop_flg;
 	filterfiles(0);
 	if (badfileflg && fil_stop_flg) {
-	    fprintf(stderr,"%s: stopped.\n",progname);
+	    fprintf(stderr, "%s: stopped.\n", progname);
 	    exit(-1 - output_done);
 	}
     } while (curarg < numargs);
@@ -176,8 +182,8 @@ char **argv;
 
 getprogname()
 {
-    register char *cp;
-    register char lastc = '\0';
+    register char  *cp;
+    register char   lastc = '\0';
 
     progname = cp = argarray[0];
     for (; *cp; cp++) {
@@ -191,17 +197,17 @@ getprogname()
 
 getoptions(check_only)
 {
-    register char *p;
+    register char  *p;
 
-    for (; curarg<numargs; curarg++) {
+    for (; curarg < numargs; curarg++) {
 	curargchar = argarray[curarg];
-	if (curargchar[0] != '-')           /* not an option arg */
+	if (curargchar[0] != '-')	/* not an option arg */
 	    return;
-	if (curargchar[1] == '\0')          /* arg was '-' by itself */
+	if (curargchar[1] == '\0')	/* arg was '-' by itself */
 	    return;
 
 	p = ++curargchar;
-	for (;; p++,curargchar++) {
+	for (;; p++, curargchar++) {
 	    switch (*p) {
 	    case 'x':
 		break;
@@ -210,16 +216,14 @@ getoptions(check_only)
 		if (*++p == '\0') {
 		    if (!check_only)
 			lineleng = LINELENGDEFLT;
-		}
-		else
-		    for (lineleng=0; *p; p++) {
+		} else
+		    for (lineleng = 0; *p; p++) {
 			if (isdigit(*p)) {
 			    if (!check_only) {
 				lineleng *= 10;
 				lineleng += *p - '0';
 			    }
-			}
-			else
+			} else
 			    goto error;
 		    }
 		break;
@@ -228,21 +232,18 @@ getoptions(check_only)
 		if (*++p == '\0') {
 		    if (!check_only)
 			indent = INDENTDEFLT;
-		}
-		else if (*p == 'i') {
+		} else if (*p == 'i') {
 		    indent_flg = 1;
 		    if (*++p)
 			goto error;
-		}
-		else
-		    for (indent=0; *p; p++) {
+		} else
+		    for (indent = 0; *p; p++) {
 			if (isdigit(*p)) {
 			    if (!check_only) {
 				indent *= 10;
 				indent += *p - '0';
 			    }
-			}
-			else
+			} else
 			    goto error;
 		    }
 		break;
@@ -251,16 +252,14 @@ getoptions(check_only)
 		if (*++p == '\0') {
 		    if (!check_only)
 			start = 1;
-		}
-		else
-		    for (start=0; *p; p++) {
+		} else
+		    for (start = 0; *p; p++) {
 			if (isdigit(*p)) {
 			    if (!check_only) {
 				start *= 10;
 				start += *p - '0';
 			    }
-			}
-			else
+			} else
 			    goto error;
 		    }
 		break;
@@ -269,29 +268,27 @@ getoptions(check_only)
 		if (*++p == '\0') {
 		    if (!check_only)
 			nlines = MAXUNS;
-		}
-		else
-		    for (nlines=0; *p; p++) {
+		} else
+		    for (nlines = 0; *p; p++) {
 			if (isdigit(*p)) {
 			    if (!check_only) {
 				nlines *= 10;
 				nlines += *p - '0';
 			    }
-			}
-			else
+			} else
 			    goto error;
 		    }
 		break;
 
-	    case '\0':                    /* done */
+	    case '\0':		/* done */
 		break;
 
-	    default:                      /* unknown option or other errors */
-	    error:
+	    default:		/* unknown option or other errors */
+	error:
 		opterrflg = 1;
 		if (show_errs_flg) {
-		    fprintf(stderr,"%s: option error: -%s\n",
-			progname,curargchar);
+		    fprintf(stderr, "%s: option error: -%s\n",
+			    progname, curargchar);
 		    fflush(stderr);
 		}
 	    }
@@ -302,42 +299,39 @@ getoptions(check_only)
 
 filterfiles(check_only)
 {
-    register FILE *f;
+    register FILE  *f;
 
     if (curarg >= numargs && !check_only) {
 	input = stdin;
 	filter();
 	return;
     }
-
-    for (; curarg<numargs; curarg++) {
+    for (; curarg < numargs; curarg++) {
 	curargchar = argarray[curarg];
 	if (curargchar[0] == '-') {
-	    if (curargchar[1] == '\0')    /* "-" arg */
+	    if (curargchar[1] == '\0')	/* "-" arg */
 		f = stdin;
 	    else
 		return;
-	}
-	else {
+	} else {
 	    if (check_only)
-/*              f = faccess(curargchar,"r");    uptovax WG */
-		f = (FILE *)(!access(curargchar,4));
+		/* f = faccess(curargchar,"r");    uptovax WG */
+		f = (FILE *) (!access(curargchar, 4));
 	    else
-		f = fopen(curargchar,"r");
+		f = fopen(curargchar, "r");
 	    if (f == NULL) {
-		char scratch[64];
-
-		if (stat(curargchar,scratch) == -1) {
+		/* XXXXXXXXXXXXXXXXXXXXXXX */
+		struct stat     scratch[64];
+		if (stat(curargchar, scratch) == -1) {
 		    if (show_errs_flg) {
-			fprintf(stderr,"%s: can't find %s\n",
-			    progname,curargchar);
+			fprintf(stderr, "%s: can't find %s\n",
+				progname, curargchar);
 			fflush(stderr);
 		    }
-		}
-		else {
+		} else {
 		    if (show_errs_flg) {
-			fprintf(stderr,"%s: not allowed to read %s\n",
-			    progname,curargchar);
+			fprintf(stderr, "%s: not allowed to read %s\n",
+				progname, curargchar);
 			fflush(stderr);
 		    }
 		}
@@ -353,8 +347,8 @@ filterfiles(check_only)
 
 filter()
 {
-    if ( input == stdin && intss() )
-	fprintf(stderr,"%c%s: start typing.\n",BELL,progname);
+    if (input == stdin && intss())
+	fprintf(stderr, "%c%s: start typing.\n", BELL, progname);
     doit();
     if (input != stdin)
 	fclose(input);
@@ -366,22 +360,21 @@ filter()
 
 doit()
 {
-    register int c;
+    register int    c;
     register unsigned int n;
 
-    for (n=1; n<start; ) {
-	if ((c=readline()) != EOF) {
-	    fputs(inbuf,stdout);
+    for (n = 1; n < start;) {
+	if ((c = readline()) != EOF) {
+	    fputs(inbuf, stdout);
 	    if (c == '\n')
 		n++;
-	}
-	else
+	} else
 	    break;
     }
     if (c == EOF)
 	goto done;
-    for (n=0; n<nlines; n++) {
-	if ((c=getline()) != EOF)
+    for (n = 0; n < nlines; n++) {
+	if ((c = getline()) != EOF)
 	    centline();
 	else
 	    break;
@@ -389,17 +382,11 @@ doit()
     if (c == EOF)
 	goto done;
     for (;;) {
-	if ((c=readline()) != EOF)
-	    fputs(inbuf,stdout);
+	if ((c = readline()) != EOF)
+	    fputs(inbuf, stdout);
 	else
 	    break;
     }
-/*  {   if ((i=fread(inbuf,1,512,input)) > 0)   /* doesn't handle EOF from */
-/*          fwrite(inbuf,1,i,stdout);           /* tty nicely */
-/*      else
-/*          break;
-/*  }
- */
 done:
     finish();
 }
@@ -407,58 +394,54 @@ done:
 
 getline()
 {
-    register int i, c;
-    register char *cp;
-    int thislinel;
-    int j;
-    static eof_flg = 0;
+    register int    i, c;
+    register char  *cp;
+    int             thislinel;
+    int             j;
+    static          eof_flg = 0;
 
     if (eof_flg) {
 	eof_flg = 0;
-	return(EOF);
+	return (EOF);
     }
     frstcol = MAXINT;
     inlinel = 0;
     cp = inbuf;
     for (;;) {
 	thislinel = 0;
-	for (i=0; (c = getch()) != EOF; ) {
-	    if ( c == ' ') {
+	for (i = 0; (c = getch()) != EOF;) {
+	    if (c == ' ') {
 		*cp++ = c;
 		i++;
-	    }
-	    else if (c == '\t') {
-		j = (j=i%TABCOL)? TABCOL-j: TABCOL;
+	    } else if (c == '\t') {
+		j = (j = i % TABCOL) ? TABCOL - j : TABCOL;
 		do {
 		    *cp++ = ' ';
 		    i++;
 		} while (--j);
-	    }
-	    else
+	    } else
 		break;
 	}
-	frstcol = min(frstcol,i);
-	for (; c != EOF; c=getch() ) {
-	    if (cp >= &inbuf[MAXINBUF-1]) {
-		fprintf(stderr,"%s: line overflow!\n",progname);
+	frstcol = min(frstcol, i);
+	for (; c != EOF; c = getch()) {
+	    if (cp >= &inbuf[MAXINBUF - 1]) {
+		fprintf(stderr, "%s: line overflow!\n", progname);
 		break;
 	    }
 	    if (c == '\t') {
-		j = (j=i%TABCOL)? TABCOL-j: TABCOL;
+		j = (j = i % TABCOL) ? TABCOL - j : TABCOL;
 		do {
 		    *cp++ = ' ';
 		    i++;
 		} while (--j);
-	    }
-	    else {
-		if (c == '\n' || c == '\f'|| c == '\r') {
-		    i = max(thislinel,i);
+	    } else {
+		if (c == '\n' || c == '\f' || c == '\r') {
+		    i = max(thislinel, i);
 		    for (cp--; cp >= inbuf; cp--) {
 			if (*cp == ' ')
 			    i--;
-			else if (*cp == '\b')
-			    {}
-			else
+			else if (*cp == '\b') {
+			} else
 			    break;
 		    }
 		    *++cp = c;
@@ -471,12 +454,11 @@ getline()
 		    if (i > thislinel)
 			thislinel = i;
 		    i--;
-		}
-		else
+		} else
 		    i++;
 	    }
 	}
-	inlinel = max(inlinel,thislinel);
+	inlinel = max(inlinel, thislinel);
 	if (c != '\r')
 	    break;
     }
@@ -486,36 +468,36 @@ getline()
     }
     if (c == EOF) {
 	if (inlinel == 0)
-	    return(EOF);
+	    return (EOF);
 	else {
 	    eof_flg = 1;
-	    return(inlinel);
+	    return (inlinel);
 	}
     }
-    return(inlinel);
+    return (inlinel);
 }
 
 
 getch()
 {
-    register c;
+    register        c;
 
-    for (c=getc(input); ; c=getc(input) ) {
+    for (c = getc(input);; c = getc(input)) {
 	if (spcortab(c) || printing(c)
-	   || c == '\n' || c == '\f' || c == '\b' || c == '\r' || c == EOF)
-	    return(c);
+	    || c == '\n' || c == '\f' || c == '\b' || c == '\r' || c == EOF)
+	    return (c);
 	else
-	    fprintf(stderr,"%s: \"\\%o\" char ignored.\n",progname,c);
+	    fprintf(stderr, "%s: \"\\%o\" char ignored.\n", progname, c);
     }
 }
 
 
 centline()
 {
-    register int i, j;
-    register char *cp;
-    int cenwidth;
-    int spaceover;
+    register int    i, j;
+    register char  *cp;
+    int             cenwidth;
+    int             spaceover;
 
     cenwidth = inlinel - frstcol;
     if (cenwidth > lineleng - indent)
@@ -524,12 +506,12 @@ centline()
 	spaceover = (lineleng - cenwidth) / 2;
     if (cenwidth > 0) {
 	cp = inbuf;
-	for(;;) {
-	    for (i=0; i<indent; i++)
+	for (;;) {
+	    for (i = 0; i < indent; i++)
 		putchar(' ');
-	    for (j=0; j<spaceover; j++)
+	    for (j = 0; j < spaceover; j++)
 		putchar(' ');
-	    for (cp += frstcol; *cp; cp++) {    /* ### buggy */
+	    for (cp += frstcol; *cp; cp++) {	/* ### buggy */
 		putchar(*cp);
 		if (*cp == '\r')
 		    break;
@@ -537,41 +519,39 @@ centline()
 	    if (*cp++ != '\r')
 		break;
 	}
-    }
-    else
-	fputs(inbuf,stdout);
+    } else
+	fputs(inbuf, stdout);
 }
 
 
 readline()
 {
-    register int i, c;
-    register char *cp;
-    static eof_flg = 0;
+    register int    i, c;
+    register char  *cp;
+    static          eof_flg = 0;
 
     if (eof_flg) {
 	eof_flg = 0;
-	return(EOF);
+	return (EOF);
     }
-    for (i=0, cp=inbuf; (c=getc(input)) != EOF; i++) {
+    for (i = 0, cp = inbuf; (c = getc(input)) != EOF; i++) {
 	if (i < MAXINBUF - 1) {
 	    *cp++ = c;
 	    if (c == '\n')
 		break;
-	}
-	else
+	} else
 	    break;
     }
     *cp = '\0';
     if (c == EOF) {
 	if (i == 0)
-	    return(EOF);
+	    return (EOF);
 	else {
 	    eof_flg = 1;
-	    return(c);
+	    return (c);
 	}
     }
-    return(c);
+    return (c);
 }
 
 
@@ -581,7 +561,9 @@ finish()
 
 intss()
 {
-    struct sgttyb buf;
-
-    return (gtty (0, &buf) != -1);
+    return ( isatty(0) );
+    /* XXXXXXXXXXXXXXXXXXXXXXXXXXXX
+    struct sgttyb   buf;
+    return (gtty(0, &buf) != -1);
+       XXXXXXXXXXXXXXXXXXXXXXXXXXXX */
 }

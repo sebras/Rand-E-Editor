@@ -5,13 +5,16 @@ getshort (iop)
 register FILE *iop;
 {
     short i;
-    register tmp;
+    register int tmp;
     register char *cp;
 
     cp = (char *) &i;
     tmp = sizeof (short);
     *cp++ = getc (iop);
+    /* XXXXXXXXXXXXXXXXXXXXXXXXXXXX
     if (iop->_flag&_IOEOF)
+       XXXXXXXXXXXXXXXXXXXXXXXXXXXX */
+    if (feof(iop))
 	return -1;
     --tmp;
     do

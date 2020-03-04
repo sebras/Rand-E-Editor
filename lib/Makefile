@@ -1,42 +1,55 @@
 #
-#       Copyright abandoned, 1983, The Rand Corporation
+#       MAKEFILE FOR RAND "LA" LINE-ACCESS I/O PACKAGE
 #
+ARFLAGS = -r
+# CFLAGS = -O -I. -I../include
+CFLAGS = -I. -I../include -g
 
-# SEE empty below -- set for Fourth Berkeley VMUNIX
+ALL=libtmp.a
 
-LIB     = libtmp.a
-MALLOC  =
-CFLAGS  = -O -V -DUNIXV7 -I../include
+OBJS=   getlong.o getshort.o intss.o putlong.o putshort.o \
+	delay.o  empty.o   fatal.o
 
-# ranlib is a late v7ism. if you don't have it, define it to echo
-RANLIB = ranlib
+SRCS=   getlong.c getshort.c intss.c putlong.c putshort.c \
+	delay.c  empty.c   fatal.c
 
-OFILES  =\
-	tfopen.o \
-	getlong.o \
-	getshort.o \
-	intss.o \
-	putlong.o \
-	putshort.o \
-	delay.o \
-	empty.o \
-	move.o \
-	fill.o \
-	$(MALLOC)
-
-$(LIB): $(OFILES)
-	-mv $(LIB) ,$(LIB)
-	ar r $(LIB) $(OFILES)
-	$(RANLIB) $(LIB)
-
-# Malloc is here for testing purposes only.  If it is compiled with 'debug'
-# defined, it runs slower but does rigorous checking to insure that the
-# heap has not been corrupted.
-# It is also modified to call the E 'fatal' routine if an ASSERT fails.
-# Has 'veralloc()' to verify the arena
-malloc.o: malloc.c
-	$(CC) -c -Ddebug -O -g malloc.c
-#       $(CC) -c -Ddebug -Dlongdebug -O -g malloc.c
+$(ALL)  : $(OBJS)
+	$(AR) $(ARFLAGS) $@ $(OBJS)
 
 clean:
-	rm -f $(OFILES) $(LIB)
+	rm -f $(OBJS) $(ALL)  ,* .e?1 .e?1.* core *.bak *.BAK *~ \#*
+
+depend:
+	makedepend -- $(CFLAGS) -- $(SRCS)
+
+# DO NOT DELETE THIS LINE -- make depend depends on it.
+
+getlong.o: /usr/include/stdio.h /usr/include/libio.h /usr/include/features.h
+getlong.o: /usr/include/sys/cdefs.h /usr/include/gnu/stubs.h
+getlong.o: /usr/include/_G_config.h /usr/include/gnu/types.h
+getlong.o: /usr/lib/gcc-lib/i386-redhat-linux/2.7.2.3/include/stddef.h
+getlong.o: /usr/lib/gcc-lib/i386-redhat-linux/2.7.2.3/include/stdarg.h
+getlong.o: /usr/include/stdio_lim.h
+getshort.o: /usr/include/stdio.h /usr/include/libio.h /usr/include/features.h
+getshort.o: /usr/include/sys/cdefs.h /usr/include/gnu/stubs.h
+getshort.o: /usr/include/_G_config.h /usr/include/gnu/types.h
+getshort.o: /usr/lib/gcc-lib/i386-redhat-linux/2.7.2.3/include/stddef.h
+getshort.o: /usr/lib/gcc-lib/i386-redhat-linux/2.7.2.3/include/stdarg.h
+getshort.o: /usr/include/stdio_lim.h
+putlong.o: /usr/include/stdio.h /usr/include/libio.h /usr/include/features.h
+putlong.o: /usr/include/sys/cdefs.h /usr/include/gnu/stubs.h
+putlong.o: /usr/include/_G_config.h /usr/include/gnu/types.h
+putlong.o: /usr/lib/gcc-lib/i386-redhat-linux/2.7.2.3/include/stddef.h
+putlong.o: /usr/lib/gcc-lib/i386-redhat-linux/2.7.2.3/include/stdarg.h
+putlong.o: /usr/include/stdio_lim.h ../include/c_env.h
+putshort.o: /usr/include/stdio.h /usr/include/libio.h /usr/include/features.h
+putshort.o: /usr/include/sys/cdefs.h /usr/include/gnu/stubs.h
+putshort.o: /usr/include/_G_config.h /usr/include/gnu/types.h
+putshort.o: /usr/lib/gcc-lib/i386-redhat-linux/2.7.2.3/include/stddef.h
+putshort.o: /usr/lib/gcc-lib/i386-redhat-linux/2.7.2.3/include/stdarg.h
+putshort.o: /usr/include/stdio_lim.h ../include/c_env.h
+empty.o: ../include/localenv.h /usr/include/sys/ioctl.h
+empty.o: /usr/include/features.h /usr/include/sys/cdefs.h
+empty.o: /usr/include/gnu/stubs.h /usr/include/ioctls.h
+empty.o: /usr/include/asm/ioctls.h /usr/include/asm/ioctl.h
+empty.o: /usr/include/ioctl-types.h /usr/include/sys/ttydefaults.h

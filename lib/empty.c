@@ -1,15 +1,19 @@
 
-#include <sys/param.h>
-#include <sys/tty.h>
 #include <localenv.h>
+
+#ifdef NOIOCTL_H
+#include <sys/tty.h>
+#else
+#include <sys/ioctl.h>
+#endif
 
 #ifdef FIONREAD
 empty (fd)
 {
-    long count;
+    int  count;
 
     if (ioctl (fd, FIONREAD, &count) < 0)
 	return 1;
     return count <= 0;
 }
-#endif FIONREAD
+#endif /* FIONREAD */

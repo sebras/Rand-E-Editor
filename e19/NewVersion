@@ -1,0 +1,33 @@
+#!/bin/sh
+: System V
+# The 1st parameter can be use to provide the builder name in case of root loging
+
+version=19
+release=50
+ver=e.r.c
+string0="E${version}.${release} version of `/bin/date +"%d/%m/%y"` for `uname -s`"
+string1b=`whoami`
+string1c=`hostname`
+if test -n $1; then
+    if test $string1b = "root";
+	then string1b=$1;
+    fi;
+fi
+string1="made by $string1b@$string1c"
+
+# echo "short revision = -${version};" > $ver
+# echo "short subrev = ${release};" >> $ver
+# echo "static char whatstr[] = { '@', '(', '#', ')' } ;" >> $ver
+# echo 'char verstr[] = "\' >> $ver
+# echo "$string0  $string1"'\' >> $ver
+# /bin/echo '\\n";' >> $ver
+
+cat <<EOF >$ver
+/* $ver file : dynamicaly build by NewVersion shell script */
+short revision = -${version};
+short subrev = ${release};
+static char whatstr[] = { '@', '(', '#', ')' } ;
+char verstr[] = "\\
+$string0  $string1\\
+";
+EOF

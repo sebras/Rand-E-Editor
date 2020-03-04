@@ -9,14 +9,19 @@ tfopen (file, mode)
 char *file;
 register char *mode;
 {
-    register f;
+    register int f;
     register FILE *iop;
     int read = 0;
     int write = 0;
     struct stat scratch;
 
+#ifdef _AIX
     for (iop = _iob; iop->_flag & (_IOREAD | _IOWRT); iop++)
 	if (iop >= _iob + _NFILE)
+#else
+    for (iop = __iob; iop->_flag & (_IOREAD | _IOWRT); iop++)
+	if (iop >= __iob + _NFILE)
+#endif
 	    return NULL;
     for (; *mode; mode++) {
 	switch (*mode) {
