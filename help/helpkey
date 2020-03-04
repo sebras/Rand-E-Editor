@@ -338,6 +338,12 @@ NULL - Nothing to be done
 DWORD - This key will delete the next word.  If there's no text remaining
     on the current line, a search is made for the next word, and that
     word is deleted.
+~160
+FNAVIGATE - This key enter into the edited file list navigation mode,
+    this is equivalent to 'edit <DOWN key>' key stroke.
+    When in this mode, navigate in a turn around behaviour,
+    when we cross in the file list the currently active window edited file,
+    a beep is generated.
 ~184
     This key value can be used only for replay, (entry of resizing command).
 ~---------------------- End of the key section ---------------------
@@ -478,9 +484,8 @@ EDIT [ filename ]
     "edit" (or any of the accepted abreviation) be entered in the
     command line. Any other keys than UP or DOWN ARROW will end
     the navigation mode.
-    When navigate in the list the normal and alternate file of the
-    active window are hidden. The are directly available in the
-    active window.
+    When navigate, the list the normal file in the active window
+    is hidden. It is directly accessible in the active window.
 
     To look at the current edited file list use the "e ?" command or
     look into the output of the "status" command.
@@ -1046,27 +1051,42 @@ CD [ pathname ]
 STATUS - display the current status of the editor.
     Use 'help ?file' for detail on the file status info line
     Use 'help set' command for details on SET value.
+
+`files
+FILES - display the current list of edited files (same as "edit ?" command)
+
+`build-kbmap
+BUILD-KBMAP - capture or update the keys to escape sequence mapping of your
+    keyboard.
 `---------------------- End of the command section ---------------------
 
 #New_features_Linux -----------------------------------------------------
 ------------------------------------------------------------------------------
-New Features of the Linux version 19 revision 50 (Dec 1998)
-  New option : -verbose (for -help) : display full keyboard mapping on stdout.
-  Handling of MS-DOS text file style (new line = cr/lf) (file cmd).
-    nb : long file name with space must be given quoted with " or ' .
-  File style info cmd (?file) and change file style cmd (file).
-  Change directory (cd) and display current directory command (pwd).
-  Current status info cmd (status), see also "help status".
-  Interractive check of keyboard mapping cmd (checkscr), see also "help kbchk".
-  Enriched help : "help status", "help key <function>", "help keymap",
-    "help commands" ("help cmd"), "help keyfunctions" ("help keyf"),
-    "help keyboard_check" ("help kbchk").
-  Default tab stop sets at each 4th characters.
+New Features of the Linux version 19 revision 55 (April 2000)
+  Support for long files (more than 32767 lines).
+  Version available for AIX (IBM Unix) on RS6000 family
+  New command : 'files' to display the list of currently edited files
+    (eqivalent to the command 'edit ?').
+  New key function 'fnavigate' to navigate in the currently edited files list.
+    This key is assigned to the key pad '-' key in the provided kbfile
+    for xterm family and linux console (see vt200kbn).
+  Save and restaure in state file (.es1) the full edited file list.
+  Capture or update the keys to escape sequence mapping the user keyboard.
 
-New Features of the Linux version 19 revision 51 (Oct 1999)
-  File name command parameter can be expanded with the <tab> key,
-    like in most of the shell. If alternate name expansion exits
-    the <up arrow> and <down arrow> keys provide navigation in the list.
+Version 19 revision 54 (March 2000) was a beta version, not distributed.
+
+New Features of the Linux version 19 revision 53 (March 2000)
+  Screen resizing is supported during editing session, and at startup
+    when the screen size is different from what it was at the end of
+    the previous session.
+  Command line provide an history feature. To enter in command history
+    mode issue CMD CMD UP arrow key stroke (or CMD CMD DOWN). When in
+    history mode, UP and Down arrows provide navigation. Any other
+    key ends the history mode
+  Navigation into the current edited file list is provide within the
+    "edit" command (ref to "edit" command help).
+  Much more accurate help on key functions.
+  Some bug which was resulting in core dump are corrected.
 
 New Features of the Linux version 19 revision 52 (Jan 2000)
   Keyboard configuration files can use '#include <file name>' directive
@@ -1081,20 +1101,25 @@ New Features of the Linux version 19 revision 52 (Jan 2000)
     and Delete keys. The command 'status' provide some information about
     the current understanding of the keyboard in use.
 
-New Features of the Linux version 19 revision 53 (March 2000)
-  Screen resizing is supported during editing session, and at startup
-    when the screen size is different from what it was at the end of
-    the previous session.
-  Command line provide an history feature. To enter in command history
-    mode issue CMD CMD UP arrow key stroke (or CMD CMD DOWN). When in
-    history mode, UP and Down arrows provide navigation. Any other
-    key ends the history mode
-  Navigation into the current edited file list is provide within the
-    "edit" command (ref to "edit" command help).
-  Much more accurate help on key functions.
-  Some bug which was resulting in core dump are corrected.
-------------------------------------------------------------------------------
+New Features of the Linux version 19 revision 51 (Oct 1999)
+  File name command parameter can be expanded with the <tab> key,
+    like in most of the shell. If alternate name expansion exits
+    the <up arrow> and <down arrow> keys provide navigation in the
+    selected files list.
 
+New Features of the Linux version 19 revision 50 (Dec 1998)
+  New option : -verbose (for -help) : display full keyboard mapping on stdout.
+  Handling of MS-DOS text file style (new line = cr/lf) (file cmd).
+    nb : long file name with space must be given quoted with " or ' .
+  File style info cmd (?file) and change file style cmd (file).
+  Change directory (cd) and display current directory command (pwd).
+  Current status info cmd (status), see also "help status".
+  Interractive check of keyboard mapping cmd (checkscr), see also "help kbchk".
+  Enriched help : "help status", "help key <function>", "help keymap",
+    "help commands" ("help cmd"), "help keyfunctions" ("help keyf"),
+    "help keyboard_check" ("help kbchk").
+  Default tab stop sets at each 4th characters.
+------------------------------------------------------------------------------
 #Linux_key_mapping ------------------------------------------------------
 Recommandations for X key mapping on Linux :
 

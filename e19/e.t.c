@@ -186,12 +186,22 @@ void history_reload (FILE *stfile, Flag dump_state)
 static history_store (char *cmd)
 {
     unsigned int size, sz, pos;
+    char *hpt;
 
     if ( ! cmd ) return;
 
     size = strlen (cmd);
     if ( (size <= 0) || (size >= (sizeof (history) -1)) ) return;
 
+    /* do not duplicate the same command */
+    hpt = hist_write;
+    if ( hpt != history ) {
+	for ( hpt -=2 ; *hpt ; hpt-- ) if ( hpt < history ) break;
+	hpt++;
+	if ( strcmp (cmd, hpt) == 0 ) return;
+    }
+
+    /* something to be pushed in history */
     if ( (hist_write + size) >= history_end ) {
 	/* not enough room in history to store cmd */
 	sz = hist_write - history;  /* used space */
@@ -249,19 +259,36 @@ static char *fnavig_buf = NULL;
 static AFn fnavig_fn = 0;
 
 
-static char * file_list_navigation (S_window * cwin, Flag down_flg)
+static char * file_list_navigation (S_window * cwin)
 {
     AFn delta, sv_fn;
+    Flag down_flg;
 
+    down_flg = ( key != CCMOVEUP ); /* Move down or file navigation */
     sv_fn = fnavig_fn;
     delta = down_flg ? 1 : -1;
     for ( fnavig_fn += delta ; ; fnavig_fn += delta ) {
 	if ( (fnavig_fn < FIRSTFILE + NTMPFILES) || (fnavig_fn >= MAXFILES) ) {
-	    break;
+	    if ( key != CCFNAVIG ) break;
+	    /* else go around in the list */
+	    if ( fnavig_fn >= MAXFILES )
+		fnavig_fn = FIRSTFILE + NTMPFILES;  /* go around */
+	    else    /* must be < mini */
+		fnavig_fn = MAXFILES -1;
 	}
 	if ( ! (fileflags [fnavig_fn] & INUSE) ) continue;
-	if ( fnavig_fn == cwin->wksp->wfile ) continue;
+	if ( fnavig_fn == cwin->wksp->wfile ) {
+	    /* hide the active window edited file */
+	    if ( key == CCFNAVIG ) {
+		putchar ('\007');
+		if ( fnavig_fn == sv_fn ) break; /* nothing can be found */
+	    }
+	    continue;
+	}
+#if 0
+	/* hide also the active window alterneted file */
 	if ( fnavig_fn == cwin->altwksp->wfile ) continue;
+#endif
 	if ( !names [fnavig_fn] || !*names [fnavig_fn] ) continue;
 	strcpy ( fnavig_buf, names [fnavig_fn]);
 	return (fnavig_cmd);
@@ -2224,6 +2251,23 @@ static void cmd_delete (int wlen)
     move_cursor (wlen, YES);
 }
 
+/* insert the key value in the command line string */
+
+static void push_in_cmdline (Flag clean_msg)
+{
+    if ( insmode && (ccmdpos < ccmdlen) ) {
+	memmove (&ccmdp[ccmdpos +1], &ccmdp[ccmdpos], (ccmdlen++ - ccmdpos));
+	ccmdp[ccmdpos++] = key;
+	move_cursor (1, YES);   /* move cursor and refresh display */
+    }
+    else {
+	if ( ccmdpos == ccmdlen ) ccmdlen++;
+	ccmdp[ccmdpos++] = key;
+	ccmdp[ccmdlen] = '\0';
+	if ( clean_msg ) move_cursor (1, YES);
+	else putch_cmd (key);
+    }
+}
 
 #ifdef COMMENT
 void
@@ -2286,6 +2330,7 @@ param ()
     Flag file_navig_flg;                /* in file list navigation */
     Flag file_navig_cont_flg;           /* continue file navigation */
     Flag previous_file_navig_flg;
+    Flag file_navig_enter_flg;          /* to enter in file navigation */
 
     /* for file navigation */
     char * file_cmd_strg;               /* cmd string for file navigation */
@@ -2296,7 +2341,7 @@ param ()
     static struct timeval nulsec = { 0, 0 };
 
     resize_entry_flg = cmdenter_flg = NO;
-    entering = YES;     /* set this flag so that getkey1() knows you are in
+    entering = YES;     /* set this flag so that getkey1 () knows you are in
 			   this routine. */
 
     /* save the cursor position */
@@ -2322,6 +2367,7 @@ param ()
     hist_get = hist_write;
     hist_flg = previous_hist_flg = hist_cont_flg = NO;
     file_navig_flg = file_navig_cont_flg = previous_file_navig_flg = NO;
+    file_navig_enter_flg = ( key == CCFNAVIG );
 
     /* Main get command line loop */
     for ( done_flg = NO ; ! done_flg ; keyused = YES ) {
@@ -2380,13 +2426,24 @@ param ()
 	    }
 	}
 
-
-	/* Get a key value from input stream */
-	testandset_resize (YES, csv_curs, cwin);
-	getkey (WAIT_KEY, nulsec);
-	testandset_resize (NO, csv_curs, cwin);
-	key_cnt++;
-	if ( key_cnt == INT_MAX ) key_cnt = 2;  /* must be > 1 */
+	if ( file_navig_enter_flg ) {
+	    /* simulate an 'edit' command */
+	    Char saved_key;
+	    saved_key = key;
+	    key = 'e';
+	    push_in_cmdline (clean_msg);
+	    done_flg = NO;
+	    clean_msg = NO;
+	    key = saved_key;
+	    file_navig_enter_flg = NO;
+	} else {
+	    /* Get a key value from input stream */
+	    testandset_resize (YES, csv_curs, cwin);
+	    getkey (WAIT_KEY, nulsec);
+	    testandset_resize (NO, csv_curs, cwin);
+	    key_cnt++;
+	    if ( key_cnt == INT_MAX ) key_cnt = 2;  /* must be > 1 */
+	}
 
 	prchar_flg = YES;   /* default : put key in the command line */
 	done_flg = NO;
@@ -2721,6 +2778,7 @@ param ()
 
 		case CCMOVEUP:
 		case CCMOVEDOWN:
+		case CCFNAVIG:
 		    if ( !cmdflg && !hist_flg && !file_navig_flg ) {
 			if ( ! ccmdlen ) break;
 			if ( ! command_file (ccmdp, &file_para, &cmdval) )
@@ -2741,8 +2799,7 @@ param ()
 
 		    if ( file_navig_flg ) {
 			/* in edited file list navigation */
-			file_cmd_strg = file_list_navigation (cwin,
-					      (unsigned) key == CCMOVEDOWN );
+			file_cmd_strg = file_list_navigation (cwin);
 
 			if ( file_cmd_strg ) {
 			    ccmdpos = ccmdlen = strlen (file_cmd_strg);
@@ -2751,6 +2808,12 @@ param ()
 			    key_cnt = ccmdpos +1;
 			    putmsg ();
 			    all_cmdflg = NO;
+			} else if ( key == CCFNAVIG ) {
+			    /* only a single file in file edited list */
+			    ccmdpos = ccmdlen = 0;
+			    ccmdp[ccmdpos] = '\0';
+			    done_flg = YES;
+			    break;
 			}
 			file_navig_cont_flg = YES;
 			done_flg = NO;
@@ -2821,7 +2884,9 @@ param ()
 		continue;   /* go back in the for loop */
 	    }
 
-	   if ( insmode && (ccmdpos < ccmdlen) ) {
+	    push_in_cmdline (clean_msg);
+#if 0
+	    if ( insmode && (ccmdpos < ccmdlen) ) {
 		memmove (&ccmdp[ccmdpos +1], &ccmdp[ccmdpos], (ccmdlen++ - ccmdpos));
 		ccmdp[ccmdpos++] = key;
 		move_cursor (1, YES);   /* move cursor and refresh display */
@@ -2833,6 +2898,7 @@ param ()
 		if ( clean_msg ) move_cursor (1, YES);
 		else putch_cmd (key);
 	    }
+#endif
 	    done_flg = NO;
 	    clean_msg = NO;
 	}

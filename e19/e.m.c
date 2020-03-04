@@ -283,6 +283,10 @@ contin:
 		    keyused = YES;
 		    goto gotcmd;
 
+		case CCFNAVIG:
+		    keyused = YES;
+		    goto gotcmd;
+
 		case CCSETFILE:
 		    if (curmark)
 			goto nomarkerr;
@@ -484,6 +488,9 @@ gotcmd:
 	    switch (key) {
 		case CCCMD:
 		    goto funcdone;
+
+		case CCFNAVIG:
+		    goto nomorefile;
 
 		case CCLWINDOW:
 		case CCRWINDOW:
@@ -905,6 +912,10 @@ doneswitch:
 
 	    notfilerr:
 	    mesg (ERRALL + 1, "Argument must be a file name.");
+	    continue;
+
+	    nomorefile:
+	    mesg (ERRALL + 1, "No more file are currently edited.");
 	    continue;
 	}
     }

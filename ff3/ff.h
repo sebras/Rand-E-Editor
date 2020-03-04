@@ -17,6 +17,11 @@ extern int      errno;
 #define FF_BSIZE   BUFSIZ	/* Size of a FF block */
 
 #define NOFILE _NFILE		/* Number of system opens allowed */
+#if NOFILE > 64                 /* must be small enough for the 'char' storage */
+#undef NOFILE
+#define NOFILE 64
+#endif
+
 #define NOFFFDS (NOFILE+NOFILE)	/* # of active FF files */
 
 
@@ -37,7 +42,7 @@ struct ff_file {
 #ifdef UNIXV6
     char            fn_minor,	/* Device file is on    */
                     fn_major;
-    short           fn_ino;	/* Inode of file        */
+    int             fn_ino;     /* Inode of file        */
 #endif
     long            fn_realblk;	/* Image of sys fil pos */
     long            fn_size;	/* Current file size    */
@@ -53,10 +58,10 @@ extern Ff_file  ff_files[];
 /* File style (which define the end of line mark
  *  MicroSoft : CR,LF
  *  UNIX      : LF
- *      style 0 : not define, will use the default (MicroSoft)
+ *      style 0 : not define, will use the default
  */
 #define MS_FILE 1       /* MicroSoft file style */
-#define UNIX_FILE -1    /* UNIX file style */
+#define UNIX_FILE 2     /* UNIX file style */
 
 /* stream structure */
 typedef
@@ -79,7 +84,7 @@ typedef struct ff_buf {
                    *fb_back;	/* back ptr */
     Ff_file        *fb_file;	/* Fnode blk is q'd on	 */
     long            fb_bnum;	/* Block # of this blk  */
-    short           fb_count,	/* Byte count of block  */
+    int             fb_count,   /* Byte count of block  */
                     fb_wflg;	/* Block modified flag  */
     char           *fb_buf;	/* Actual data buffer [FF_BSIZE]  */
 }               Ff_buf;
@@ -90,7 +95,7 @@ typedef struct ff_rbuf {
                    *fb_qb,	/* not used */
                    *fb_forw,	/* first buf in chain */
                    *fb_back;	/* last buf in chain */
-    short           fr_count;	/* total number of buffers */
+    int             fr_count;   /* total number of buffers */
 }               Ff_rbuf;
 extern Ff_rbuf  ff_flist;
 

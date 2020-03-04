@@ -122,7 +122,8 @@
 ^["Oy":<int>
 
 #Minus
-^["Om":<chwin>
+^["Om":<fnavigate>
+#^["Om":<chwin>
 #PF1
 ^["OP":<-word>
 #PF2
@@ -132,7 +133,8 @@
 ^["OR":<open>
 ^["Oj":<open>
 #PF4
-^["OS":<insmd>
+^["OS":<fnavigate>
+# ^["OS":<insmd>
 
 #LEFT ARROW
 ^["[D":<left>

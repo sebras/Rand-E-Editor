@@ -62,6 +62,8 @@ char *SE;			/* se - end standout mode               */
 #ifdef LMCVBELL
 char *VB;			/* vb - visual bell                     */
 #endif
+char *MR;                       /* mr - enter reverse video mode        */
+char *ME;                       /* me - reset all attribute             */
 
 pch (ch)
 {
@@ -241,6 +243,17 @@ tcap_xl (chr)
 }
 #endif
 
+/* Set the terminal video mode (inverted or normal) */
+static int video (Flag inverted)
+{
+    char * str;
+    str = inverted ? MR : ME;
+    if ( !str ) return 1;
+
+    tputs (str, 1, pch);
+    return 0;
+}
+
 S_term t_tcap =
 {
 /* tt_ini0    */ nop,
@@ -296,6 +309,8 @@ S_term t_tcap =
 /* tt_prtok   */ YES,
 /* tt_width   */ 80,
 /* tt_height  */ 24,
+
+/* tt_video   */ video,
 };
 
 #define NG  -2
@@ -351,10 +366,10 @@ void set_tt_size (S_term *term_pt, int width, int height)
 
 
 Small
-getcap (term)
-     char *term;
+getcap (term, alt_term, str)
+     char *term, *alt_term, **str;
 {
-    char tcbuf[1024];
+    char tcbuf[2048];
     char *cp;
     extern char *tgetstr ();
 #ifdef LMCLDC
@@ -364,53 +379,43 @@ getcap (term)
     int cc;
     int width, height;
 
+    if ( str ) *str = term;
     cc = tgetent (tcbuf, term);
-    switch (cc) {
-    case -1:
-    case 0:
+    if ( (cc <= 0) && alt_term ) {
+	if ( str ) *str = alt_term;
+	cc = tgetent (tcbuf, alt_term);
+    }
+    if ( cc <= 0 ) {
+	if ( str ) *str = "This terminal is unknown in terminfo data base";
 	return UNKNOWN;
     }
+
     cp = salloc (2048, YES);
 
     /* get the screen size */
     width  = tgetnum ("co");
+    if ( tgetflag ("xv") > 0 ) width--;     /* vt100 brain damage ?!? */
     height = tgetnum ("li");
     get_tt_size (&width, &height);
-    set_tt_size (&t_tcap, width, height);  /* overwrite by ioctl value */
+    set_tt_size (&t_tcap, width, height);   /* overwrite by ioctl value */
 
-#if 0
-    if ((t_tcap.tt_width = tgetnum ("co")) < 0
-	|| (t_tcap.tt_height = tgetnum ("li")) < 0
-	)
-	return NG;
-#ifdef TIOCGWINSZ
-    {
-	struct winsize windowsz;
-	if (ioctl (0, TIOCGWINSZ, &windowsz) == 0) {
-	    if (windowsz.ws_col)
-		t_tcap.tt_width = windowsz.ws_col;
-	    if (windowsz.ws_row)
-		t_tcap.tt_height = windowsz.ws_row;
-	}
-    }
-#endif
-#endif
-
-    if (tgetflag ("xv") > 0)
-	t_tcap.tt_width--;	/* vt100 brain damage */
 /* if no home command, fake it with cursor movement. */
     if ((HO = tgetstr ("ho", &cp)) == NULL)
 	t_tcap.tt_home = punt_tcap;
 /* can't do without either clear or clear to end of display */
     if ((CL = tgetstr ("cl", &cp)) == NULL) {
-	if ((CD = tgetstr ("cd", &cp)) == NULL)
+	if ((CD = tgetstr ("cd", &cp)) == NULL) {
+	    if ( str ) *str = "termcap clear (cl) or clear to end of display (cd) is mandatory";
 	    return NG;
+	}
 /* use home/clear-to-end if there is no straight clear */
 	t_tcap.tt_clear = clr1_tcap;
     }
 /* got to have cursor addressing */
-    if ((CM = tgetstr ("cm", &cp)) == NULL)
+    if ((CM = tgetstr ("cm", &cp)) == NULL) {
+	if ( str ) *str = "termcap cursor addressing (cm) is mandatory";
 	return NG;
+    }
     t_tcap.tt_naddr = strlen (tgoto (CM, 10, 10));
 /* set up backspace; if none, fake with cm */
     if ((BC = tgetstr ("bc", &cp)) == NULL)
@@ -547,6 +552,10 @@ getcap (term)
     t_tcap.tt_axis = 0;
     t_tcap.tt_nlad = 0;
     t_tcap.tt_ncad = 0;
+
+/* get video mode */
+    ME = tgetstr ("me", &cp);
+    MR = tgetstr ("mr", &cp);
 
     return OK;
 }

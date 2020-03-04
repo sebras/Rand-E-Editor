@@ -503,6 +503,8 @@ typedef struct savebuf {
 #define CCDWORD        CCUNAS1
 #endif
 
+#define CCFNAVIG       0240
+
 /* Resize entry code : to be used for replay only
  *   do not use for keyboard assignement
  * CCRESIZE is followed by <(line +32), (column +32), CCRETURN>
@@ -807,8 +809,8 @@ extern Cmdret filtlines ();
 extern Cmdret run ();
 /* XXXXXXXXXXXXXXXXXXXXXX
 extern Cmdret runlines ();
-   XXXXXXXXXXXXXXXXXXXXXX */
 extern Flag dowait ();
+   XXXXXXXXXXXXXXXXXXXXXX */
 extern Flag receive ();
 /* e.sb.c */
 extern char *getmypath ();

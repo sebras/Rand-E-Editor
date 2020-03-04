@@ -13,6 +13,8 @@ file e.c
 	Copyright abandoned, 1983, The Rand Corporation
 #endif
 
+#define DEF_XDIR
+
 #include "e.h"
 #include "e.e.h"
 #ifdef  KBFILE
@@ -137,30 +139,39 @@ Flag optnocmd;          /* YES = -nocmdcmd; <cmd><cmd> functions disabled */
 
 /* XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX */
 
-/* Assumed Rand editor directory tree structure :
-   ==============================================
-   The following structure is assumed in order to found automaticaly
-	the various pathes to services files (help, keyboard definition ...)
+/* Names of the host running Rand,
+ *   from which computer, and display on from_host
+ *   from_host and from_display are NULL if running on the local computer
+ */
+char *myHost, *fromHost, *fromDisplay;
 
-/* The Rand pacakge directory is the directory which include :
-	- the Rand Editor installed executable file (which cannot be called a.out)
-	- the service programs (center, fill, run) executable files
-	- the help files : errmsg, helpkey, recovermsg, Crashdoc
-	- the kbfiles directory (directory of keyboard definition files)
-    Special case : building a new version (compiling and linking)
-	- the new executable file name must be : a.out
-	- the help files and kbfiles directory must be at the relative
-	    position defined by helpdir constant string : ../help
-*/
+
+/* Assumed Rand editor directory tree structure :
+ * ==============================================
+ * The following structure is assumed in order to found automaticaly
+ *      the various pathes to services files (help, keyboard definition ...)
+ *
+ * The Rand pacakge directory is the directory which include :
+ *       - the Rand Editor installed executable file (which cannot be called a.out)
+ *       - the service programs (center, fill, run) executable files
+ *       - the help files : errmsg, helpkey, recovermsg, Crashdoc
+ *       - the kbfiles directory (directory of keyboard definition files)
+ *   Special case : building a new version (compiling and linking)
+ *       - the new executable file name must be : a.out
+ *      - the help files and kbfiles directory must be at the relative
+ *          position defined by helpdir constant string : ../help
+ */
 
 static char *dirpackg = NULL;   /* Rand editor package directory */
 static Flag buildflg = NO;      /* newly build executable (a.out) */
 
+static const char loopback [] = "127.0.0.1";
+
 /* Rand package directory tree structure related names */
 /* --------------------------------------------------- */
     /* default default package dir (used to extract the package sub dir) */
-#ifdef __linux__
-extern char def_xdir_dir [];    /* build by Nerversion */
+#ifdef DEF_XDIR
+extern char def_xdir_dir [];    /* build by NewVersion script (e.r.c) */
 #else
 static char def_xdir_dir [] = XDIR_DIR;     /* defined in ../include/linux_localenv.h */
 #endif
@@ -174,9 +185,11 @@ static char universal_kbf_name [] = "universalkb";
 static char kbfilesdir [] = "/kbfiles";
     /* help directory relative to the directory including a.out (just build editor) */
 static char helpdir [] = "/../help";
+static char execdir [] = "/../fill";
 static char buildexec [] = "a.out";
     /* postfix added to the keyboard name (or terminal name) to generate the kbfile name */
 static char kbfile_postfix [] = "kb";
+static char kbmap_postfix [] = ".kbmap";
 
 static char *full_prgname = NULL;   /* full Rand program name */
 static char *prog_fname;        /* actual Rand editor file name */
@@ -222,6 +235,9 @@ Flag optbullets = -1;   /* YES = -bullets, NO = -nobullets */
 #ifdef TERMCAP
 Flag optdtermcap;       /* YES = force use of termcap */
 #endif
+static char *tcap_name = NULL; /* name of termcap entry used */
+static char tcap_name_default[] = "vt100";
+
 Flag dump_state_file=NO; /* YES = dump the state file defined with -state=<fname> option */
 
 
@@ -234,6 +250,9 @@ struct cnfg_dir_rec {
 	char *path;         /* directory path name */
 	Flag existing;      /* existing and read access */
     };
+
+static struct cnfg_dir_rec user_packg_dir  =    { NULL, NO }; /* $HOME/.Rand */
+static struct cnfg_dir_rec user_kbmap_file =    { NULL, NO }; /* keyboard map file name */
 
 static struct cnfg_dir_rec user_cnfg_dir =      { NULL, NO }; /* $HOME/.Rand/kbfiles */
 static struct cnfg_dir_rec local_cnfg_dir =     { NULL, NO }; /* /usr/local/etc/Rand/kbfiles */
@@ -317,6 +336,7 @@ main1 (argc, argv)
 int argc;
 char *argv[];
 {
+    extern void save_kbmap (Flag force);
     extern void key_resize ();
     extern void history_init ();
     char    ichar;      /* must be a char and can't be a register */
@@ -433,6 +453,7 @@ Replay file \"%s\" was made by a different type of terminal.", inpfname);
 	resize_screen ();   /* set up the actual size */
 	putupwin ();
     }
+    save_kbmap (NO);
     return;
 }
 
@@ -699,8 +720,7 @@ packg_file ()
     Build the full file name for a Rand package file
 #endif
 static char *
-packg_file (fname)
-char *fname;
+packg_file (char *fname, char *subdir)
 {
     extern int dircheck ();
     char *file, *fulln;
@@ -709,11 +729,12 @@ char *fname;
     if ( dirpackg ) {
 	file = strrchr (fname, '/');
 	if ( ! file ) file = fname;
-	sz = strlen(dirpackg) + strlen(file) +2;
-	fulln = (char *) malloc (sz);
-	(void) memset (fulln, 0, sz);
+	sz = strlen (dirpackg) + strlen (file) +2;
+	if ( subdir ) sz += strlen (subdir);
+	fulln = (char *) calloc (sz, 1);
 	if ( fulln ) {
 	    (void) strcpy (fulln, dirpackg);
+	    if ( subdir ) (void) strcat (fulln, subdir);
 	    if ( file[0] != '/' ) (void) strcat (fulln, "/");
 	    (void) strcat (fulln, file);
 	    return fulln;
@@ -784,7 +805,6 @@ char * get_exec_name (char *fname)
 /* get_flname : get actual name (follow link) */
 char * get_flname (char *fname)
 {
-#ifdef __linux__
     /* try to found the actual directory of the program */
     int cc, nb;
     struct stat lstbuf;
@@ -823,16 +843,36 @@ char * get_flname (char *fname)
     sp = (char *) malloc (strlen (pkgnm) +1);
     if ( sp ) strcpy (sp, pkgnm);
     return (sp);
-#else
-    return (NULL);
-#endif
 }
 
 
+static Flag set_dir_rec (struct cnfg_dir_rec *dir_rec, char *strg)
+{
+    int sz;
+
+    if ( !strg ) {
+	dir_rec->existing = NO;
+	return NO;
+    }
+    if ( dir_rec->path && (strcmp (dir_rec->path, strg) != 0) ) {
+	free (dir_rec->path);
+	dir_rec->path = NULL;
+    }
+    if ( !dir_rec->path ) {
+	sz = strlen (strg) +1;
+	dir_rec->path = (char *) calloc (sz, 1);
+	if ( dir_rec->path ) memcpy (dir_rec->path, strg, sz);
+    }
+    dir_rec->existing = ( access (strg, R_OK) == 0 );
+    return dir_rec->existing;
+}
+
 static void get_dirpackage ()
 {
-    char *fnm, *dir, *cp, *cp1, *home;
+    char *fnm, *dir, *cp, *home;
     int i, sz;
+    char strg [PATH_MAX];
+    struct stat stat_local, stat_alt_local;
 
     sz = strlen (def_xdir_dir);
     if ( (sz > 1) && (def_xdir_dir[sz-1] == '/') ) def_xdir_dir[sz-1] = '\0';
@@ -855,14 +895,7 @@ static void get_dirpackage ()
 	    if ( strcmp (prog_fname, buildexec) == 0 ) {
 		/* special case for debugging a not yet installed executable */
 		buildflg = YES;
-		cp = "/../help";
-		sz = strlen (dir) + strlen(cp) +1;
-		cp1 = (char *) malloc (sz);
-		if ( cp1 ) {
-		    strcpy (cp1, dir);
-		    strcat (cp1, cp);
-		}
-		dir = cp1;
+		/* the sub directory is defined now by the "packg_file" call */
 	    }
 	}
     }
@@ -883,60 +916,70 @@ static void get_dirpackage ()
     packg_subdir = ( cp ) ? cp : def_xdir_dir;
 
     /* build the configuration directory pathes */
-    home = getenv ("HOME");
+    home = mypath;
+    if ( ! home ) home = getenv ("HOME");
 
-    sz = (4 * strlen (packg_subdir)) + (5 * strlen (kbfilesdir))
-	 + strlen (local_cnfg) +1
-	 + strlen (syst_cnfg) +1
-	 + ( (home) ? strlen (home) : 0 ) +2
-	 + (2 * strlen (xdir_dir)) + strlen (alt_local_cnfg) +2;
-    cp = cp1 = (char *) malloc (sz);
+    (void) memset (&stat_local, 0, sizeof(struct stat));
+    (void) memset (&stat_alt_local, 0, sizeof(struct stat));
 
-    if ( cp1 ) {
-	struct stat stat_local, stat_alt_local;
+    if ( buildflg ) sprintf (strg, "%s%s%s", xdir_dir, helpdir, kbfilesdir);
+    else sprintf (strg, "%s%s", xdir_dir, kbfilesdir);
+    (void) set_dir_rec (&def_cnfg_dir, strg);
 
-	(void) memset (cp1, 0, sz);
-	(void) memset (&stat_local, 0, sizeof(struct stat));
-	(void) memset (&stat_alt_local, 0, sizeof(struct stat));
+    sprintf (strg, "%s%s%s", syst_cnfg, packg_subdir, kbfilesdir);
+    (void) set_dir_rec (&syst_cnfg_dir, strg);
 
-	def_cnfg_dir.path = cp1;
-	sprintf (def_cnfg_dir.path, "%s%s", xdir_dir, kbfilesdir);
-	cp1 += (strlen (def_cnfg_dir.path) +1);
-	if ( access (def_cnfg_dir.path, R_OK) == 0 ) def_cnfg_dir.existing = YES;
+    sprintf (strg, "%s%s%s", local_cnfg, packg_subdir, kbfilesdir);
+    (void) set_dir_rec (&local_cnfg_dir, strg);
+    if ( local_cnfg_dir.existing )
+	(void) stat (local_cnfg_dir.path, &stat_local);
 
-	syst_cnfg_dir.path = cp1;
-	sprintf (syst_cnfg_dir.path, "%s%s%s", syst_cnfg, packg_subdir, kbfilesdir);
-	cp1 += (strlen (syst_cnfg_dir.path) +1);
-	if ( access (syst_cnfg_dir.path, R_OK) == 0 ) syst_cnfg_dir.existing = YES;
-
-	local_cnfg_dir.path = cp1;
-	sprintf (local_cnfg_dir.path, "%s%s%s", local_cnfg, packg_subdir, kbfilesdir);
-	cp1 += (strlen (local_cnfg_dir.path) +1);
-	if ( access (local_cnfg_dir.path, R_OK) == 0 ) {
-	    local_cnfg_dir.existing = YES;
-	    (void) stat (local_cnfg_dir.path, &stat_local);
-	    }
-
-	if ( ! buildflg ) {   /* not debugging a new release of the editor */
-	    alt_local_cnfg_dir.path = cp1;
-	    sprintf (alt_local_cnfg_dir.path, "%s%s%s%s", xdir_dir, alt_local_cnfg, packg_subdir, kbfilesdir);
-	    cp1 += (strlen (alt_local_cnfg_dir.path) +1);
-	    if ( access (alt_local_cnfg_dir.path, R_OK) == 0 ) {
-		alt_local_cnfg_dir.existing = YES;
-		(void) stat (alt_local_cnfg_dir.path, &stat_alt_local);
-		if ( (stat_alt_local.st_dev = stat_local.st_dev)
-		     && (stat_alt_local.st_ino = stat_local.st_ino) ) {
-		    alt_local_cnfg_dir.existing = NO;
-		    alt_local_cnfg_dir.path = NULL;
-		}
+    if ( ! buildflg ) {   /* not debugging a new release of the editor */
+	sprintf (strg, "%s%s%s%s", xdir_dir, alt_local_cnfg, packg_subdir, kbfilesdir);
+	(void) set_dir_rec (&alt_local_cnfg_dir, strg);
+	if ( alt_local_cnfg_dir.existing ) {
+	    (void) stat (alt_local_cnfg_dir.path, &stat_alt_local);
+	    if ( (stat_alt_local.st_dev = stat_local.st_dev)
+		 && (stat_alt_local.st_ino = stat_local.st_ino) ) {
+		free (alt_local_cnfg_dir.path);
+		alt_local_cnfg_dir.existing = NO;
+		alt_local_cnfg_dir.path = NULL;
 	    }
 	}
+    }
 
-	if ( home ) {
-	    user_cnfg_dir.path = cp1;
-	    sprintf (user_cnfg_dir.path, "%s/.%s%s", home, packg_subdir+1, kbfilesdir);
-	    if ( access (user_cnfg_dir.path, R_OK) == 0 ) user_cnfg_dir.existing = YES;
+    if ( home ) {
+	/* The user home directory is known */
+	/* build user kbfiles directory and file name */
+	char tstrg [128], *tst, *mHost;
+
+	/* user package directory */
+	sprintf (strg, "%s/.%s", home, packg_subdir+1);
+	(void) set_dir_rec (&user_packg_dir, strg);
+	if ( ! user_packg_dir.path ) {
+	    /* must never append, just to protect again NULL pointer */
+	    user_packg_dir.path = mypath;
+	    user_packg_dir.existing = YES;
 	}
+
+	/* user kbfiles directory */
+	sprintf (strg, "%s%s", user_packg_dir.path, kbfilesdir);
+	(void) set_dir_rec (&user_cnfg_dir, strg);
+
+	/* user kbmap file */
+	memset (tstrg, '\0', sizeof (tstrg));
+	mHost = ( fromHost ) ? fromHost : myHost;
+	if ( mHost ) {
+	    tstrg[0] = '_';
+	    strncpy (&tstrg[1], mHost, sizeof (tstrg) -2);
+	    for ( tst = tstrg ; ; ) {
+		tst = strchr (tst, '.');
+		if ( ! tst ) break;
+		*tst = '-';
+	    }
+	}
+	sprintf (strg, "%s/%s%s%s", user_packg_dir.path, tname, tstrg, kbmap_postfix);
+	(void) set_dir_rec (&user_kbmap_file, strg);
     }
 
     /* get the max lenth of the config dir path name */
@@ -946,6 +989,23 @@ static void get_dirpackage ()
 	    if ( strlen (cnfg_dir_rec_pt[i]->path) > max_cnfg_dir_sz )
 		max_cnfg_dir_sz = strlen (cnfg_dir_rec_pt[i]->path);
     }
+}
+
+/* get the expected user defined keyboard map file */
+char * get_kbmap_file_name (Flag create_dir, Flag *exist)
+{
+    int cc;
+
+    if ( create_dir && user_packg_dir.path && !user_packg_dir.existing ) {
+	cc = mkdir (user_packg_dir.path, 0744);
+	user_packg_dir.existing = ( access (user_packg_dir.path, R_OK) == 0 );
+    }
+
+    user_kbmap_file.existing = user_kbmap_file.path
+			     ? ( access (user_kbmap_file.path, R_OK) == 0 )
+			     : NO;
+    if ( exist ) *exist = user_kbmap_file.existing;
+    return ( user_kbmap_file.path );
 }
 
 /* Set up utility windows.
@@ -990,13 +1050,15 @@ startup ()
 void
 startup ()
 {
+    extern char * from_host (char **hostname_pt, char **display_pt, const char *loopback_IP);
     extern Flag get_keyboard_map ();
     extern char *TI, *KS, *VS;
-    char  *name;
+    char *name;
+    char *helpd, *execd;
 
     /* ++XXXXXXXXXXXXXXXXXXXXXXXXXXXXX */
 
-#ifdef __linux__
+#ifdef DEF_XDIR
     extern char def_xdir_dir    [];
     extern char def_recovermsg  [];
     extern char def_xdir_kr     [];
@@ -1017,36 +1079,48 @@ startup ()
     userid  = getuid () & 0377;
     groupid = getgid () & 0377;
 #endif
-    getmypath ();   /* gets myname & mypath */
+    myname = mypath = NULL;
+    fromHost = myHost = fromDisplay = NULL;
+    (void) getmypath ();    /* gets myname & mypath */
+    fromHost = from_host (&myHost, &fromDisplay, loopback);
+    if ( fromHost && !fromHost[0] ) fromHost = NULL;
+
+    /* Get the selected terminal type */
+    if (    !(tname = opttname)
+	 && !(tname = getenv ("TERM") )
+       )
+	getout (YES, "No TERM environment variable or -terminal argument");
 
     keytmp = bkeytmp = rfile = inpfname = NULL;
-
     get_dirpackage ();
 
-#ifdef __linux__
-    recovermsg  = packg_file (def_recovermsg);
-    xdir_kr     = packg_file (def_xdir_kr);
-    xdir_help   = packg_file (def_xdir_help);
-    xdir_crash  = packg_file (def_xdir_crash);
-    xdir_err    = packg_file (def_xdir_err);
-    xdir_run    = packg_file (def_xdir_run);
-    xdir_fill   = packg_file (def_xdir_fill);
-    xdir_just   = packg_file (def_xdir_just);
-    xdir_center = packg_file (def_xdir_center);
-    xdir_print  = packg_file (def_xdir_print);
+    helpd = ( buildflg ) ? helpdir : NULL;
+    execd = ( buildflg ) ? execdir : NULL;
+
+#ifdef DEF_XDIR
+    recovermsg  = packg_file (def_recovermsg, helpd);
+    xdir_kr     = packg_file (def_xdir_kr, helpd);
+    xdir_help   = packg_file (def_xdir_help, helpd);
+    xdir_crash  = packg_file (def_xdir_crash, helpd);
+    xdir_err    = packg_file (def_xdir_err, helpd);
+    xdir_run    = packg_file (def_xdir_run, execd);
+    xdir_fill   = packg_file (def_xdir_fill, execd);
+    xdir_just   = packg_file (def_xdir_just, execd);
+    xdir_center = packg_file (def_xdir_center, execd);
+    xdir_print  = packg_file (def_xdir_print, execd);
 
 #else
-    recovermsg  = packg_file (RECOVERMSG);
-    xdir_kr     = packg_file (XDIR_KR);
-    xdir_help   = packg_file (XDIR_HELP);
-    xdir_crash  = packg_file (XDIR_CRASH);
-    xdir_err    = packg_file (XDIR_ERR);
-    xdir_run    = packg_file (XDIR_RUN);
-    xdir_fill   = packg_file (XDIR_FILL);
-    xdir_just   = packg_file (XDIR_JUST);
-    xdir_center = packg_file (XDIR_CENTER);
-    xdir_print  = packg_file (XDIR_PRINT);
-#endif /* __linux__ */
+    recovermsg  = packg_file (RECOVERMSG, helpd);
+    xdir_kr     = packg_file (XDIR_KR, helpd);
+    xdir_help   = packg_file (XDIR_HELP, helpd);
+    xdir_crash  = packg_file (XDIR_CRASH, helpd);
+    xdir_err    = packg_file (XDIR_ERR, helpd);
+    xdir_run    = packg_file (XDIR_RUN, execd);
+    xdir_fill   = packg_file (XDIR_FILL, execd);
+    xdir_just   = packg_file (XDIR_JUST, execd);
+    xdir_center = packg_file (XDIR_CENTER, execd);
+    xdir_print  = packg_file (XDIR_PRINT, execd);
+#endif /* DEF_XDIR */
 
     filterpaths[0] = xdir_fill;
     filterpaths[1] = xdir_just;
@@ -1090,12 +1164,14 @@ startup ()
 	    case SIGBUS:
 	    case SIGSEGV:
 #endif
-#ifdef SIGWINCH /* cannot handle window size change (yet?) */
-	    case SIGWINCH:
-		(void) signal (i, sig_resize);
-#endif
 		/* leave at SIG_DFL */
 		break;
+
+#ifdef SIGWINCH /* now I handle window size change (F.P.) */
+	    case SIGWINCH:
+		(void) signal (i, sig_resize);
+		break;
+#endif
 
 	    default:
 		if (signal (i, SIG_DFL) != SIG_IGN)
@@ -1339,20 +1415,22 @@ Flag full_flg;    /* ful dispaly */
     extern char kbmap_fn[];
     extern char verstr[];
     extern char * la_max_size ();
+    extern char * mapping_strg ();
 
+    void getConsoleSize (int *width, int *height);
     static int display_bigbuf ();
     char *tmpstrg;
-    int i, nbli, ctrlc;
+    int i, nbli, ctrlc, nb;
     char bigbuf [4096]; /* must be large enough for the message */
     char strg [256];
+    char *str, *str1, *str2;
+    int width, height;
 
     nbli = 0;
     memset (bigbuf, 0, sizeof (bigbuf));
 
-    /* -------
-    fixtty ();
-    if (windowsup) screenexit (YES);
-    ------- */
+    if ( helpflg ) width = height = 2048;  /* large enought */
+    else getConsoleSize (&width, &height);
 
     if ( verbose_helpflg ) printf ("\
 ----------------------------------------------------------------------------\n");
@@ -1366,8 +1444,21 @@ Synopsis: %s [options] file [alternate file]\n\
 Overall status of the editor parameters\n\
 =======================================\
 \n");
-	sprintf (bigbuf + strlen (bigbuf),
-		 "  %s\n", verstr);
+	tmpstrg = asctime (localtime (&strttime));
+	tmpstrg [strlen(tmpstrg) -5] = '\0';
+	nb = sprintf (bigbuf + strlen (bigbuf),
+		      "Session by \"%s\" at %s on \"%s\"",
+		      myname, &tmpstrg[12], myHost);
+	memset (strg, 0, sizeof (strg));
+	if ( fromHost ) {
+	    nb += sprintf (strg, " from \"%s\" %s%s\n",
+			   fromHost,
+			   fromDisplay ? "On display " : "",
+			   fromDisplay ? fromDisplay : "");
+	    if ( nb >= width ) strg[0] = '\n';
+	} else strg[0] = '\n';
+	strcat (bigbuf, strg);
+	strcat (bigbuf, verstr); bigbuf[strlen (bigbuf)] = '\n';
 	sprintf (bigbuf + strlen (bigbuf),
 		 "  Built for files with %s\n    and max number of edited files : %d\n\n",
 		 la_max_size (),
@@ -1497,18 +1588,32 @@ Environment variables known by Rand editor:\n\
     ctrlc = display_bigbuf (bigbuf, &nbli, sizeof (bigbuf));
     if ( ctrlc ) return;
 
+    str1 = mapping_strg (&str2);
     if ( Xterm_flg ) {
 	extern char *emul_name, *emul_class, *wm_name;
 	extern void xterm_msg ();
 
 	xterm_msg (bigbuf + strlen (bigbuf));
+	sprintf (bigbuf + strlen (bigbuf), "  %s\n", str1);
+	if ( str2 ) sprintf (bigbuf + strlen (bigbuf), "  %s\n", str2);
+	if ( termtype )
+	    sprintf (bigbuf + strlen (bigbuf), "  \"%s\" is using compiled description\n",
+		     tname);
+	else
+	    sprintf (bigbuf + strlen (bigbuf), "  \"%s\" is using terminfo data for \"%s\"\n",
+		     tname, tcap_name);
     } else {
-	tmpstrg = termtype ? "" : " (use termcap or terminfo)";
-	sprintf (bigbuf + strlen (bigbuf), "Terminal : \"%s\"%s, keyboard : %s (%d)\n",
-		 tname, tmpstrg, kname, kbdtype);
+	if ( termtype )
+	    sprintf (bigbuf + strlen (bigbuf), "Terminal : \"%s\" (using compiled description), keyboard : %s (%d)\n",
+		     tname, kname, kbdtype);
+	else
+	    sprintf (bigbuf + strlen (bigbuf), "Terminal : \"%s\" (using terminfo data for \"%s\"), keyboard : %s (%d)\n",
+		     tname, tcap_name, kname, kbdtype);
+	sprintf (bigbuf + strlen (bigbuf), "  %s\n", str1);
+	if ( str2 ) sprintf (bigbuf + strlen (bigbuf), "  %s\n", str2);
     }
 
-    if ( kbfile ) {     /* use termcap or terminfo and key board definition file */
+    if ( kbfile ) {     /* use keyboard definition file */
 	extern char * get_keyboard_mode_strg ();
 	extern int kbfile_wline;    /* > 0 : duplicated string in kbfile */
 	int cc;
@@ -1584,12 +1689,22 @@ Environment variables known by Rand editor:\n\
 			     cnfg_dir_rec_pt[i]->existing ? "" : no_exist_msg);
 	    }
 	}
+	if ( user_packg_dir.path ) {
+	    str = user_kbmap_file.path;
+	    if ( !str || !*str ) str = "??? not defined !!!";
+	    sprintf (bigbuf + strlen (bigbuf), " My (\"%s\") \"%s\" keyboard map file :\n    %s%s\n",
+		     myname, tname, str,
+		     user_kbmap_file.existing ? "" : no_exist_msg);
+	}
     }
     bigbuf [strlen (bigbuf)] = '\n';
 
-    tmpstrg = buildflg ? " (build mode)" : "";
-    sprintf (strg, "%sRand package and HELP directory path%s:",
-	    dirpackg ? "" : "Default buid in ", tmpstrg);
+    sprintf (strg, "%sRand package %sdirectory path%s:",
+	     dirpackg ? ""              : "Default buid in ",
+	     buildflg ? ""              : "and HELP ",
+	     buildflg ? " (build mode)" : ""
+	    );
+
     display_fn (bigbuf, strg, xdir_dir);
     if ( check_access (xdir_dir, R_OK, &tmpstrg) )
 	sprintf (bigbuf + strlen (bigbuf), "    WARNING : %s\n", tmpstrg);
@@ -1637,13 +1752,9 @@ Environment variables known by Rand editor:\n\
     }
     else {
 	extern void setoption_msg ();
-	void getConsoleSize ();
-
-	int x, y;
 	char buf[128];
 
-	getConsoleSize (&x, &y);
-	sprintf (bigbuf + strlen (bigbuf), "\nCurrent screen size %d lines of %d columns\n", y, x);
+	sprintf (bigbuf + strlen (bigbuf), "\nCurrent screen size %d lines of %d columns\n", height, width);
 	setoption_msg (buf);
 	sprintf (bigbuf + strlen (bigbuf), "Current value of SET command paramters (use 'help set' command for details) \n%s\n\n", buf);
     }
@@ -1728,9 +1839,9 @@ showhelp ()
     reset_crlf (oflag);
 }
 
-void getConsoleSize (int *x, int *y) {
-    *x = term.tt_width;
-    *y = term.tt_height;
+void getConsoleSize (int *width, int *height) {
+    *width = term.tt_width;
+    *height = term.tt_height;
 }
 
 void showstatus ()
@@ -1955,10 +2066,8 @@ gettermtype ()
 {
     extern int GetCccmd ();
 
-    /* Get the selected terminal type */
-    if (   !(tname = opttname)
-	&& !(tname = getenv ("TERM"))
-       )
+    /* tname must be already got */
+    if ( !tname )
 	getout (YES, "No TERM environment variable or -terminal argument");
     {
 	int ind;
@@ -1979,11 +2088,12 @@ gettermtype ()
 	    termtype = termnames[ind].val;
 #ifdef  TERMCAP
 	else {      /* use termcap or terminfo */
-	    char *str;
+	    char *str, *str1;
 
-	    switch (getcap (tname)) {
+	    switch (getcap (tname, tcap_name_default, &str1)) {
 	    default:
-		termtype = 0; /* termcap type is 0 */
+		termtype = 0; /* for terminal defined by termcap, the type is 0 */
+		tcap_name = str1;
 		break;
 	    case -1:
 		str = "known";
@@ -1991,7 +2101,7 @@ gettermtype ()
 	    case -2:
 		str = "usable";
 	    badterm:
-		getout (YES, "Un%s terminal type: \"%s\"", str, tname);
+		getout (YES, "Un%s terminal type: \"%s\"\n  %s", str, tname, str1);
 	    }
 	}
 #else
@@ -2031,7 +2141,7 @@ gettermtype ()
     /* Get the keyboard file if specified */
 
     kbfile = NULL;  /* DEFAULT : use internal definition */
-    if ( kbdtype == 0 ) get_kbfile_name ();
+    get_kbfile_name ();
 
     if ( kbfile ) {
 	extern int in_file();
@@ -2049,11 +2159,13 @@ gettermtype ()
     if ( GetCccmd () < 0 )
 	getout (YES, "A control character (Ctrl A ... Ctrl Z) must be assigned to <cmd> key function");
 
-    d_put (VCCINI);     /* initializes display image for d_write */
+    if ( ! helpflg ) {
+	d_put (VCCINI); /* initializes display image for d_write */
 			/* and selects tt_height if selectable */
 
-    /* initialize the keyboard */
-    (*kbd.kb_init) ();
+	/* initialize the keyboard */
+	(*kbd.kb_init) ();
+    }
 
     {
 	int tmp;
@@ -2080,8 +2192,9 @@ setitty ()
 void
 setitty ()
 {
-#define BITS(start,yes,no) start  = ( (start| (yes) )&( ~(no) )  )
 #ifdef SYSIII
+
+#define BITS(start,yes,no) start  = ( (start| (yes) )&( ~(no) )  )
     struct termio temp_termio;
 
 #   ifdef CBREAK
@@ -2089,26 +2202,28 @@ setitty ()
 #   else
 	char ixon = NO;
 #   endif
-    if (ioctl(STDIN, TCGETA, &in_termio) < 0)
+
+    if ( ioctl (STDIN, TCGETA, &in_termio) < 0 )
 	return;
     temp_termio = in_termio;
     temp_termio.c_cc[VMIN]=1;
     temp_termio.c_cc[VTIME]=0;
-    BITS(temp_termio.c_iflag,
-	 IGNPAR|ISTRIP,
-	 IGNBRK|BRKINT|PARMRK|INPCK|INLCR|IGNCR|ICRNL|IUCLC|IXOFF
+    BITS (temp_termio.c_iflag,
+	  IGNPAR|ISTRIP,
+	  IGNBRK|BRKINT|PARMRK|INPCK|INLCR|IGNCR|ICRNL|IUCLC|IXOFF
 	);
-    if(ixon) temp_termio.c_iflag  |= IXON;
-    else     temp_termio.c_iflag  &= ~IXON;
-    BITS(temp_termio.c_lflag,NOFLSH,ISIG|ICANON|ECHO);
-    if(ioctl(STDIN,TCSETAW,&temp_termio) >= 0) istyflg=YES;
-    fcntlsave = fcntl(STDIN,F_GETFL,0);
+    if ( ixon ) temp_termio.c_iflag  |= IXON;
+    else        temp_termio.c_iflag  &= ~IXON;
+    BITS (temp_termio.c_lflag,NOFLSH,ISIG|ICANON|ECHO);
+    if ( ioctl (STDIN, TCSETAW, &temp_termio) >= 0 ) istyflg=YES;
+    fcntlsave = fcntl (STDIN, F_GETFL, 0);
     return;
 #undef BITS
-#else
 
 
-    if (ioctl (STDIN, TIOCGETP, &instty) < 0)
+#else /* -SYSIII */
+
+    if ( ioctl (STDIN, TIOCGETP, &instty ) < 0)
 	return;
 
 #ifdef  CBREAK
@@ -2165,7 +2280,7 @@ setitty ()
 	instty.sg_flags = tmpflags;             /* all set up for cleanup */
     }
     return;
-#endif /* SYSIII */
+#endif /* -SYSIII */
 }
 
 #ifdef COMMENT
@@ -2255,7 +2370,15 @@ int set_crlf ()
     oflag = termiobf.c_oflag;
     termiobf.c_oflag |= (ONLCR);    /* map nl into cr nl */
     (void) ioctl (STDOUT, TCSETA, &termiobf);
-#endif
+
+#else /* - SYSIII */
+    struct sgttyb osttyb;
+
+    (void) ioctl (STDOUT, TIOCGETP, &osttyb);
+    oflag = osttyb.sg_flags;
+    osttyb.sg_flags |= CRMOD;
+    (void) ioctl (STDOUT, TIOCSETP, &osttyb);
+#endif /* - SYSIII */
     return (oflag);
 }
 
@@ -2270,7 +2393,14 @@ void reset_crlf (int oflag)
     (void) ioctl (STDOUT, TCGETA, &termiobf);
     termiobf.c_oflag = oflag;
     (void) ioctl (STDOUT, TCSETA, &termiobf);
-#endif
+
+#else /* - SYSIII */
+    struct sgttyb osttyb;
+
+    (void) ioctl (STDOUT, TIOCGETP, &osttyb);
+    osttyb.sg_flags = oflag;
+    (void) ioctl (STDOUT, TIOCSETP, &osttyb);
+#endif /* - SYSIII */
 }
 
 
@@ -2426,7 +2556,9 @@ static void one_window_state (Char ichar, Flag dump_state,
 	if ( build_flg ) {
 	    if ( ichar != ONE_FILE ) {
 		cc = editfile (fname, col, lin, 0, NO);
-		if ( cc == 1 ) gf = 1;
+		if ( cc == 1 ) {
+		    gf = 1;
+		}
 		/* this sets them up to get copied into curwksp->ccol & clin */
 		poscursor (curwksp->ccol = tmpcol, curwksp->clin = tmplin);
 	    }
@@ -2512,6 +2644,7 @@ Flag dump_state;
     extern void new_image ();
     extern void history_reload (FILE *stfile, Flag dump_state);
 
+    int ncwfi, acwfi;   /* normal and alternate file in current window */
     Slines nlin;
     Scols ncol;
     Short i, widx;
@@ -2560,7 +2693,7 @@ Flag dump_state;
     gbuf = fopen (state_file_name, "r");
     if ( ! gbuf ) {
 	/* state file cannot be opened (non existing, ...) */
-	if ( ! dump_state )  getout (YES, "  state file cannot be opened");
+	if ( dump_state ) getout (YES, "  state file cannot be opened");
 	else makestate (gbuf == NULL);
 	return;
     }
@@ -2699,10 +2832,58 @@ Startup file: \"%s\" was made for a terminal with a different screen size. \n\
     /* set up window */
     for ( widx = 0 ; widx < nwinlist ; widx++ ) {
 	one_window_state (ichar, dump_state, gbuf, widx, winnum);
+	if ( (widx == winnum) && !dump_state ) {
+	    ncwfi = winlist[winnum]->wksp->wfile;
+	    acwfi = winlist[winnum]->altwksp->wfile;
+	}
     }
 
-    /* reload the history buffer */
+    /* Reload the history buffer */
     history_reload (gbuf, dump_state);
+
+    /* Reload the edited file list not in a window */
+    nletters = getshort (gbuf);
+    if ( nletters > 0 ) {
+	/* files list exist */
+	extern char * fileStatusString ();
+	char fname_buf [PATH_MAX], *fstrg;
+	Short fflag;
+	Small cc;
+	int fi;
+
+	if ( dump_state ) printf ("Edited files list :\n");
+	else switchwindow (winlist[winnum]);
+	for ( ; nletters > 0 ; nletters = getshort (gbuf) ) {
+	    fread (fname_buf, 1, nletters, gbuf);
+	    fname_buf [nletters -1] = '\0';
+	    fflag = getshort (gbuf);
+	    if ( dump_state ) {
+		fstrg = fileStatusString (fflag, NULL);
+		printf ("  %s %s\n", fstrg, fname_buf);
+		continue;   /* no more processing */
+	    }
+	    if ( fflag & (DELETED | RENAMED) ) continue;
+
+	    /* insert in edited files list if needed, and update flag */
+	    for ( fi = MAXFILES -1 ; fi >= 0 ; fi-- ) {
+		if ( !(fileflags [fi] & INUSE) ) continue;
+		if ( strcmp (fname_buf, names [fi]) != 0 ) continue;
+		break;
+	    }
+	    if ( fi < 0 ) {     /* not yet in list, insert it */
+		cc = editfile (fname_buf, (Ncols) -1, (Nlines) -1, 0, NO);
+		fi = curfile;
+	    } else cc = 1;
+	    if ( (cc == 1) && (strcmp (fname_buf, xdir_err) == 0) ) {
+		if ( ! (fflag & CANMODIFY) ) fileflags [fi] &= ~CANMODIFY;
+	    }
+	}
+	if ( ! dump_state ) {
+	    /* restaure the active window edited files */
+	    if ( acwfi > 0 ) editfile (names [acwfi], (Ncols) -1, (Nlines) -1, 0, NO);
+	    if ( ncwfi > 0 ) editfile (names [ncwfi], (Ncols) -1, (Nlines) -1, 0, NO);
+	}
+    }
 
     if ( dump_state ) {
 	fclose (gbuf);

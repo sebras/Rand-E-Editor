@@ -1,43 +1,50 @@
 ===========================================================
-RAND editor sources
+RAND editor sources and installation
 ===========================================================
+
+March 2000
+By Fabien Perriollat CERN/PS <Fabien.Perriollat@cern.ch>
 
 This version of the rand editor currently compiles on the
 following architectures:
 
-- AIX    4.1
-- Ultrix 4.4  (Need TERMCAP symbol in e19/Makefile)
-- OSF/1  3.2
+- Linux  2.*, (ReadHat 6.* distribution)
+- AIX    4.x
 
-As it is there, it does look for special files in /ps/local/$OS/e
+As it is there, it does look any more for special files in /ps/local/$OS/e
 where $OS = AIX, ULTRIX or OSF1 (as reported by uname)
 
-To modify this feature, there is a need to modify install files
-and include/local_env.h
+Local dependencies are defined by the dynamicaly generated file 'e19/e.r.c"
+by the 'e19/NewVersion' shell script. This script take is parameters
+from the calling Makefile.
 
+The 'NewVersion'shell script need the 'bash' shell program.
+To update this script on a given target computer according to the
+local environment use 'make local' in the top level package directory.
 
-Linux installation and configuration :
-======================================
+Installation and configuration :
+================================
 
-The new version for Linux use a new way to found the keyboard configuration.
+The new version for Linux and AIX use a new way to found the keyboard
+configuration.
 
     - The full path name of the keyboard file is defined by
       (in priority order)
 	1 - the value of "-kbfile" calling parameter (see --help output)
-	2 - the value of "EKBFILE" environement variable
-	3 - the "<pacakage configuration>/kbfiles/<terminal type file name>"
+	2 - the value of "EKBFILE" environment variable
+	3 - the "<package configuration>/kbfiles/<terminal type file name>"
 	    the "terminal type keyboard configuration file name"
 
     - The "terminal type file name" configuration is defined
 	1 - the name of the terminal defined by
 		i  - the value of "-terminal" calling parameter (see --help output)
-		ii - the value of "TERM" environement variable
+		ii - the value of "TERM" environment variable
 	    concanetated with the postfix "kb",
 	    ex : linuxkb for the default linux console
 	2 - "universalkb" if the specific file does not exist
 	    or cannot be read.
 
-    - The "pacakage configuration directory" is defined by
+    - The "package configuration directory" is defined by
 	1 - the user configuration directory : ".Rand" in the
 	    user $HOME directory, ex : <toto home>/.Rand
 	2 - the local system configuration directory : "Rand"
@@ -48,7 +55,7 @@ The new version for Linux use a new way to found the keyboard configuration.
 
     - The package directory is defined by :
 	1 - the value of "-package" calling parameter (see --help output)
-	2 - the value of "RAND_PACKG" environement variable
+	2 - the value of "RAND_PACKG" environment variable
 	3 - the directory of the Rand editor executable file.
 
     The output of --help option could be used to see where the editor
@@ -68,13 +75,26 @@ To do a local customization of the keyboard definition,
       to import common definition, and latter overwrite some of the 'included'
       definition by specific one. If the 'file name' does not start with
       a '/' character, the file name path is relative to the current
-      including file, else it is an absolue file name path.
+      including file, else it is an absolute file name path.
 
-Instalation with the RPM package manager :
-------------------------------------------
+Linux installation specific case :
+=================================
+  The linux installation is done normally with the RPM package manager :
 
-    The package can be realocated into a user define directory instead of
+    The package can be relocated into a user define directory instead of
 	/usr/local default installation directory
     with the "--prefix <install directory>"
     or "--relocate /usr/local=<install directory>"
     parameter of the rpm call
+
+
+Note for Rand Editor developpers :
+==================================
+
+  The shell script new_release.sh (which use bask shell) is provide
+  to generate updated version of files for a new revision of
+  the rand Editor version E19.
+  It update the RPM specification file, the top level Makefile and
+  the e19/NewVersion shell script.
+  This new_release.sh script can be used also to do a simple consistency
+  check of revsion number between these 3 files.

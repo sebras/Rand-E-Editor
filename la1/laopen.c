@@ -5,6 +5,7 @@
 #include "la.local.h"
 
 #include <sys/stat.h>
+#include <sys/resource.h>
 #include <limits.h>
 
 /* these are the actual global definitions */
@@ -28,7 +29,15 @@ extern char *malloc ();
 
 static max_lines_nb ()
 {
-    max_lines = (sizeof (La_linepos) == sizeof (short)) ? SHRT_MAX : INT_MAX;
+    int cc, nb;
+    struct rlimit rlim;
+
+    max_lines = (sizeof (La_linepos) > sizeof (short)) ? INT_MAX : SHRT_MAX;
+    cc = getrlimit (RLIMIT_DATA, &rlim);
+    if ( cc == 0 ) {
+	nb = rlim.rlim_cur / (2 * (LA_FSDSIZE + LA_FSDBMAX));
+	if ( nb < max_lines ) max_lines = nb;
+    }
 }
 
 char * la_max_size ()
@@ -333,12 +342,12 @@ char          *buf;
     };
     union fsb       fsb;        /* a tmp array for fsdbytes */
     Reg1 char      *cp;
-    Reg2 short      nlft;       /* number of chars left in current block */
+    Reg2 int        nlft;       /* number of chars left in current block */
     Reg3 La_fsd    *cfsd;       /* current fsd */
     Reg5 La_bytepos totlft;     /* total characters left to parse */
     La_bytepos      ototlft;    /* old totlft */
     Reg6 La_flag    nonewline;
-    short           nfsb;       /* number of fsdbytes */
+    int             nfsb;       /* number of fsdbytes */
     La_bytepos      totchcnt;   /* total character count */
     long            fsdchcnt;   /* fsd character count (long is correct) */
     long            lcnt;       /* fsd line count */
@@ -403,13 +412,6 @@ char          *buf;
 		la_errno = LA_ERRMAXL;
 		goto err;
 	    }
-#if 0
- makefsd:   if (totlcnt + lcnt < totlcnt) {
-		/* can only happen if La_linepos is typedefed to short */
-		la_errno = LA_ERRMAXL;
-		goto err;
-	    }
-#endif
 	    if (la_int ()) {
 		la_errno = LA_INT;
 		goto err;
@@ -544,14 +546,14 @@ char          *buf;
 	    }
  makebytes:
 	    Block {
-		short shorttmp;
-		fsdchcnt += shorttmp = lnchcnt;
-		totchcnt += shorttmp;
-		if (shorttmp > ~LA_LLINE) {
-		    fsb.bytes.b[nfsb++] = -(shorttmp >> LA_NLLINE);
-		    shorttmp &= ~LA_LLINE;
+		int ttmp;
+		fsdchcnt += ttmp = lnchcnt;
+		totchcnt += ttmp;
+		if (ttmp > ~LA_LLINE) {
+		    fsb.bytes.b[nfsb++] = -(ttmp >> LA_NLLINE);
+		    ttmp &= ~LA_LLINE;
 		}
-		fsb.bytes.b[nfsb++] = shorttmp;
+		fsb.bytes.b[nfsb++] = ttmp;
 	    }
 	}
 	else {

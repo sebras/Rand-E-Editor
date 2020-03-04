@@ -157,7 +157,7 @@ fixtty ()
 	ioctl (STDOUT, TCSETAW, &out_termio);           /* System III */
 #else
 	ioctl (STDOUT, TIOCSETN, &outstty);
-#endif
+#endif /* SYSIII */
 	ostyflg = NO;
 #ifdef MESG_NO
 	if (ttynstr != NULL)
@@ -166,23 +166,25 @@ fixtty ()
     }
     if (istyflg) {
 #ifdef SYSIII
-	ioctl (STDIN, TCSETA, &in_termio);              /* System III */
+	ioctl (STDIN, TCSETA, &in_termio);  /* System III */
 	fcntl (STDIN, F_SETFL, fcntlsave);
-#else
+
+#else /* -SYSIII */
 	ioctl (STDIN, TIOCSETN, &instty);
-#endif
-	istyflg = NO;
 #ifdef  CBREAK
 	if (cbreakflg) {
 #ifdef  TIOCSETC
 	    (void) ioctl (STDIN, TIOCSETC, &spchars);
-#endif
+#endif  /* TIOCSETC */
 #ifdef  TIOCSLTC
 	    (void) ioctl (STDIN, TIOCSLTC, &lspchars);
-#endif
+#endif  /* TIOCSLTC */
 	/*  cbreakflg = NO;  don't reset: screws up stop cmd and recoveries */
 	}
-#endif
+#endif /* CBREAK */
+#endif /* -SYSIII */
+
+	istyflg = NO;
     }
     reset_term ();  /* reset to standard character set */
 }
@@ -406,12 +408,16 @@ you had fatal trouble with disk I/O (usually means no space on disk):\n");
     case FATALBUG:
     case LAFATALBUG:
 	strcpy (bugstr, "the editor just caught a ");
-	strcat (&bugstr[strlen (bugstr)],
 #ifdef SIGNALS
+	strcat (&bugstr[strlen (bugstr)],
 		type == FATALSIG ? "signal.\n" :
-#endif
 		type == FATALBUG ? "bug in itself.\n" :
 		"bug in itself (LA Package).\n");
+#else
+	strcat (&bugstr[strlen (bugstr)],
+		type == FATALBUG ? "bug in itself.\n" :
+		"bug in itself (LA Package).\n");
+#endif
 	sprintf (&bugstr[strlen (bugstr)], msg,a1,a2,a3,a4,a5,a6,a7,a8,a9);
 	strcat (bugstr, "\n");
 	fatalpr (bugwas = bugstr);

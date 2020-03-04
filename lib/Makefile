@@ -50,8 +50,13 @@ putshort.o: /usr/lib/gcc-lib/i386-redhat-linux/egcs-2.91.66/include/stdarg.h
 putshort.o: /usr/include/bits/types.h /usr/include/libio.h
 putshort.o: /usr/include/_G_config.h /usr/include/bits/stdio_lim.h
 putshort.o: ../include/c_env.h
-empty.o: ../include/localenv.h /usr/include/sys/ioctl.h
-empty.o: /usr/include/features.h /usr/include/sys/cdefs.h
-empty.o: /usr/include/gnu/stubs.h /usr/include/bits/ioctls.h
-empty.o: /usr/include/asm/ioctls.h /usr/include/asm/ioctl.h
-empty.o: /usr/include/bits/ioctl-types.h /usr/include/sys/ttydefaults.h
+empty.o: ../include/localenv.h /usr/include/stdio.h /usr/include/features.h
+empty.o: /usr/include/sys/cdefs.h /usr/include/gnu/stubs.h
+empty.o: /usr/lib/gcc-lib/i386-redhat-linux/egcs-2.91.66/include/stddef.h
+empty.o: /usr/lib/gcc-lib/i386-redhat-linux/egcs-2.91.66/include/stdarg.h
+empty.o: /usr/include/bits/types.h /usr/include/libio.h
+empty.o: /usr/include/_G_config.h /usr/include/bits/stdio_lim.h
+empty.o: /usr/include/string.h /usr/include/sys/ioctl.h
+empty.o: /usr/include/bits/ioctls.h /usr/include/asm/ioctls.h
+empty.o: /usr/include/asm/ioctl.h /usr/include/bits/ioctl-types.h
+empty.o: /usr/include/sys/ttydefaults.h

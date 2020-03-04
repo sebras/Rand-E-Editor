@@ -13,16 +13,12 @@
 #define NO  0
 #endif
 
-#ifdef LONGFILES
-#define LA_LONGFILES
-#endif
-
 /* #define LA_LONGLINES            very esoteric */
 
 /* You may still want this, even if your machine is not INT4 */
 /* but you will probably run out of address space on large files. */
 #ifdef INT4
-/* # define LA_LONGFILES           not completely debugged */
+# define LA_LONGFILES           /* not completely debugged */
 #endif
 
 #define LA_NLLINE  (CHARNBITS - 1)
@@ -31,7 +27,7 @@
 
 #ifdef LA_LONGLINES
 # define LA_MAXLINE MAXLONG
-  typedef long  La_linesize;    /* must not be unsigned */
+  typedef int   La_linesize;    /* must not be unsigned */
 #else
 # define LA_MAXLINE LA_MAX_NON_SPECIAL_FSD
   typedef short La_linesize;    /* must not be unsigned */
@@ -39,7 +35,7 @@
 
 #ifdef LA_LONGFILES
 # define LA_MAXNLINES MAXLONG
-typedef long La_linepos;        /* must not be unsigned */
+typedef int  La_linepos;        /* must not be unsigned */
 #else
 # define LA_MAXNLINES MAXSHORT
 typedef short La_linepos;       /* must not be unsigned */
@@ -59,7 +55,7 @@ typedef struct lafsd
     struct lafile
 	       *fsdfile;    /* lafile pointer of file containing lines.    */
 			    /*  0 if this is the last fsd in chain.        */
-    short       fsdnbytes;  /* number of bytes in this fsd if regular fsd  */
+    int         fsdnbytes;  /* number of bytes in this fsd if regular fsd  */
     char        fsdnlines;  /* number of lines in this fsd. 0 if this is   */
 			    /*  the last fsd in chain.                     */
     char        fsdbytes[1];/* bytes describing the linelengths. See doc   */
@@ -72,7 +68,7 @@ typedef struct lafile {
     struct lastream *la_fstream;/* first in chain for this lafile */
     struct lastream *la_lstream;/* last  in chain for this lafile */
     La_linepos       la_fsrefs; /* number of refs by fsds */
-    short            la_refs;   /* number of refs by La_streams */
+    int              la_refs;   /* number of refs by La_streams */
     La_linesize      la_maxline;/* max line size in the file */
     La_linepos       la_nlines; /* number of lines in file */
 #ifdef LA_BP
@@ -86,10 +82,10 @@ typedef struct lafile {
 #define LA_MODIFIED   04        /* file has been modified */
 
 typedef struct lastream {
-    short            la_fsline; /* which line of current fsd starting at 0 */
-    short            la_fsbyte; /* index into fsdbytes in current fsd */
-    short            la_lbyte;  /* offset from beginning of current line */
-    short            la_ffpos;  /* fsd fsdpos + this = offset in la_ffs */
+    int              la_fsline; /* which line of current fsd starting at 0 */
+    int              la_fsbyte; /* index into fsdbytes in current fsd */
+    int              la_lbyte;  /* offset from beginning of current line */
+    int              la_ffpos;  /* fsd fsdpos + this = offset in la_ffs */
     La_bytepos       la_bpos;   /* current byte position in file */
     La_linepos       la_lpos;   /* current line number */
     La_fsd          *la_cfsd;   /* current fsd */
@@ -105,19 +101,19 @@ typedef struct lastream {
 #define LA_ALLOCED   001        /* open call alloced la_stream struc */
 #define LA_STAY      002        /* stay at same line after insert there */
 struct la_spos {                /* used by la_align */
-    short            la_fsline;
-    short            la_fsbyte;
-    short            la_lbyte;
-    short            la_ffpos;
+    int              la_fsline;
+    int              la_fsbyte;
+    int              la_lbyte;
+    int              la_ffpos;
     La_bytepos       la_bpos;
     La_linepos       la_lpos;
     La_fsd          *la_cfsd;
  };
 struct la_fpos {                /* used by la_ldelete */
-    short            la_fsline;
-    short            la_fsbyte;
-    short            la_lbyte;
-    short            la_ffpos;
+    int              la_fsline;
+    int              la_fsbyte;
+    int              la_lbyte;
+    int              la_ffpos;
  };
 
 #define la_modified(plas)   (((plas)->la_file->la_mode & LA_MODIFIED)? YES : NO)

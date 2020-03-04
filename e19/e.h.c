@@ -56,9 +56,6 @@ static void browse_keyboard (char *msg)
 	    fputs (blank, stdout);
 	    (void) help_description ('~', -1, key, NULL, str, NULL);
 	}
-#if 0
-	else (void) help_description ('~', -1, key, NULL, NULL, NULL);
-#endif
     }
 }
 
@@ -354,6 +351,7 @@ char *helparg;
     fcmd = itsyms[idx].val;
     str  = itsyms[idx].str;
     if ( *nxtop && (fcmd == CCCMD) ) {
+	if ( *hlparg ) sfree (hlparg);
 	hlparg = getword (&nxtop);
 	idx = lookup (hlparg, itsyms);
 	if ( idx  >= 0 ) {
@@ -362,15 +360,20 @@ char *helparg;
 	}
     }
 
-    (void) getword (&nxtop);
-    if ( *nxtop ) 
-    return CRTOOMANYARGS;
-
     if ( idx  < 0 ) {
-	mesg (TELALL + 2, hlparg, " : Unknown Key Function");
+	mesg (TELALL + 2, hlparg,
+	      (idx != -2) ? " : Unknown Key Function" : " : Ambiguous Key Function");
+	if ( *hlparg ) sfree (hlparg);
 	loopflags.hold = YES;
         return CROK;
     }
+    if ( *hlparg ) sfree (hlparg);
+
+    hlparg = getword (&nxtop);
+    if ( *hlparg ) sfree (hlparg);
+    if ( *nxtop ) 
+	return CRTOOMANYARGS;
+
     memset (msg, 0, sizeof (msg));
     sprintf (msg, "%s: ", str);
     tflg = verbose_helpflg;
@@ -381,6 +384,30 @@ char *helparg;
     mesg (TELALL + 1, msg);
     loopflags.hold = YES;
     return CROK;
+}
+
+/* Does some processing in full screen mode */
+Cmdret do_fullscreen (Cmdret (*process) (), void *p1, void *p2, void *p3)
+{
+    extern void reset_crlf ();
+    Cmdret cc;
+    int oflag, col, lin;
+
+    col = cursorcol; lin = cursorline;
+    savecurs ();
+    ( *term.tt_clear ) ();
+    ( *term.tt_home ) ();
+    poscursor (0, term.tt_height -1);
+    oflag = set_crlf ();
+
+    cc = (*process) (p1, p2, p3);
+
+    reset_crlf (oflag);
+    mesg (TELALL+1, " ");
+    fflush (stdout);
+    fresh ();
+    restcurs ();
+    return cc;
 }
 
 /* ======================================================================== */
@@ -395,11 +422,33 @@ char *helparg;
 
 static char retmsg [] = "--- Press ENTER (CR or RETURN) or <Ctrl C> to return to the Edit session ---";
 
-Cmdret help_std (helparg)
+#define HELP_CMD    1
+#define HELP_KBCK   2
+#define HELP_KEY    3
+#define HELP_KEYF   4
+#define HELP_KMAP   5
+#define HELP_NEW    6
+#define HELP_STAT   7
+
+S_looktbl helptable[] = {
+    "cmd"               , HELP_CMD  ,
+    "commands"          , HELP_CMD  ,
+    "kbchk"             , HELP_KBCK ,
+    "key"               , HELP_KEY  ,
+    "keyboard_check"    , HELP_KBCK ,
+    "keyf"              , HELP_KEYF ,
+    "keyfunctions"      , HELP_KEYF ,
+    "keymap"            , HELP_KMAP ,
+    "new"               , HELP_NEW  ,
+    "newfeatures"       , HELP_NEW  ,
+    "status"            , HELP_STAT ,
+    0                   , 0
+    };
+
+static Cmdret process_help_std (helparg)
 char *helparg;
 
 {
-void keymap_term ();
 extern char *nxtop;
 extern S_looktbl cmdtable[];
 extern char * get_cmd_name ();
@@ -426,8 +475,7 @@ Now press a key (or keys combination) for description of the assigned action.\
 static int stmsg_nbln = 0;  /* number of lines in stmsg string */
 
 Short qq;
-int i, idx, fkey;
-char ch;
+int i, idx, fkey, hcmd;
 int cmd;
 char *cmd_str, *str;
 int oflag;
@@ -438,24 +486,6 @@ extern int set_crlf ();
 extern void reset_crlf ();
 extern void check_keyboard ();
 extern char verstr[];
-
-    for ( i = 0 ; (ch = helparg[i]) ; i++ ) helparg[i] = tolower (ch);
-
-    if ( helparg ) {
-        if ( (strcmp (helparg, "key") == 0) || (strcmp (helparg, "?") == 0) ) {
-	    return (keyfunc_ibmpc () );
-	    }
-    }
-
-    if ( *nxtop )
-	return CRTOOMANYARGS;
-
-    col = cursorcol; lin = cursorline;
-    savecurs ();
-    ( *term.tt_clear ) ();
-    ( *term.tt_home ) ();
-    poscursor (0, term.tt_height -1);
-    oflag = set_crlf ();
 
     if (   (helparg == NULL) || (*helparg == '\0')
         || ( strcmp (helparg, "keyhelp") == 0) ) {
@@ -477,38 +507,39 @@ extern char verstr[];
 	    }
 	}
 	browse_keyboard (retmsg);
-        }
+	return CROK;
+    }
 
-    else if ( strncasecmp (helparg, "NewFeatures", strlen(helparg)) == 0 ) {
-	fprintf (stdout, "%s\n\n", verstr);
-	nbli = 2;
-	(void) help_info ("New_features_Linux", &nbli);
-	ctrlc = check_new_page (&nbli, 1);
-	ctrlc = wait_keyboard (retmsg, NULL);
-	}
+    hcmd = lookup (helparg, helptable);
+    if ( hcmd >= 0 ) switch (helptable [hcmd].val) {
+	case HELP_NEW :
+	    fprintf (stdout, "%s\n\n", verstr);
+	    nbli = 2;
+	    (void) help_info ("New_features_Linux", &nbli);
+	    ctrlc = check_new_page (&nbli, 1);
+	    ctrlc = wait_keyboard (retmsg, NULL);
+	    break;
 
-    else if ( strcmp (helparg, "status") == 0 ) {
-        showstatus ();
-	ctrlc = wait_keyboard (retmsg, NULL);
-	}
+	case HELP_STAT :
+	    showstatus ();
+	    ctrlc = wait_keyboard (retmsg, NULL);
+	    break;
 
-    else if ( strcmp (helparg, "keymap") == 0 ) {
-	keymap_term ();
-	}
+	case HELP_KMAP :
+	    keymap_term ();
+	    break;
 
-    else if (   (strcmp (helparg, "commands") == 0)
-             || (strcmp (helparg, "cmd") == 0) ) {
-        browse_cmdhelp ();
-	}
+	case HELP_CMD :
+	    browse_cmdhelp ();
+	    break;
 
-    else if (   (strcmp (helparg, "keyfunctions") == 0)
-             || (strcmp (helparg, "keyf") == 0) ) {
-        browse_keyfhelp ();
-	}
+	case HELP_KEYF :
+	    browse_keyfhelp ();
+	    break;
 
-    else if (   (strcmp (helparg, "keyboard_check") == 0)
-	     || (strcmp (helparg, "kbchk") == 0) ) {
-	check_keyboard ();
+	case HELP_KBCK :
+	    check_keyboard ();
+	    break;
 	}
 
     else if ( (idx = lookup (helparg, cmdtable)) >= 0 ) {
@@ -529,38 +560,70 @@ extern char verstr[];
 	ctrlc = wait_keyboard (retmsg, NULL);
 	}
 
-    reset_crlf (oflag);
-    mesg (TELALL+1, " ");
-    fflush (stdout);
-    fresh ();
-    restcurs ();
     return CROK ;
 }
 
+Cmdret help_std (char * helparg)
+{
+    Cmdret cc;
+    int i;
+    char ch;
+
+    if ( helparg ) {
+	for ( i = 0 ; (ch = helparg[i]) ; i++ )
+	    helparg[i] = tolower (ch);
+        if ( (strcmp (helparg, "key") == 0) || (strcmp (helparg, "?") == 0) ) {
+	    return (keyfunc_ibmpc () );
+	    }
+    }
+    if ( *nxtop ) return CRTOOMANYARGS;
+
+    cc = do_fullscreen (process_help_std, (void *) helparg, NULL, NULL);
+    return cc;
+}
 
 /* utility to display some info and wait for keyboard */
 
-void show_info (void (*info) ())
+static Cmdret process_show_info (void (*info) (), int *val_ret, char *msg)
 {
-    extern int set_crlf ();
-    extern void reset_crlf ();
-    int oflag, col, lin, ctrlc;
-
-    col = cursorcol; lin = cursorline;
-    savecurs ();
-    ( *term.tt_clear ) ();
-    ( *term.tt_home ) ();
-    poscursor (0, term.tt_height -1);
-    oflag = set_crlf ();
+    int ctrlc, gk, val, i;
+    char val_strg [16], *str;
+    char msg_str [128];
 
     (*info) ();
-    ctrlc = wait_keyboard (retmsg, NULL);
 
-    reset_crlf (oflag);
-    mesg (TELALL+1, " ");
-    fflush (stdout);
-    fresh ();
-    restcurs ();
+    memset (msg_str, 0, sizeof (msg_str));
+    str = ( msg ) ? msg : retmsg;
+    strncpy (msg_str, str, sizeof (msg_str)-1);
+    if ( val_ret ) {
+	val = 0;
+	memset (val_strg, 0, sizeof (val_strg));
+	for ( i = 0 ; i < sizeof (val_strg) -1 ; ) {
+	    ctrlc = wait_keyboard (msg_str, &gk);
+	    if ( ctrlc || (gk == CCRETURN) || (gk == CCCMD) || (gk == CCINT) ) break;
+	    if ( (gk == CCMOVELEFT) || (gk == CCDELCH) || (gk == CCBACKSPACE) ) {
+		if ( i > 0 ) i--;
+		msg_str [i] = str [i];
+		val_strg [i] = '\0';
+		continue;
+	    }
+	    if ( (gk < '0') || (gk > '9') ) continue;
+	    val_strg [i++] = (char) gk;
+	    memcpy (msg_str, val_strg, strlen (val_strg));
+	}
+	if ( !ctrlc && (gk == '\r') ) {
+	    val = atoi (val_strg);
+	}
+	*val_ret = val;
+    } else {
+	ctrlc = wait_keyboard (msg_str, NULL);
+    }
+    return CROK;
+}
+
+void show_info (void (*info) (), int *val_ret, char *msg)
+{
+    (void) do_fullscreen (process_show_info, (void *) info, (void *) val_ret, (void *) msg);
 }
 
 /* ----------------------------------------------------------------------- */
@@ -843,20 +906,43 @@ static int wait_key ()
     return True (YES) if <Ctrl C> key was pushed
 */
 
+void update_msg (int width, int height, void *para)
+{
+    char * msg, ch;
+
+    if ( ! para ) return;
+    msg = (char *) para;
+    ch = '\0';
+    if ( width < strlen (msg) ) {
+	ch = msg [width];
+	msg [width] = '\0';
+    }
+    fputc ('\r', stdout); fputs (msg, stdout); fputc ('\r', stdout);
+    (void) fflush (stdout);
+    if ( ch ) msg [width] = ch;
+}
+
 int wait_keyboard (char *msg, int *gk_pt)
 {
+    extern void set_alt_resize (void (* my_resize) (int width, int height, void *para), void *para);
     extern void switch_ctrlc ();
     int qq;
+    char str [256], *strg;
 
     if ( CtrlC_flg ) return CtrlC_flg;
 
+    memset (str, 0, sizeof (str));
     if ( msg ) {
 	(*term.tt_addr)  (term.tt_height -1, 0);
-	fputs (msg, stdout); fputc ('\r', stdout);
+	strncpy (str, msg, sizeof (str) -1);
+	update_msg ((int) term.tt_width, (int) term.tt_height, (void *) str);
     }
     keyused = YES;
     switch_ctrlc (YES);
+    set_alt_resize (update_msg, (void *) str);
     qq = getkey (WAIT_KEY);
+    set_alt_resize (NULL, NULL);
+    if ( (qq == CCINT) && keyfile ) putc (CCINT, keyfile);
     if ( gk_pt ) *gk_pt = qq;
     switch_ctrlc (NO);
     return CtrlC_flg;

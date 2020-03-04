@@ -8,6 +8,7 @@ Initial version : by Fabien Perriollat, Fev 2000, <Fabien.Perriollat@cern.ch>
 #endif
 
 #include <string.h>
+#include <signal.h>
 
 #include "e.h"
 #include "e.cm.h"
@@ -19,9 +20,12 @@ extern S_window *setupwindow ();
 extern int svrs_image_line ();
 
 static void resize_now (Flag msg_flg, int height, int width);
+static void (* alt_resize) (int, int, void *) = NULL;
+static void * alt_resize_para = NULL;
 
 static Flag resize_requested = NO;
 static Flag resize_allowed = NO;
+
 
 /* Saved cursor and window for which the cursor is saved */
 void *saved_curs = NULL;
@@ -276,13 +280,18 @@ static void resize_now (Flag msg_flg, int height, int width)
 #endif /* VBSTDIO */
 
 
+static get_size (int * width, int * height)
+{
+    *width  = term.tt_width;
+    *height = term.tt_height;
+    get_tt_size (width, height);
+}
+
 static void do_resize_screen (Flag msg_flg)
 {
     int height, width;
 
-    width  = term.tt_width;
-    height = term.tt_height;
-    get_tt_size (&width, &height);
+    get_size (&width, &height);
     resize_now (msg_flg, height, width);
 }
 
@@ -293,13 +302,27 @@ void resize_screen ()
     do_resize_screen (YES);
 }
 
+void set_alt_resize (void (* my_resize) (int, int, void *), void *para)
+{
+    alt_resize = my_resize;
+    alt_resize_para = para;
+}
+
 void sig_resize (int num)
 {
+    int height, width;
+
     if ( replaying || recovering ) resize_allowed = NO;
     resize_requested = YES;
     if ( resize_allowed ) {
 	do_resize_screen (!silent);
+    } else {
+	if ( alt_resize ) {
+	    get_size (&width, &height);
+	    (*alt_resize) (width, height, alt_resize_para);
+	}
     }
+    (void) signal (num, sig_resize);
 }
 
 void testandset_resize (Flag set_flg, void *csv_curs, S_window * cwin)

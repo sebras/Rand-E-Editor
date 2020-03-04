@@ -84,18 +84,18 @@ La_bytepos *nbytes;
     La_fsd *n2fsd;      /* new fsd 2 of 3 */
     La_fsd *n3fsd;      /* new fsd 3 of 3 */
     La_file *claf;      /* fast pointer to current la_file */
-    short fsline;       /* fast copy of current la_fsline */
+    int   fsline;       /* fast copy of current la_fsline */
     char *cp2;          /* pointer to middle portion fsdbyte */
     char *cp3;          /* pointer to third  portion fsdbyte */
-    short fsbyte1;      /* num of fsdbytes in new fsd 1 of 3 */
-    short fsbyte2;      /* num of fsdbytes in new fsd 2 of 3 */
-    short fsbyte3;      /* num of fsdbytes in new fsd 3 of 3 */
-    short ffpos;        /* fast copy of current la_ffpos */
+    int   fsbyte1;      /* num of fsdbytes in new fsd 1 of 3 */
+    int   fsbyte2;      /* num of fsdbytes in new fsd 2 of 3 */
+    int   fsbyte3;      /* num of fsdbytes in new fsd 3 of 3 */
+    int   ffpos;        /* fast copy of current la_ffpos */
     static La_linepos lzero;    /* always 0 */
 #ifdef LA_BP
     static La_bytepos bzero;    /* always 0 */
 #endif
-    short nbytes2;      /* number of bytes described by  middle fsd portion */
+    int   nbytes2;      /* number of bytes described by  middle fsd portion */
 
     /* see if we are at the end of the chain */
     if ((cfsd = plas->la_cfsd) == plas->la_file->la_lfsd) {
@@ -180,9 +180,9 @@ La_bytepos *nbytes;
     /* figure how many fsdbytes in each of the 2 (possibly 3) new fsds */
     fsbyte1 = plas->la_fsbyte;
     Block {
-	Reg1 short nb2;
+	Reg1 int   nb2;
 	Reg2 char *cp1;
-	Reg4 short j;
+	Reg4 int   j;
 	cp1 = &cfsd->fsdbytes[fsbyte1];
 	nb2 = 0;
 	if (nlines) {
@@ -310,14 +310,14 @@ La_bytepos *nbytes;
 	Block {
 	    /* fix up any streams whose current fsd was the one we are breaking */
 	    Reg2 La_stream *tlas;
-	    Reg4 short fsln;
+	    Reg4 int   fsln;
 	    fsln = fsline;
 	    for (tlas = la_firststream; tlas; tlas = tlas->la_sforw) {
 		if (tlas->la_cfsd == cfsd) {
 		    if (tlas->la_fsline < fsln)
 			tlas->la_cfsd = n1fsd;
 		    else Block {
-			Reg1 short j;
+			Reg1 int   j;
 			if (tlas->la_fsline < (j = fsln + nlines)) {
 			    tlas->la_cfsd = n2fsd;
 			    tlas->la_fsline -= fsln;

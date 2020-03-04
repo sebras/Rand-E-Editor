@@ -67,6 +67,7 @@ S_looktbl cmdtable[] = {
     "b"       , CMDEXIT     ,
     "blot"    , CMDBLOT     ,
     "box"     , CMDBOX      ,
+    "build-kbmap", CMDBKBFILE  ,
     "bye"     , CMDEXIT     ,
     "call"    , CMDCALL     ,
 #ifdef LMCCASE
@@ -94,6 +95,7 @@ S_looktbl cmdtable[] = {
     "exit"    , CMDEXIT     ,
     "feed"    , CMDFEED     ,
     "file"    , CMDFILE     ,
+    "files"   , CMDSHFILES  ,
     "fill"    , CMDFILL     ,
     "goto"    , CMDGOTO     ,
     "help"    , CMDHELP     ,
@@ -204,7 +206,7 @@ static char *dir_name = NULL;
 static char *dir_name_fname = NULL;
 static int dir_name_fname_sz = 0;
 static int fname_para_sz = 0;
-static char name_exp[NAME_MAX+2];
+static char name_exp[PATH_MAX+2];
 
 
 void clear_namelist () {
@@ -339,7 +341,7 @@ int expand_file_para (char *file_para, char **name_expantion_pt,
     char fp_strg[512];
     char *dir;
     struct dirent *dent;
-    char path[NAME_MAX+2];
+    char path[PATH_MAX+2];
     struct stat stat_buf;
     int (*dir_select)();
 
@@ -363,7 +365,7 @@ int expand_file_para (char *file_para, char **name_expantion_pt,
 
     /* save the directory path name */
     sz = strlen(dir)+2;
-    dir_name_fname_sz = NAME_MAX;
+    dir_name_fname_sz = PATH_MAX;
     /* alloc enough space for a full file name path */
     dir_name = (char *) calloc (sz + dir_name_fname_sz +1, sizeof(char));
     if ( dir_name ) {
@@ -462,7 +464,22 @@ int command_file (char *param, char **file_para_pt, Short *cmdval_pt)
 
 extern void dostop ();
 
-#ifdef LMCCMDS
+#ifdef LMCHELP
+static Cmdret call_help (char * helpcmd)
+{
+    Cmdret retval;
+    char helparg [256];
+
+    strncpy (helparg, helpcmd, sizeof(helparg));
+    helparg[sizeof (helparg) - 1] = '\0';
+    if (*term.tt_help == NULL) retval = help_std (helparg);
+    else retval = (*term.tt_help) (helparg);
+    return retval;
+}
+#endif
+
+
+#ifdef LMCCMDS      /* function key extensions */
 #ifdef COMMENT
 Cmdret
 command (forcecmd, forceopt)
@@ -485,10 +502,9 @@ command (forcecmd, forceopt)
     char *cmdstr;
     int clrcnt;                 /* Added 10/18/82 MAB */
 #ifdef LMCHELP
-    /* XXXXXXXXXXXXXXXXXXX */
-    char helparg[256];
+    extern S_looktbl helptable [];
+    int idx;
 #endif
-
 
     if (forcecmd != 0) {
 	cmdval = forcecmd;
@@ -502,15 +518,25 @@ command (forcecmd, forceopt)
 	    return CROK;
 	cmdtblind = lookup (cmdstr, cmdtable);
 	if (cmdtblind == -1) {
-#ifdef LMCGO
+#ifdef LMCGO    /* implicite goto command */
 	    if (cmdstr[0] >= '1' && cmdstr[0] <= '9') {
 		nxtop = paramv;
 		cmdtblind = lookup ("g", cmdtable);
 	    } else {
 #endif
-		mesg (ERRALL + 3, "Command \"", cmdstr, "\" not recognized");
-		sfree (cmdstr);
-		return CROK;
+#ifdef LMCHELP
+		idx = lookup (cmdstr, helptable);
+		if ( idx >= 0 ) {
+		    nxtop = paramv;
+		    cmdtblind = lookup ("help", cmdtable);
+		} else {
+#endif
+		    mesg (ERRALL + 3, "Command \"", cmdstr, "\" not recognized");
+		    sfree (cmdstr);
+		    return CROK;
+#ifdef LMCHELP
+		}
+#endif
 #ifdef LMCGO
 	    }
 #endif
@@ -527,7 +553,9 @@ command (forcecmd, forceopt)
     opstr = getword (&nxtop);
     cmdname = cmdtable[cmdtblind].str;
     switch (cmdval) {
-#else
+
+#else /* -LMCCMDS   no function key extensions */
+
 #ifdef COMMENT
 Cmdret
 command ()
@@ -541,16 +569,14 @@ Cmdret
 command ()
 {
     extern void cmds_prompt_mesg ();
+    extern Cmdret displayfileslist ();
+    extern Cmdret buildkbfile ();
 
     Short cmdtblind;
     Cmdret retval;
     Short cmdval;
     char *cmdstr;
     int clrcnt;                 /* Added 10/18/82 MAB */
-#ifdef LMCHELP
-    /* XXXXXXXXXXXXXXXXXXX */
-    char helparg[256];
-#endif
 
     nxtop = paramv;
     cmdstr = getword (&nxtop);
@@ -574,7 +600,8 @@ command ()
 
     cmdname = cmdtable[cmdtblind].str;
     switch (cmdval = cmdtable[cmdtblind].val) {
-#endif
+
+#endif /* -LMCCMDS   no function key extensions */
 
 #ifdef CMDVERALLOC
     case CMDVERALLOC:
@@ -746,20 +773,13 @@ command ()
 
 #ifdef LMCHELP
     case CMDSTATUS:
-	strncpy (helparg, "status", sizeof(helparg));
-	helparg[sizeof (helparg) - 1] = '\0';
-	if (*term.tt_help == NULL) retval = help_std (helparg);
-	else retval = (*term.tt_help)(helparg);
+	retval = call_help ("status");
 	break;
 
     case CMDHELP:
 	mesg (ERRALL + 1, "Calling help....");
-	strncpy (helparg, opstr, sizeof(helparg));
-	helparg[sizeof (helparg) - 1] = '\0';
-	if (*term.tt_help == NULL) retval = help_std (helparg);
-	else retval = (*term.tt_help)(helparg);
+	retval = call_help (opstr);
 	break;
-
 #endif
 
     case CMDCHECKSCR:
@@ -951,12 +971,20 @@ command ()
 	retval = fileStatus (NO);
 	break;
 
+    case CMDSHFILES:    /* display currently edited files list */
+	retval = displayfileslist ();
+	break;
+
+    case CMDBKBFILE:    /* interactively build a mapping file */
+	retval = buildkbfile ();
+	break;
+
     case CMDSET:
-	retval = setoption(NO);
+	retval = setoption (NO);
 	break;
 
     case CMDQSET:
-	retval = setoption(YES);
+	retval = setoption (YES);
 	break;
 
 #ifdef NOTYET

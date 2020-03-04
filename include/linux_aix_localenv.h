@@ -1,9 +1,16 @@
 
-/* system environment stuff for Linux */
-/* ================================== */
+/* system environment stuff for Linux and AIX */
+/* ========================================== */
 
+#include <stdio.h>
+#include <string.h>
+
+#ifndef index
 #define index strchr            /* */
+#endif
+#ifndef rindex
 #define rindex strrchr          /* */
+#endif
 #define EMPTY                   /* can implement empty(fd) subroutine call */
 #define LINKS                   /* file system has links */
 #define CANFORK                 /* system has fork() */
@@ -11,7 +18,8 @@
 #define SIGARG                  /* signal catch routine has sig num as arg */
 #define SIG_INCL <signal.h>
 #define SGTT_INCL <sgtty.h>
-#undef  TTYNAME                 /* use ttyname function */
+
+#define TTYNAME                 /* use ttyname function */
 #define SHORTUID                /* uid is a short, not a char (v7+) */
 #define ENVIRON                 /* getenv() is implemented */
 #define SIGNALS                 /* system has signals */
@@ -37,14 +45,18 @@
 #undef  VAX_MONITOR             /* use monitor() routine for vax  profiling */
 
 #define TERMCAP
-#define SYSIII
+
+#define SYSIII      /* Unix System III (termios, curses) */
+
 
 /* ANSI C new macro facility */
 #define CAT_dir_file(x,y)  x #y
 #define XCAT_dir_file(x,y) CAT_dir_file(x,y)
 #define FULL_File_path(v)  XCAT_dir_file(XDIR_DIR,v)
 
-/* Root of the Rand executable package */
+/* Root of the Rand executable package (default default values)
+ *  look into dynamicaly generated file : e19/e.r.c for current values
+ */
 #define XDIR_DIR    "/usr/local/Rand"
 
 #define RECOVERMSG  FULL_File_path(/recovermsg)
@@ -58,6 +70,10 @@
 #define XDIR_CENTER FULL_File_path(/center)
 #define XDIR_PRINT  FULL_File_path(/print)
 
+#ifndef _NFILE
 #define _NFILE 32
+#endif
+#ifndef _IOEOF
 #define _IOEOF _IO_EOF_SEEN
+#endif
 

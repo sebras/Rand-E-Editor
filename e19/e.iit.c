@@ -36,6 +36,7 @@ S_looktbl itsyms [] = {
 #ifdef LMCCMDS
     "abort",   CCABORT,
 #endif
+    "alt",     CCSETFILE,
     "bksp",    CCBACKSPACE,
 #ifdef LMCCMDS
     "blot",    CCBLOT,
@@ -68,11 +69,11 @@ S_looktbl itsyms [] = {
     "dword",   CCDWORD,
 #endif
     "edit",    CCSETFILE,
-    "alt",     CCSETFILE,
     "erase",   CCERASE,
 #ifdef LMCCMDS
     "exit",    CCEXIT,
     "fill",    CCFILL,
+    "fnavigate", CCFNAVIG,
 #endif
 #ifdef LMCCMDS
 #ifdef LMCHELP
@@ -321,6 +322,7 @@ char *filename;
 #ifdef  DEBUG_KBFILE
     itprint (ithead, 0);
 #endif
+    if ( verbose_helpflg ) printf ("\nEnd of Processing kbfile(s)\n");
     return (cc);
 }
 

@@ -59,25 +59,72 @@ Cmdret dochangedirectory () {
 
 static void edited_file ()
 {
-    extern char * filestatusString ();
-    int i, i0, nb;
-    char ch, *fname, *strg;
+    extern char * fileslistString ();
+
+    static const char infstrg[] = "  In col 2 'N' : edited file, 'A' : alternate file";
+    int fi, wi, wn, i0, nb;
+    char ch, ch1, *wstg, *fname, *strg;
 
     i0 = FIRSTFILE + NTMPFILES;
     nb = MAXFILES - i0;
 
-    printf ("Edited file list (max nb of files %d)\n  In col 2 'N' : edited file of the active window, 'A' : alternate file\n\n", nb);
-    for ( i = i0 ; i < MAXFILES ; i++ ) {
-	if ( !(fileflags[i] & INUSE) ) continue;
-	strg = filestatusString (i, &fname);
+    if ( nwinlist <= 1 ) {
+	printf ("Edited file list (max nb of files %d)\n%s\n\n", nb, infstrg);
+    } else {
+	printf ("Edited file list (max nb of files %d) in %d windows\n%s, '*' : the active window\n\n",
+		nb, nwinlist, infstrg);
+    }
+    for ( fi = i0 ; fi < MAXFILES ; fi++ ) {
+	if ( !(fileflags[fi] & INUSE) ) continue;
+	strg = fileslistString (fi, &fname);
 	if ( ! strg ) continue;
-	if ( i == curwin->wksp->wfile ) ch = 'N';
-	else if ( i == curwin->altwksp->wfile ) ch = 'A';
-	else ch = ' ';
-	printf ("%-2d %c %s%s\n", i - i0 +1, ch, strg, fname);
+	if ( nwinlist <= 1 ) {
+	    if ( fi == curwin->wksp->wfile ) ch = 'N';
+	    else if ( fi == curwin->altwksp->wfile ) ch = 'A';
+	    else ch = ' ';
+	    printf ("%-2d %c %s%s\n", fi - i0 +1, ch, strg, fname);
+	} else {
+	    /* multiple window case */
+	    ch = ch1 = ' ';     /* '*' for the active window */
+	    wstg = "";
+	    wn = 0;
+	    for ( wi = nwinlist -1 ; wi >= 0 ; wi-- ) {
+		if ( fi == winlist[wi]->wksp->wfile ) ch = 'N';
+		else if ( fi == winlist[wi]->altwksp->wfile ) ch = 'A';
+		else continue;
+		wn = wi +1;
+		if ( winlist[wi] == curwin ) {
+		    ch1 = '*';
+		    break;
+		}
+	    }
+	    if ( wn ) printf ("%-2d %c%d%c %s%s\n", fi - i0 +1, ch1, wn, ch,
+			      strg, fname);
+	    else printf ("%-2d     %s%s\n", fi - i0 +1, strg, fname);
+	}
     }
 }
 
+/* Display the list of edited files and switch files if requested */
+
+Cmdret displayfileslist () {
+    extern void show_info (void (*info) (), int *, char *);
+    static char listmsg [] = "---- <file nb> <RETURN> to switch to this file, or <Ctrl C> just to return ----";
+    int val, fi;
+
+    show_info (edited_file, &val, listmsg);
+    if ( val > 0 ) {
+	fi = val -1 + FIRSTFILE + NTMPFILES;
+	if ( (fi < MAXFILES) && (fileflags[fi] & INUSE) ) {
+	    if ( fi != curwin->wksp->wfile ) {
+		(void) editfile (names [fi], (Ncols) -1, (Nlines) -1, 1, YES);
+	    }
+	} else {
+	    putchar ('\007');
+	}
+    }
+    return CROK;
+}
 
 #ifdef COMMENT
 Cmdret
@@ -89,7 +136,8 @@ Cmdret
 edit ()
 {
     char *eol, ch;
-    int sz;
+    int sz, val;
+    Cmdret cc;
 
     if (opstr[0] == '\0') {
 	switchfile ();
@@ -97,9 +145,8 @@ edit ()
     }
     sz = strlen (opstr);
     if ( (sz == 1) && (*opstr == '?') ) {
-	extern void show_info (void (*info) ());
-	show_info (edited_file);
-	return CROK;
+	cc = displayfileslist ();
+	return cc;
     }
 
     if (*nxtop) {
@@ -119,7 +166,7 @@ edit ()
     eol = &opstr[strlen (opstr)];
     *eol = '\n';
     opstr[dechars (opstr) - 1] = '\0';
-    editfile (opstr, (Ncols) -1, (Nlines) -1, 1, YES);
+    (void) editfile (opstr, (Ncols) -1, (Nlines) -1, 1, YES);
     return CROK;
 }
 
@@ -495,7 +542,9 @@ char *file;
     Reg2 char *cp;
     char linkname[150];
     struct stat sb;
+#if 0
     char *rindex();
+#endif
 
     if (lstat (file, &sb) < 0)
 	return (file);

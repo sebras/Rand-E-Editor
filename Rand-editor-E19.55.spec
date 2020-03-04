@@ -6,7 +6,7 @@ Prefix: %{targdir}
 Summary: Rand full screen text Editor for Linux
 Name: Rand
 Version: E19
-Release: 53
+Release: 55
 Copyright: Copyright abandoned, 1983, The Rand Corporation
 Group: Applications/Editors
 Source: ftp://pspc7715.cern.ch/usr/local/src/%{name}/%{name}-%{version}.%{release}.tgz
@@ -38,11 +38,11 @@ The current version is : %{name}-%{version}.%{release}
 # ----------------------------------------------------------------------------
 # to rebuild the package (bin and source files) :
 #   cd /usr/src/redhat/SPECS
-#   rpm -ba --clean Rand-editor-E19.53.spec
+#   rpm -ba --clean Rand-editor-E19.55.spec
 #
 #   To load somewhere else than the default build in : /usr/local
-#   rpm -ivh --prefix <somewhere> Rand-E19-53.i386.rpm
-#   rpm -ivh --relocate /usr/local=<somewhere> Rand-E19-53.i386.rpm
+#   rpm -ivh --prefix <somewhere> Rand-E19-55.i386.rpm
+#   rpm -ivh --relocate /usr/local=<somewhere> Rand-E19-55.i386.rpm
 #       to prevent creation of links in the doc system directory use
 #           --excludedocs rpm option flag
 #
@@ -156,6 +156,20 @@ make install TARGETDIR=%{targdir} PKGDIR=%{pkgdir}
 %{genericprgname}
 
 %changelog
+* Mon Mar 13 2000 by perrioll@pspc7715.cern.ch
+- revision 55
+- Support for long files (more than 32767 lines).
+- Version available for AIX (IBM Unix) on RS6000 family
+- New command : 'files' to display the list of currently edited files
+  (eqivalent to the command 'edit ?').
+- New key function 'fnavigate' to navigate in the currently edited files list.
+  This key is assigned to the key pad '-' key in the provided kbfile
+  for xterm family and linux console (see vt200kbn).
+- save and restaure in state file (.es1) the full edited file list.
+* Mon Mar 06 2000 Fabien Perriollat <Fabien.Perriollat@cern.ch>
+- revision 54
+  Support for very long files (more than 32767 lines). Beta version
+  Not available, use the revision 55
 * Fri Mar 03 2000 Fabien Perriollat <Fabien.Perriollat@cern.ch>
 - revision 53
 - Resize of terminal screen supported (with the restricion

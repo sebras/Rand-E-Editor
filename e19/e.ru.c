@@ -34,6 +34,7 @@ static noforkmesg ();
 static nopipemesg ();
 static noexecmesg ();
 static Cmdret runlines ();
+static Flag dowait ();
 
 extern void alarmproc ();
 
@@ -532,9 +533,9 @@ Flag    safe;       /* OK for program to write directly on changes file */
 #endif
 
 #ifdef RUNSAFE
-    if (   dowait (child1) == 1
+    if (   dowait (child1)
 #else
-    if (   dowait (progid, child1, child2) == 1
+    if (   dowait (progid, child1, child2)
 #endif
 	&& receive (chgend, from, closeflg ? number : 0, iqbuf, puflg)
        )
@@ -584,7 +585,7 @@ char *args[];
 
 #ifdef RUNSAFE
 #ifdef COMMENT
-Flag
+static Flag
 dowait (progid)
     int progid;
 .
@@ -598,13 +599,13 @@ dowait (progid)
     is offensive.
     If interrupted by the user, return NO, else YES.
 #endif
-Flag
+static Flag
 dowait (progid)
 Reg1 int progid;
 {
 #else
 #ifdef COMMENT
-Flag
+static Flag
 dowait (progid, child1, child2)
     int progid;
     int child1;
@@ -622,7 +623,7 @@ dowait (progid, child1, child2)
     is offensive.
     If interrupted by the user, return NO, else YES.
 #endif
-Flag
+static Flag
 dowait (progid, child1, child2)
 int progid;
 Reg1 int child1;
@@ -634,11 +635,13 @@ Reg2 int child2;
     Reg4 void (*alarmsig) ();
 
     alarm (0);
+    alarmed = NO;
+    alarmsig = signal (SIGALRM, alarmproc);
     /* wait for the program(s) to terminate */
     /* or user to type CCINT, whichever is first */
     for (;;) {
 	alarmed = NO;
-	alarmsig = signal (SIGALRM, alarmproc);
+	(void) signal (SIGALRM, alarmproc);
 	alarm (EXECTIM);
 #ifdef RUNSAFE
 	if (wait (&retstat) == progid)

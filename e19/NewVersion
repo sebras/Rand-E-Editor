@@ -1,18 +1,18 @@
 #!/bin/bash
 # : System V
 #   1st para : version nb (default E19)
-#   2nd para : revision nb (default 51)
+#   2nd para : revision nb (default 55)
 #   3rd para : package name and package sub directory (default Rand)
 #   4th para : pacakage instalation directory (default /usr/local)
 #   5th para : can be use to provide the builder name in case of root loging
 
-# version=19
-# release=51
-# tag=E
+#   March 2000 : new version by Fabien.Perriollat@cern.ch
+#       This file can be updated according to the actual bash path
+#       with the 'local.sh' script (or 'make local').
 
-#   ref bask manual for string manipulation syntax
+#   ref to bask manual for string manipulation syntax
 rand_version=${1:-E19}
-release=${2:-51}
+release=${2:-55}
 
 pkgdir=${3:-Rand}
 pkgname=${pkgdir%/}

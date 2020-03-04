@@ -57,7 +57,7 @@ char *style_pt, *user_style_pt;
     Ff_file *ffile_pt;
 
     /* set to default (or not in use) */
-    crlf = (DEFAULT_STYLE != UNIX_FILE);
+    crlf = (DEFAULT_STYLE == MS_FILE);
     if ( style_pt ) *style_pt = 0;
     if ( user_style_pt ) *user_style_pt = 0;
     if ( fn < (FIRSTFILE + NTMPFILES) ) return (crlf);
@@ -70,7 +70,8 @@ char *style_pt, *user_style_pt;
 	ffile_pt->style = DEFAULT_STYLE;
 
     style = ( ffile_pt->user_style ) ? ffile_pt->user_style : ffile_pt->style;
-    crlf = ( style != UNIX_FILE );
+    if ( style == 0 ) style = DEFAULT_STYLE;
+    crlf = ( style == MS_FILE );
 
     if ( style_pt ) *style_pt = ffile_pt->style;
     if ( user_style_pt ) *user_style_pt = ffile_pt->user_style;
@@ -135,15 +136,31 @@ char *fname_pt, *extra;
 }
 
 
-/* filestatusString : build a string of the file status */
-/* ---------------------------------------------------- */
+/* filestatusString, fileslistString  : build a string of the file status */
+/* ---------------------------------------------------------------------- */
 
-char * filestatusString (Fn fn, char **fname_pt)
+/* file flags string : ref to e.h INUSE ... SYMLINK defined value */
+static char fileflags_string [] = "LURDNS.PCFDI";
+
+char * fileStatusString (Short fflag, char *ffstrg)
 {
-    /* file flags string : ref to e.h INUSE ... SYMLINK defined value */
-    static char fileflags_string [] = "LURDNS.PCFDI";
-    static char strg[128];
+    static char fileflagstrg [sizeof(fileflags_string)];
+    int i;
+    short ffmask;
+    char * strg;
 
+    strg = ( ffstrg ) ? ffstrg : fileflagstrg;
+    strcpy (strg, fileflags_string);
+    for ( i = strlen(strg) -1 , ffmask = 1 ; i >= 0 ; i--, ffmask <<= 1 ) {
+	if ( strg[i] == '.' ) continue;
+	if ( ! (fflag & ffmask) ) strg[i] = '-';
+    }
+    return strg;
+}
+
+static char * get_filestatusString (Fn fn, char **fname_pt, Flag file_sz_flg)
+{
+    static char strg[128];
     /*
     extern int is_aCdRom ();
     */
@@ -151,8 +168,8 @@ char * filestatusString (Fn fn, char **fname_pt)
     Ff_file *ffile_pt;
     char *sv_stylestrg, *fstylestrg;
     char ffstrg [sizeof(fileflags_string)];
-    int i; 
-    short ffmask, fflg;
+    int i, flnb;
+    short ffmask, fflag;
     int cdrom_flg;
     Flag modified_flg;
 
@@ -161,38 +178,53 @@ char * filestatusString (Fn fn, char **fname_pt)
     if ( !fnlas[fn].la_file || !fnlas[fn].la_file->la_ffs ) return (NULL);
     ffile_pt = fnlas[fn].la_file->la_ffs->f_file;
 
-    fflg = fileflags[fn];
-    if ( ! (fflg & INUSE) ) return (NULL);
+    fflag = fileflags[fn];
+    if ( ! (fflag & INUSE) ) return (NULL);
 
     memset (strg, 0, sizeof (strg));
 
     /* build the file status string */
     modified_flg = la_modified (&fnlas[fn]);
-    strcpy (ffstrg, fileflags_string);
-    fflg = fileflags[fn];
-    for ( i = strlen(ffstrg) -1 , ffmask = 1 ; i >= 0 ; i--, ffmask <<= 1 ) {
-	if ( ffstrg[i] == '.' ) continue;
-	if ( ! (fflg & ffmask) ) ffstrg[i] = '-';
+    fflag = fileflags[fn];
+    (void) fileStatusString (fflag, ffstrg);
+
+    /* build file state string */
+    if ( file_sz_flg ) {
+	flnb = ( fnlas[fn].la_file ) ? la_lsize (&fnlas[fn]) : 0;
+	sprintf (strg, "%6d lines, (%s) %c : ",
+		 flnb, ffstrg, modified_flg ? 'M' : '-');
+    } else {
+	/*
+	cdrom_flg = is_aCdRom (names[fn]);
+	*/
+	cdrom_flg = NO;
+	sv_stylestrg = file_style_string (fn, YES, &fstylestrg, NULL);
+	if ( !sv_stylestrg || (sv_stylestrg == fstylestrg) ) {
+	    if ( ! fstylestrg ) fstylestrg = "";    /* To Be assersed */
+	    sprintf (strg, "%-4s%s file #%d (%s) %c : ",
+		     fstylestrg, cdrom_flg ? " CD-ROM" : "", fn, ffstrg,
+		     modified_flg ? 'M' : '-');
+	}
+	else {
+	    if ( ! fstylestrg ) fstylestrg = "Tbd";
+	    sprintf (strg, "%s%s file #%d (%s) saved as %s: ",
+		fstylestrg, cdrom_flg ? " CD-ROM" : "", fn, ffstrg, sv_stylestrg);
+	}
     }
 
-    /*
-    cdrom_flg = is_aCdRom (names[fn]);
-    */
-    cdrom_flg = NO;
-    sv_stylestrg = file_style_string (fn, YES, &fstylestrg, NULL);
-    if ( !sv_stylestrg || (sv_stylestrg == fstylestrg) ) {
-	if ( ! fstylestrg ) fstylestrg = "";    /* To Be assersed */
-	sprintf (strg, "%-4s%s file #%d (%s) %c : ",
-	    fstylestrg, cdrom_flg ? " CD-ROM" : "", fn, ffstrg,
-	    modified_flg ? 'M' : '-');
-    }
-    else {
-	if ( ! fstylestrg ) fstylestrg = "Tbd";
-	sprintf (strg, "%s%s file #%d (%s) saved as %s: ",
-	    fstylestrg, cdrom_flg ? " CD-ROM" : "", fn, ffstrg, sv_stylestrg);
-    }
-    *fname_pt = ( fileflags[fn] & NEW ) ? names[fn] : ffile_pt->fl_path;
+    if ( fname_pt )
+	*fname_pt = ( fileflags[fn] & NEW ) ? names[fn] : ffile_pt->fl_path;
     return (strg);
+}
+
+char * filestatusString (Fn fn, char **fname_pt)
+{
+    return get_filestatusString (fn, fname_pt, NO);
+}
+
+char * fileslistString (Fn fn, char **fname_pt)
+{
+    return get_filestatusString (fn, fname_pt, YES);
 }
 
 /* fileSatus : file query or set style */

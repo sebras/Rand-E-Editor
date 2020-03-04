@@ -102,13 +102,15 @@ extern char *nxtop;     /* next word after opstr - use for further getwords */
 #define CMDCCASE        106  /************************************/
 #endif
 
-/* new command available on PC Linux and  Microsoft Windows versions */
+/* new command available on PC Linux, AIX and  Microsoft Windows versions */
 #define CMDCHECKSCR     110  /* check the current screen and keyboard */
 #define CMDFILE         111  /* set / query file status */
 #define CMDQFILE        112  /* query file status */
 #define CMDVERSION      113  /* query program version */
 #define CMDCD           114  /* change current directory */
 #define CMDSTATUS       115  /* help status equivalent */
+#define CMDSHFILES      116  /* display the curent files list */
+#define CMDBKBFILE      117  /* interactively build a mapping file */
 
 
 

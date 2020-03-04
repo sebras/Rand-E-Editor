@@ -323,12 +323,12 @@ saveall ()
     /* then do the saves */
     for (j = 1; ;) {
 	for (i = FIRSTFILE + NTMPFILES; i < MAXFILES; i++) {
-	    if (   (fileflags[i] & (INUSE | UPDATE | DELETED))
+	    if (   (fileflags [i] & (INUSE | UPDATE | DELETED))
 		   == (INUSE | UPDATE)
 		/* the modofied test is done by savefile now !
 		&& la_modified (&fnlas[i])
 		*/
-		&& savefile ((char *) 0, i, fileflags[i] & INPLACE, j, YES) == NO
+		&& savefile ((char *) 0, i, fileflags [i] & INPLACE, j, YES) == NO
 	       ) {
  err:           putchar ('\n');
 		fflush (stdout);
@@ -351,7 +351,7 @@ saveall ()
        if any deleted names conflicted with NEW names or RENAMED names,
        they were already deleted by the save loop above */
     for (i = FIRSTFILE + NTMPFILES; i < MAXFILES; i++) {
-	if ((fileflags[i] & (UPDATE | DELETED)) == (UPDATE | DELETED)) {
+	if ((fileflags [i] & (UPDATE | DELETED)) == (UPDATE | DELETED)) {
 	    mesg (TELALL + 2, "DELETE: ", names[i]);
 	    unlink (names[i]);
 	}
@@ -362,7 +362,7 @@ saveall ()
        or if any saved names wre RENAMED,
        they were already renamed by the save loop above */
     for (i = FIRSTFILE + NTMPFILES; i < MAXFILES; i++) {
-	if (   (fileflags[i] & (UPDATE | RENAMED)) == (UPDATE | RENAMED)
+	if (   (fileflags [i] & (UPDATE | RENAMED)) == (UPDATE | RENAMED)
 	    && !svrename (i)
 	   )
 	    goto err;
@@ -412,9 +412,10 @@ savestate ()
 {
     extern void history_dump (FILE *stfile);
 
-    register Short  i;
-    char   *fname;
-    register S_window *window;
+    int fi, wi, wn, i0, nb;
+    Short i, fflag;
+    char *fname;
+    S_window *window;
     char stbuf[BUFSIZ];
     FILE *stfile;
 
@@ -484,11 +485,11 @@ savestate ()
 #endif
 
     putc (nwinlist, stfile);
-    for (i = Z; i < nwinlist; i++)
+    for (i = 0; i < nwinlist; i++)
 	if (winlist[i] == curwin)
 	    break;
     putc (i, stfile);
-    for (i = Z; i < nwinlist; i++) {
+    for (i = 0; i < nwinlist; i++) {
 	window = winlist[i];
 	putc (window->prevwin, stfile);
 	putc     (window->tmarg, stfile);
@@ -530,8 +531,24 @@ savestate ()
 	return NO;
     }
 
-    /* dump the history buffer */
+    /* Dump the history buffer */
     history_dump (stfile);
+
+    /* Dump the list of edited files and there flag (exepted deleted and
+     *  renamed), the end of the list is flaged with an empty string.
+     */
+    for ( fi = FIRSTFILE + NTMPFILES ; fi < MAXFILES ; fi++ ) {
+	fflag = fileflags [fi];
+	if ( !(fflag & INUSE) ) continue;
+	if ( fflag & (DELETED | RENAMED) ) continue;
+	put_fname (fi, stfile);
+	putshort (fileflags [fi], stfile);
+    }
+    putshort (0, stfile);   /* end of list flag */
+    if (ferror (stfile)) {
+	fclose (stfile);
+	return NO;
+    }
 
     fseek (stfile, 0L, 0);
     putshort (revision, stfile);   /* state file is OK */

@@ -313,7 +313,9 @@ int c;
 {
 
     Reg1 char *s;
+#if 0
     char *index();
+#endif
 
     switch (WordMode) {
 

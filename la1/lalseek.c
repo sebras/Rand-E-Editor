@@ -27,7 +27,7 @@ int type;
 {
     Reg2 char *cp;
     Reg3 La_fsd *cfsd;
-    unsigned short fsoff;
+    unsigned int   fsoff;
 #ifdef LA_BP
     La_linesize speclength;
     La_linesize lbyte;
@@ -122,7 +122,7 @@ int type;
     rlas->la_lpos += nlines;
     cfsd = rlas->la_cfsd;
     if (nlines > 0) Block {
-	Reg1 short j;
+	Reg1 int   j;
 	j = cfsd->fsdnlines - rlas->la_fsline;
 	cp = &cfsd->fsdbytes[rlas->la_fsbyte];
 	if (nlines >= j) {
@@ -167,7 +167,7 @@ int type;
 	/* If the fsd at this point is a special fsd, then nlines == 0 */
 	plas->la_fsline += j = nlines;
 	Block {
-	    Reg4 short ffpos;
+	    Reg4 int   ffpos;
 	    ffpos = 0;
 	    for (;j--;) {
 #ifndef NOSIGNEDCHAR
@@ -188,7 +188,7 @@ int type;
     }
 
     else Block { /* (nlines < 0) */
-	Reg1 short j;
+	Reg1 int   j;
 	nlines = -nlines;
 	j = rlas->la_fsline;
 	if (nlines > j) {
@@ -229,7 +229,7 @@ int type;
 	    plas->la_cfsd = cfsd;
 	    plas->la_fsline = j -= nlines;
 	    Block {
-		Reg4 short ffpos;
+		Reg4 int   ffpos;
 		ffpos = 0;
 		for (;j--;) {
 #ifndef NOSIGNEDCHAR
@@ -268,7 +268,7 @@ int type;
 	    /*printf ("within %D\n", nlines);*/
 	    /* walk back within this fsd */
 	    /* can't be a spceial fsd */
-	    Reg4 short ffpos;
+	    Reg4 int   ffpos;
 	    cp = &cfsd->fsdbytes[rlas->la_fsbyte - 1];
 	    plas->la_fsline -= j = nlines;
 	    ffpos = 0;

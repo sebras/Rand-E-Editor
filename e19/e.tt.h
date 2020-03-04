@@ -104,6 +104,8 @@ typedef struct term {
     char             tt_prtok;
     short            tt_width;
     char             tt_height;
+
+/*  extern */ int  (*tt_video) (Flag normal);
 } S_term;
 
 extern S_term term;

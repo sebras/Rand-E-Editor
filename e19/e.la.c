@@ -68,6 +68,12 @@ Nlines  ln;
     Flag creturn;       /* CR at the end of the data block */
     char file_style;    /* CR/LF (MS style) or LF (UNIX style) end of line mark */
     Ff_file *ffile_pt;
+#if 1
+    int sz;
+    Nlines ls;
+
+    sz = sizeof (ls);
+#endif
 
     if (ln < 0) {
 	if (fcline)
@@ -75,6 +81,10 @@ Nlines  ln;
 	clinelas = (La_stream *) 0;
 	return;
     }
+
+#if 1
+    ls = la_lsize (curlas);
+#endif
 
     if (ln >= la_lsize (curlas)) {
 	if (fcline)
