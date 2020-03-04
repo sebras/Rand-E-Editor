@@ -33,6 +33,11 @@ extern void flushkeys ();
 extern void edscrfile ();
 extern void monexit ();
 
+void _cleanup ()
+{
+    return;
+}
+
 #ifdef COMMENT
 void
 getpath (name, path, tryagain)

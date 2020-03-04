@@ -9,14 +9,18 @@
 #       the version and release with the rpm specification file
 #       the curent directory name with ${SRCDIR}
 
+#+++ parameters which can be overwrite by the make call
+#       see Rand-editor-E19.51.spec
+
 # defaut builder (when logon as root)
 BUILDER=perrioll
 
 VERSION=E19
-RELEASE=50
+RELEASE=51
 
 PKGDIR=Rand
 TARGETDIR=/usr/local
+#---
 
 BINDIR=$(TARGETDIR)/$(PKGDIR)
 LIBDIR=$(BINDIR)
@@ -34,7 +38,7 @@ e19/le: e19/e.r.c la1/libla.a ff3/libff.a lib/libtmp.a
 	cd e19; make
 
 e19/e.r.c::
-	cd e19; ./NewVersion $(BUILDER);
+	cd e19; ./NewVersion $(VERSION) $(RELEASE) $(PKGDIR) $(TARGETDIR) $(BUILDER);
 
 la1/libla.a::
 	cd la1; make
@@ -70,17 +74,17 @@ preinstall:
 	install -m 444 doc/man/e.l $(MANDIR)/e.$(MANE)
 	install -m 444 help/kbfiles/vt200kbn $(KBFDIR)
 	@/bin/rm -f $(KBFDIR)/universalkb $(KBFDIR)/linuxkb $(KBFDIR)/xtermkb $(KBFDIR)/nxtermkb
-	ln -s $(KBFDIR)/vt200kbn $(KBFDIR)/universalkb
-	ln -s $(KBFDIR)/vt200kbn $(KBFDIR)/linuxkb
-	ln -s $(KBFDIR)/vt200kbn $(KBFDIR)/xtermkb
-	ln -s $(KBFDIR)/vt200kbn $(KBFDIR)/nxtermkb
+	(cd $(KBFDIR); ln -s vt200kbn ./universalkb)
+	(cd $(KBFDIR); ln -s vt200kbn ./linuxkb)
+	(cd $(KBFDIR); ln -s vt200kbn ./xtermkb)
+	(cd $(KBFDIR); ln -s vt200kbn ./nxtermkb)
 
 install:
 	@/bin/rm -f $(TARGETDIR)/bin/e $(LIBDIR)/e19 $(LIBDIR)/fill $(LIBDIR)/run $(LIBDIR)/center $(LIBDIR)/just
 	install --strip e19/a.out $(LIBDIR)/e19
 	install --strip fill/fill fill/run fill/center $(LIBDIR)
-	ln -s $(LIBDIR)/fill $(LIBDIR)/just
-	ln -s $(LIBDIR)/e19 $(TARGETDIR)/bin/e 
+	(cd $(LIBDIR); ln -s fill ./just)
+	(cd $(LIBDIR); ln -s e19 ../bin/e)
 
 depend:
 	for f in fill la1 ff3 lib e19; do cd $$f; make depend; cd ..; done

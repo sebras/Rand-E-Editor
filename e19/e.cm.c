@@ -9,6 +9,9 @@ file e.cm.c
 #endif
 
 #include <unistd.h>
+#include <dirent.h>
+#include <string.h>
+#include <sys/stat.h>
 #include "e.h"
 #include "e.e.h"
 #include "e.m.h"
@@ -155,6 +158,22 @@ static S_looktbl multi_cmd [] = {
     0,          0
     };
 
+/* table of command which request a file name parameter */
+/* ---------------------------------------------------- */
+static struct _file_cmd {
+    Short cmdv;
+    Short dirflg;
+    } file_cmds [] = {
+    CMDEDIT,    0,
+    CMDNAME,    0,
+    CMDTABFILE, 0,
+    CMD_TABFILE,0,
+    CMDWINDOW,  0,
+    CMDSAVE,    0,
+    CMDCD,      1,
+    0,          0
+    };
+
 /* get_cmd_name : get the command major name string */
 /* ------------------------------------------------ */
 char * get_cmd_name (int idx) {
@@ -170,6 +189,271 @@ int cmd, i;
         break;
     }
     return (cmd_str);
+}
+
+/* expand the file name */
+/* -------------------- */
+
+static struct dirent **namelist = NULL;
+static int nb_namelist = 0;
+static int dir_cmd_flg;
+static int namelist_idx;
+static char *dir_name = NULL;
+static char *dir_name_fname = NULL;
+static int dir_name_fname_sz = 0;
+static int fname_para_sz = 0;
+static char name_exp[NAME_MAX+2];
+
+
+void clear_namelist () {
+    int i;
+
+    if ( namelist ) {
+	if ( nb_namelist > 0 ) {
+	    for ( i = nb_namelist-1 ; i >= 0 ; i-- )
+		if ( namelist[i] ) free (namelist[i]);
+	}
+	free (namelist);
+    }
+    if ( dir_name ) free (dir_name);
+    namelist = (struct dirent **) NULL;
+    dir_name = dir_name_fname = NULL;
+    nb_namelist = fname_para_sz = dir_name_fname_sz = 0;
+    namelist_idx = -2;
+}
+
+/* dir_entry_mode : return the entry mode (type) */
+/* --------------------------------------------- */
+
+static mode_t dir_entry_mode (char *fname, struct dirent *dent)
+{
+    int cc;
+    mode_t dirmode;
+    struct stat stat_buf;
+
+
+    if ( !(dir_name && dir_name_fname) ) return 0;
+
+#ifdef _DIRENT_HAVE_D_TYPE
+    if ( dent && dent->d_type )
+	return (DTTOIF (dent->d_type));
+#endif
+
+    strncpy (dir_name_fname, fname, dir_name_fname_sz);
+    cc = stat (dir_name, &stat_buf);
+    memset (dir_name_fname, 0, dir_name_fname_sz);
+    dirmode = (cc == 0) ? stat_buf.st_mode : 0;
+#ifdef _DIRENT_HAVE_D_TYPE
+    if ( dent ) dent->d_type = IFTODT (dirmode);
+#endif
+    return dirmode;
+}
+
+/* dir_entry test for directory name entry */
+/* --------------------------------------- */
+/* name_exp must have enough free space to be expanded with a '/'
+    return 1 if the entry is a directory
+*/
+
+static int dir_entry (char *name_ex, struct dirent *dent)
+{
+    mode_t mode;
+
+    mode = dir_entry_mode (name_ex, dent);
+    if ( ! S_ISDIR (mode) ) return 0;
+    strcat (name_ex, "/");
+    return 1;
+}
+
+/* get_next_name : get the file name expantion from the selected list */
+/* ------------------------------------------------------------------ */
+/*  Return : >= 0 size of the epantion string
+	       -1 at the top of the list
+	       -2 at the bottom of the list
+	       -3 only one name in the list
+	       -4 no name in the list
+	       -5 nothing selected
+*/
+
+int get_next_name (int delta, char ** name_expantion_pt)
+{
+    int idx, sz, flg;
+    struct dirent *dent;
+
+    if ( namelist == NULL ) return -5;  /* nothing selected */
+    if ( nb_namelist < 2 ) return ((nb_namelist == 0) ? -4 : -3);
+
+    idx = namelist_idx + delta;
+    if ( idx < 0 ) return -1;               /* top of the list */
+    if ( idx >= nb_namelist ) return -2;    /* bottom of the list */
+
+    namelist_idx = idx;
+    dent = namelist[namelist_idx];
+    memset (name_exp, 0, sizeof(name_exp));
+    strncpy (name_exp, dent->d_name, sizeof(name_exp)-2);
+    flg = dir_entry (name_exp, dent);
+    *name_expantion_pt = &(name_exp[fname_para_sz]);
+    sz = strlen (*name_expantion_pt);
+    return sz;
+}
+
+/* expand_file_para : extend the file name */
+/* --------------------------------------- */
+
+/* static data for direntry_cmp routine */
+static char *fname_para;    /* could point to volatile (stack) data ! */
+
+int direntry_cmp (struct dirent *dent)
+{
+    char *str, chr;
+    mode_t mode;
+
+    str = dent->d_name;
+    if ( *str == '.' ) {
+	chr = str[1];
+	if ( (chr == '\0') || (chr == '.' && str[2] == '\0') )
+	    return 0;   /* allways remove the . and .. directory entry */
+    }
+
+    if ( fname_para_sz > 0 ) {
+	if ( strncmp (str, fname_para, fname_para_sz) != 0 )
+	return 0;
+    }
+
+#ifdef _DIRENT_HAVE_D_TYPE
+    dent->d_type = 0;
+#endif
+    mode = dir_entry_mode (str, dent);
+
+    if ( dir_cmd_flg ) return S_ISDIR (mode);
+    return S_ISDIR (mode) || S_ISREG (mode) || S_ISLNK (mode);
+}
+
+
+int expand_file_para (char *file_para, char **name_expantion_pt,
+		      int *wlen_pt, int *dir_flg_pt)
+{
+    int i, j, sz, flg;
+    char fp_strg[512];
+    char *dir;
+    struct dirent *dent;
+    char path[NAME_MAX+2];
+    struct stat stat_buf;
+    int (*dir_select)();
+
+    *name_expantion_pt = NULL;
+    *wlen_pt = *dir_flg_pt = flg = 0;
+    if ( !file_para ) return 0;
+
+    clear_namelist ();
+
+    memset (fp_strg, '\0', sizeof(fp_strg));
+    strncpy (fp_strg, file_para, sizeof(fp_strg)-1);
+    dir = fname_para = fp_strg;
+    fname_para = strrchr (fp_strg, '/');
+    if ( fname_para ) {
+	*fname_para = '\0';
+	fname_para++;
+    } else {
+	dir = ".";
+	fname_para = fp_strg;
+    }
+
+    /* save the directory path name */
+    sz = strlen(dir)+2;
+    dir_name_fname_sz = NAME_MAX;
+    /* alloc enough space for a full file name path */
+    dir_name = (char *) calloc (sz + dir_name_fname_sz +1, sizeof(char));
+    if ( dir_name ) {
+	strcpy (dir_name, dir);
+	strcat (dir_name, "/");
+	/* save the position of file name */
+	dir_name_fname = &(dir_name[strlen (dir_name)]);
+    } else dir_name_fname_sz = 0;
+
+    if ( dir[0] == '\0' ) dir = "/";
+
+    fname_para_sz = strlen (fname_para);
+    /*
+    dir_select = ( dir_cmd_flg || (fname_para_sz != 0) ) ? direntry_cmp : (int(*)()) NULL;
+    */
+    dir_select = direntry_cmp;
+    nb_namelist = scandir (dir, &namelist, dir_select, alphasort);
+    namelist_idx = -1;
+/*
+printf (" '%s / %s' : dflg %d %d %d", dir, fname_para, dir_cmd_flg, fname_para_sz, nb_namelist); fflush(stdout); sleep(5);
+*/
+    if ( nb_namelist > 0 ) {
+	memset (name_exp, 0, sizeof(name_exp));
+	dent = namelist[0];
+	strncpy (name_exp, dent->d_name, sizeof(name_exp)-2);
+	if ( nb_namelist == 1 ) {
+	    /* a single file name, check for directory */
+	    flg = dir_entry (name_exp, dent);
+	    sz = 0;
+	} else {
+	    /* more than one file name, get the larger common substring */
+	    sz = strlen (name_exp);
+	    for ( i = 1 ; i < nb_namelist ; i++ ) {
+		dent = namelist[i];
+		for ( j = fname_para_sz ; j < sz ; j++ ) {
+		    if ( dent->d_name[j] == name_exp[j] ) continue;
+		    name_exp[j] = '\0';
+		    sz = strlen (name_exp);
+		    break;
+		}
+		if ( sz == 0 ) break;
+	    }
+	}
+	*name_expantion_pt = &(name_exp[fname_para_sz]);
+	*wlen_pt = strlen (*name_expantion_pt);
+	*dir_flg_pt = (fname_para_sz == 0); /* evry thing in the directory */
+    }
+    return nb_namelist;
+}
+
+void incr_fname_para_sz (int nb)
+{
+    fname_para_sz += nb;    /* what was displayed */
+}
+
+
+/* commande_file : check for command which request a file name as parameter */
+/* ------------------------------------------------------------------------ */
+/*
+    This class of command could have automatic file name extension
+	by the tab character (like in many shell program)
+    Return : 1 (TRUE) if it a file command
+	     0 (FALSE) if not
+    If return TRUE, the file_param must be sfree if it is not null.
+*/
+
+int command_file (char *param, char **file_para_pt)
+{
+    Short cmdtblind;
+    Short cmdval;
+    char *cmdstr, *nxt;
+    int i;
+
+
+    dir_cmd_flg = 0;
+    if ( file_para_pt ) *file_para_pt = NULL;
+    nxt = (param) ? param : paramv;
+    cmdstr = getword (&nxt);
+    if (cmdstr[0] == 0) return 0;
+
+    cmdtblind = lookup (cmdstr, cmdtable);
+    sfree (cmdstr);
+    if ( cmdtblind < 0 ) return 0;
+
+    cmdval = cmdtable[cmdtblind].val;
+    for ( i = 0 ; file_cmds[i].cmdv != 0 ; i++ ) {
+	if ( file_cmds[i].cmdv != cmdval ) continue;
+	if ( file_para_pt != NULL ) *file_para_pt = getword (&nxt);
+	dir_cmd_flg = file_cmds[i].dirflg;
+	return 1;
+    }
+    return 0;
 }
 
 

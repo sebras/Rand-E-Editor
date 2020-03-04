@@ -156,9 +156,15 @@ static Flag buildflg = NO;      /* newly build executable (a.out) */
 /* Rand package directory tree structure related names */
 /* --------------------------------------------------- */
     /* default default package dir (used to extract the package sub dir) */
-static char def_xdir_dir [] = XDIR_DIR;
+#ifdef __linux__
+extern char def_xdir_dir [];    /* build by Nerversion */
+#else
+static char def_xdir_dir [] = XDIR_DIR;     /* defined in ../include/linux_localenv.h */
+#endif
     /* system wide configuration directory */
-static char syst_cnfg [] = "/etc";
+static char syst_cnfg []  = "/etc";     /* computer configuration directory */
+static char alt_local_cnfg []  = "/../etc";  /* local relative to pacakage */
+static char local_cnfg [] = "/usr/local/etc";   /* cluster configuration dir */
     /* all-purpose keyboard definition file name */
 static char universal_kbf_name [] = "universalkb";
     /* kbfiles directory relative to rand package and configurations directory */
@@ -215,14 +221,33 @@ Flag optdtermcap;       /* YES = force use of termcap */
 #endif
 
 /* ++XXXXXXXXXXXXXXXXXXXXXXXXX */
-/* Rand package service files */
+/* Rand package service & configuration files */
 
-static char *packg_subdir = NULL;   /* extracted form XDIR_DIR */
-static char *user_cnfg_dir = NULL;  /* $HOME/.Rand/kbfiles */
-static char *syst_cnfg_dir = NULL;  /* /etc/Rand/kbfiles */
-static char *def_cnfg_dir  = NULL;  /* in the package directory */
-static char **cnfg_dir_pt [] = {&user_cnfg_dir, &syst_cnfg_dir, &def_cnfg_dir};
-#define cnfg_dir_pt_sz (sizeof (cnfg_dir_pt) / sizeof (cnfg_dir_pt[0]))
+static char *packg_subdir = NULL;   /* extracted form program path or def_xdir_dir */
+
+struct cnfg_dir_rec {
+	char *path;         /* directory path name */
+	Flag existing;      /* existing and read access */
+    };
+
+static struct cnfg_dir_rec user_cnfg_dir =      { NULL, NO }; /* $HOME/.Rand/kbfiles */
+static struct cnfg_dir_rec local_cnfg_dir =     { NULL, NO }; /* /usr/local/etc/Rand/kbfiles */
+static struct cnfg_dir_rec alt_local_cnfg_dir = { NULL, NO }; /* <package>/../etc/Rand/kbfiles */
+static struct cnfg_dir_rec syst_cnfg_dir =      { NULL, NO }; /* /etc/Rand/kbfiles */
+static struct cnfg_dir_rec def_cnfg_dir  =      { NULL, NO }; /* in the package directory <pakage> */
+
+static struct cnfg_dir_rec *cnfg_dir_rec_pt [] = {        /* in order of priority */
+	    &user_cnfg_dir,         /* user config */
+	    &syst_cnfg_dir,         /* computer config */
+	    &alt_local_cnfg_dir,    /* cluster config */
+	    &local_cnfg_dir,        /* default cluster config */
+	    &def_cnfg_dir           /* default package config */
+	};
+#define cnfg_dir_rec_pt_sz (sizeof (cnfg_dir_rec_pt) / sizeof (cnfg_dir_rec_pt[0]))
+
+static char no_exist_msg [] = " (not existing or no read access)";
+
+static int max_cnfg_dir_sz = 0;     /* max size of config dir path name */
 
 char * xdir_dir = NULL;     /* package directory */
 
@@ -784,7 +809,7 @@ char * get_flname (char *fname)
 static void get_dirpackage ()
 {
     char *fnm, *dir, *cp, *cp1, *home;
-    int sz;
+    int i, sz;
 
     sz = strlen (def_xdir_dir);
     if ( (sz > 1) && (def_xdir_dir[sz-1] == '/') ) def_xdir_dir[sz-1] = '\0';
@@ -830,30 +855,73 @@ static void get_dirpackage ()
     /* If directory package is not defined, take the compiled default */
     xdir_dir = dirpackg ? dirpackg : def_xdir_dir;
 
-    /* build the configuration directory pathes */
-    home = getenv ("HOME");
+    /* package subdirectory */
     cp = strrchr (def_xdir_dir, '/');
     packg_subdir = ( cp ) ? cp : def_xdir_dir;
-    sz = (2 * strlen (packg_subdir)) + (3 * strlen (kbfilesdir))
+
+    /* build the configuration directory pathes */
+    home = getenv ("HOME");
+
+    sz = (4 * strlen (packg_subdir)) + (5 * strlen (kbfilesdir))
+	 + strlen (local_cnfg) +1
 	 + strlen (syst_cnfg) +1
 	 + ( (home) ? strlen (home) : 0 ) +2
-	 + strlen (xdir_dir) +1;
+	 + (2 * strlen (xdir_dir)) + strlen (alt_local_cnfg) +2;
     cp = cp1 = (char *) malloc (sz);
+
     if ( cp1 ) {
+	struct stat stat_local, stat_alt_local;
+
 	(void) memset (cp1, 0, sz);
-	def_cnfg_dir = cp1;
-	sprintf (def_cnfg_dir, "%s%s", xdir_dir, kbfilesdir);
-	cp1 += (strlen (def_cnfg_dir) +1);
-	if ( access (def_cnfg_dir, R_OK) < 0 ) def_cnfg_dir = NULL;
-	syst_cnfg_dir = cp1;
-	sprintf (syst_cnfg_dir, "%s%s%s", syst_cnfg, packg_subdir, kbfilesdir);
-	cp1 += (strlen (syst_cnfg_dir) +1);
-	if ( access (syst_cnfg_dir, R_OK) < 0 ) syst_cnfg_dir = NULL;
-	if ( home ) {
-	    user_cnfg_dir = cp1;
-	    sprintf (user_cnfg_dir, "%s/.%s%s", home, packg_subdir+1, kbfilesdir);
-	    if ( access (user_cnfg_dir, R_OK) < 0 ) user_cnfg_dir = NULL;
+	(void) memset (&stat_local, 0, sizeof(struct stat));
+	(void) memset (&stat_alt_local, 0, sizeof(struct stat));
+
+	def_cnfg_dir.path = cp1;
+	sprintf (def_cnfg_dir.path, "%s%s", xdir_dir, kbfilesdir);
+	cp1 += (strlen (def_cnfg_dir.path) +1);
+	if ( access (def_cnfg_dir.path, R_OK) == 0 ) def_cnfg_dir.existing = YES;
+
+	syst_cnfg_dir.path = cp1;
+	sprintf (syst_cnfg_dir.path, "%s%s%s", syst_cnfg, packg_subdir, kbfilesdir);
+	cp1 += (strlen (syst_cnfg_dir.path) +1);
+	if ( access (syst_cnfg_dir.path, R_OK) == 0 ) syst_cnfg_dir.existing = YES;
+
+	local_cnfg_dir.path = cp1;
+	sprintf (local_cnfg_dir.path, "%s%s%s", local_cnfg, packg_subdir, kbfilesdir);
+	cp1 += (strlen (local_cnfg_dir.path) +1);
+	if ( access (local_cnfg_dir.path, R_OK) == 0 ) {
+	    local_cnfg_dir.existing = YES;
+	    (void) stat (local_cnfg_dir.path, &stat_local);
+	    }
+
+	if ( ! buildflg ) {   /* not debugging a new release of the editor */
+	    alt_local_cnfg_dir.path = cp1;
+	    sprintf (alt_local_cnfg_dir.path, "%s%s%s%s", xdir_dir, alt_local_cnfg, packg_subdir, kbfilesdir);
+	    cp1 += (strlen (alt_local_cnfg_dir.path) +1);
+	    if ( access (alt_local_cnfg_dir.path, R_OK) == 0 ) {
+		alt_local_cnfg_dir.existing = YES;
+		(void) stat (alt_local_cnfg_dir.path, &stat_alt_local);
+		if ( (stat_alt_local.st_dev = stat_local.st_dev)
+		     && (stat_alt_local.st_ino = stat_local.st_ino) ) {
+		    alt_local_cnfg_dir.existing = NO;
+		    alt_local_cnfg_dir.path = NULL;
+		}
+	    }
 	}
+
+	if ( home ) {
+	    user_cnfg_dir.path = cp1;
+	    sprintf (user_cnfg_dir.path, "%s/.%s%s", home, packg_subdir+1, kbfilesdir);
+	    if ( access (user_cnfg_dir.path, R_OK) == 0 ) user_cnfg_dir.existing = YES;
+	}
+    }
+
+    /* get the max lenth of the config dir path name */
+    max_cnfg_dir_sz = 0;
+    for ( i = cnfg_dir_rec_pt_sz -1 ; i >= 0 ; i-- ) {
+	if ( cnfg_dir_rec_pt[i] && cnfg_dir_rec_pt[i]->path )
+	    if ( strlen (cnfg_dir_rec_pt[i]->path) > max_cnfg_dir_sz )
+		max_cnfg_dir_sz = strlen (cnfg_dir_rec_pt[i]->path);
     }
 }
 
@@ -871,6 +939,20 @@ startup ()
 
     /* ++XXXXXXXXXXXXXXXXXXXXXXXXXXXXX */
 
+#ifdef __linux__
+    extern char def_xdir_dir    [];
+    extern char def_recovermsg  [];
+    extern char def_xdir_kr     [];
+    extern char def_xdir_help   [];
+    extern char def_xdir_crash  [];
+    extern char def_xdir_err    [];
+    extern char def_xdir_run    [];
+    extern char def_xdir_fill   [];
+    extern char def_xdir_just   [];
+    extern char def_xdir_center [];
+    extern char def_xdir_print  [];
+#endif
+
 #ifdef  SHORTUID
     userid = getuid ();
     groupid = getgid ();
@@ -884,6 +966,19 @@ startup ()
 
     get_dirpackage ();
 
+#ifdef __linux__
+    recovermsg  = packg_file (def_recovermsg);
+    xdir_kr     = packg_file (def_xdir_kr);
+    xdir_help   = packg_file (def_xdir_help);
+    xdir_crash  = packg_file (def_xdir_crash);
+    xdir_err    = packg_file (def_xdir_err);
+    xdir_run    = packg_file (def_xdir_run);
+    xdir_fill   = packg_file (def_xdir_fill);
+    xdir_just   = packg_file (def_xdir_just);
+    xdir_center = packg_file (def_xdir_center);
+    xdir_print  = packg_file (def_xdir_print);
+
+#else
     recovermsg  = packg_file (RECOVERMSG);
     xdir_kr     = packg_file (XDIR_KR);
     xdir_help   = packg_file (XDIR_HELP);
@@ -894,6 +989,7 @@ startup ()
     xdir_just   = packg_file (XDIR_JUST);
     xdir_center = packg_file (XDIR_CENTER);
     xdir_print  = packg_file (XDIR_PRINT);
+#endif /* __linux__ */
 
     filterpaths[0] = xdir_fill;
     filterpaths[1] = xdir_just;
@@ -1211,6 +1307,7 @@ Flag full_flg;    /* ful dispaly */
 {
     extern char * filestatusString ();
     extern char kbmap_fn[];
+    extern char verstr[];
     static void display_bigbuf ();
     char *tmpstrg;
     int i, nbli;
@@ -1233,8 +1330,10 @@ Synopsis: %s [options] file [alternate file]\n\
     else {
 	sprintf (bigbuf + strlen (bigbuf), "\
 Overall status of the editor parameters\n\
-=======================================\n\
+=======================================\
 \n");
+	sprintf (bigbuf + strlen (bigbuf),
+		 "  %s\n\n", verstr);
 	if ( optusedflg ) sprintf (bigbuf + strlen (bigbuf),
 			"In use command line program options :\n");
 	else sprintf (bigbuf + strlen (bigbuf),
@@ -1409,7 +1508,6 @@ Environment variables known by Rand editor:\n\
     }
 
     if ( helpflg ) {
-	static char * get_kbfile_buf (char *, int *);
 	static int get_kbfile_dname (char *, char *, int, char **);
 	S_looktbl *slpt;
 
@@ -1420,14 +1518,20 @@ Environment variables known by Rand editor:\n\
 	sprintf (bigbuf + strlen (bigbuf), " Expect \"%s%s\" (term family) or \"%s\" keyboard definition file in :\n",
 		 tname, kbfile_postfix, universal_kbf_name);
 	if ( buildflg ) {   /* debugging a new release of the editor */
-	    for ( i = cnfg_dir_pt_sz -1 ; i >= 0 ; i-- ) {
-		if ( *(cnfg_dir_pt[i]) )
-		    sprintf (bigbuf + strlen (bigbuf), "  %s\n", *(cnfg_dir_pt[i]));
+	    for ( i = cnfg_dir_rec_pt_sz -1 ; i >= 0 ; i-- ) {
+		if ( cnfg_dir_rec_pt[i] == NULL ) continue;
+		if ( cnfg_dir_rec_pt[i]->path )
+		    sprintf (bigbuf + strlen (bigbuf), "  %s%s\n",
+			     cnfg_dir_rec_pt[i]->path,
+			     cnfg_dir_rec_pt[i]->existing ? "" : no_exist_msg);
 	    }
 	} else {
-	    for ( i = 0 ; i < cnfg_dir_pt_sz ; i++ ) {
-		if ( *(cnfg_dir_pt[i]) )
-		    sprintf (bigbuf + strlen (bigbuf), "    %s\n", *(cnfg_dir_pt[i]));
+	    for ( i = 0 ; i < cnfg_dir_rec_pt_sz ; i++ ) {
+		if ( cnfg_dir_rec_pt[i] == NULL ) continue;
+		if ( cnfg_dir_rec_pt[i]->path )
+		    sprintf (bigbuf + strlen (bigbuf), "    %s%s\n",
+			     cnfg_dir_rec_pt[i]->path,
+			     cnfg_dir_rec_pt[i]->existing ? "" : no_exist_msg);
 	    }
 	}
     }
@@ -1477,7 +1581,6 @@ Environment variables known by Rand editor:\n\
 	myname, userid, groupid);
 
     if ( helpflg ) {
-	extern char verstr[];
 	sprintf (bigbuf + strlen (bigbuf),
 		 "\nThis is %s : Rand editor version %d release %d\n%s\n",
 		 prog_fname ? prog_fname : progname, -revision, subrev, verstr);
@@ -1672,7 +1775,7 @@ void set_term ()
 static char * get_kbfile_buf (char *term_family, int *buf_sz)
 {
     char * kbfname;
-    int sz, sz1;
+    int sz;
 
     *buf_sz = 0;
     if ( ! xdir_dir ) return (NULL);
@@ -1680,11 +1783,7 @@ static char * get_kbfile_buf (char *term_family, int *buf_sz)
     sz = strlen (term_family) + strlen (kbfile_postfix);
     if ( sz < sizeof (universal_kbf_name) ) sz = sizeof (universal_kbf_name);
 
-    sz1 = (def_cnfg_dir) ? strlen (def_cnfg_dir) : 0;
-    if ( syst_cnfg_dir && (strlen (syst_cnfg_dir) > sz1) ) sz1 = strlen (syst_cnfg_dir);
-    if ( user_cnfg_dir && (strlen (user_cnfg_dir) > sz1) ) sz1 = strlen (user_cnfg_dir);
-
-    sz += sz1 +2;
+    sz += max_cnfg_dir_sz +2;
     kbfname = (char *) malloc (sz);
     if ( kbfname ) memset (kbfname, 0, sz);
     *buf_sz = sz;
@@ -1745,14 +1844,18 @@ static void build_kbfile ()
     if ( ! kbfile ) return;
 
     cnfg = NULL;
-    if ( buildflg ) {   /* debugging a new release of the editor */
-	for ( i = cnfg_dir_pt_sz -1 ; i >= 0 ; i-- ) {
-	    kbfcase = find_kbfile (buf_sz, tname, *(cnfg_dir_pt[i]), &cnfg);
+    if ( buildflg ) {   /* debugging a new release of the editor : reversed priority */
+	for ( i = cnfg_dir_rec_pt_sz -1 ; i >= 0 ; i-- ) {
+	    if ( cnfg_dir_rec_pt[i] == NULL ) continue;
+	    if ( ! cnfg_dir_rec_pt[i]->existing ) continue;
+	    kbfcase = find_kbfile (buf_sz, tname, cnfg_dir_rec_pt[i]->path, &cnfg);
 	    if ( kbfcase ) return;
 	}
     } else {
-	for ( i = 0 ; i < cnfg_dir_pt_sz ; i++ ) {
-	    kbfcase = find_kbfile (buf_sz, tname, *(cnfg_dir_pt[i]), &cnfg);
+	for ( i = 0 ; i < cnfg_dir_rec_pt_sz ; i++ ) {
+	    if ( cnfg_dir_rec_pt[i] == NULL ) continue;
+	    if ( ! cnfg_dir_rec_pt[i]->existing ) continue;
+	    kbfcase = find_kbfile (buf_sz, tname, cnfg_dir_rec_pt[i]->path, &cnfg);
 	    if ( kbfcase ) return;
 	}
     }

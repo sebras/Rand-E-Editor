@@ -1,19 +1,39 @@
-#!/bin/sh
-: System V
-# The 1st parameter can be use to provide the builder name in case of root loging
+#!/bin/bash
+# : System V
+#   1st para : version nb (default E19)
+#   2nd para : revision nb (default 51)
+#   3rd para : package name and package sub directory (default Rand)
+#   4th para : pacakage instalation directory (default /usr/local)
+#   5th para : can be use to provide the builder name in case of root loging
 
-version=19
-release=50
+# version=19
+# release=51
+# tag=E
+
+#   ref bask manual for string manipulation syntax
+rand_version=${1:-E19}
+release=${2:-51}
+
+pkgdir=${3:-Rand}
+pkgname=${pkgdir%/}
+targetdir=${4:-/usr/local}
+targetdir=${targetdir%/}
+bindir=$targetdir/$pkgname
+
+version=${rand_version##*[!0-9]}
+tag=${rand_version%%[0-9]*}
+# echo $version $tag
+
 ver=e.r.c
-string0="E${version}.${release} version of `/bin/date +"%d/%m/%y"` for `uname -s`"
+string0="${tag}${version}.${release} built `/bin/date +"%d/%m/%y"` for `uname -s`"
 string1b=`whoami`
 string1c=`hostname`
-if test -n $1; then
+if test -n "$5"; then
     if test $string1b = "root";
-	then string1b=$1;
+	then string1b=$5;
     fi;
 fi
-string1="made by $string1b@$string1c"
+string1="by <$string1b@$string1c>"
 
 # echo "short revision = -${version};" > $ver
 # echo "short subrev = ${release};" >> $ver
@@ -24,10 +44,27 @@ string1="made by $string1b@$string1c"
 
 cat <<EOF >$ver
 /* $ver file : dynamicaly build by NewVersion shell script */
+/*      `date` */
+
 short revision = -${version};
 short subrev = ${release};
-static char whatstr[] = { '@', '(', '#', ')' } ;
+
 char verstr[] = "\\
 $string0  $string1\\
 ";
+
+char rand_pkgname    [] = "$pkgname";
+
+char def_xdir_dir    [] = "$bindir";
+char def_recovermsg  [] = "$bindir/recovermsg";
+char def_xdir_kr     [] = "$bindir/kr.";
+char def_xdir_help   [] = "$bindir/helpkey";
+char def_xdir_crash  [] = "$bindir/Crashdoc";
+char def_xdir_err    [] = "$bindir/errmsg";
+char def_xdir_run    [] = "$bindir/run";
+char def_xdir_fill   [] = "$bindir/fill";
+char def_xdir_just   [] = "$bindir/just";
+char def_xdir_center [] = "$bindir/center";
+char def_xdir_print  [] = "$bindir/print";
+/* ---- EOF ---- */
 EOF

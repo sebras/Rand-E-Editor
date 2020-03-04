@@ -14,3 +14,60 @@ where $OS = AIX, ULTRIX or OSF1 (as reported by uname)
 
 To modify this feature, there is a need to modify install files
 and include/local_env.h
+
+
+Linux installation and configuration :
+======================================
+
+The new version for Linux use a new way to found the keyboard configuration.
+
+    - The full path name of the keyboard file is defined by
+      (in priority order)
+	1 - the value of "-kbfile" calling parameter (see --help output)
+	2 - the value of "EKBFILE" environement variable
+	3 - the "<pacakage configuration>/kbfiles/<terminal type file name>"
+	    the "terminal type keyboard configuration file name"
+
+    - The "terminal type file name" configuration is defined
+	1 - the name of the terminal defined by
+		i  - the value of "-terminal" calling parameter (see --help output)
+		ii - the value of "TERM" environement variable
+	    concanetated with the postfix "kb",
+	    ex : linuxkb for the default linux console
+	2 - "universalkb" if the specific file does not exist
+	    or cannot be read.
+
+    - The "pacakage configuration directory" is defined by
+	1 - the user configuration directory : ".Rand" in the
+	    user $HOME directory, ex : <toto home>/.Rand
+	2 - the local system configuration directory : "Rand"
+	    in the /usr/local/etc , ex : /usr/local/etc/Rand
+	3 - the global system configuration directory : "Rand"
+	    in the /etc , ex : /etc/Rand
+	4 - the package directory itself.
+
+    - The package directory is defined by :
+	1 - the value of "-package" calling parameter (see --help output)
+	2 - the value of "RAND_PACKG" environement variable
+	3 - the directory of the Rand editor executable file.
+
+    The output of --help option could be used to see where the editor
+    expects to found the configuration files, and the name of these files.
+
+To do a local customization of the keyboard definition,
+-------------------------------------------------------
+    for the system : copy the /usr/local/Rand/kbfiles directory into
+	/usr/local/etc/Rand or /etc/Rand directory
+    for a defined user : copy the /usr/local/Rand/kbfiles directory into
+	$HOME/.Rand directory
+    The content of /usr/local/Rand/kbfiles must not be edited, these files
+	could be modified during installation of a new release.
+
+Instalation with the RPM package manager :
+------------------------------------------
+
+    The package can be realocated into a user define directory instead of
+	/usr/local default installation directory
+    with the "--prefix <install directory>"
+    or "--relocate /usr/local=<install directory>"
+    parameter of the rpm call

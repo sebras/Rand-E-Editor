@@ -67,6 +67,8 @@ mainloop ()
 void
 mainloop ()
 {
+extern int command_file ();
+
 #ifdef LMCCMDS
 char *nix = "\0";
 char *abortstg = "ab\0";
@@ -630,6 +632,7 @@ gotcmd:
 			goto norecterr;
 
 		    default:
+			if ( command_file (NULL, NULL) ) goto notfilerr;
 			goto notinterr;
 		    }
 		    goto funcdone;
@@ -889,6 +892,10 @@ doneswitch:
 
 	    badkeyerr:
 	    mesg (ERRALL + 1, "Bad key error - editor error");
+	    continue;
+
+	    notfilerr:
+	    mesg (ERRALL + 1, "Argument must be a file name.");
 	    continue;
 	}
     }

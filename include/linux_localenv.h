@@ -45,6 +45,7 @@
 #define FULL_File_path(v)  XCAT_dir_file(XDIR_DIR,v)
 
 /* Root of the Rand executable package */
+#ifndef __linux__
 #define XDIR_DIR    "/usr/local/Rand"
 
 #define RECOVERMSG  FULL_File_path(/recovermsg)
@@ -57,6 +58,7 @@
 #define XDIR_JUST   FULL_File_path(/just)
 #define XDIR_CENTER FULL_File_path(/center)
 #define XDIR_PRINT  FULL_File_path(/print)
+#endif /* __linux__ */
 
 #define _NFILE 32
 #define _IOEOF _IO_EOF_SEEN

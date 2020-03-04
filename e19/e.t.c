@@ -1966,6 +1966,67 @@ static void putch_cmd (chr)
         move_cursor (1, YES);   
 }
 
+/* cmd_insert : insert a string in the command string at current position */
+/* ---------------------------------------------------------------------- */
+
+static int cmd_insert (int wlen, char *name_expantion)
+{
+    int i;
+
+    if ( wlen <= 0 ) return 0;
+
+    /* make sure alloced space is big enough */
+    if (ccmdlen + wlen >= ccmdl)
+	ccmdp = gsalloc (ccmdp, ccmdlen, ccmdl = ccmdlen + wlen + LPARAM, YES);
+    /* make room for insertion */
+    if ((i = ccmdlen - ccmdpos) > 0)
+	memmove (&ccmdp[ccmdpos + wlen], &ccmdp[ccmdpos], i);
+    /* insert the string and update the screen */
+    memmove (&ccmdp[ccmdpos], name_expantion, wlen);
+    ccmdlen += wlen;
+    ccmdp[ccmdlen] = '\0';
+    ccmdpos += wlen;
+    move_cursor (wlen, YES);
+    return wlen;
+}
+
+/* cmd_fname_expantion : insert a file name extension (do not double '/') */
+/* ---------------------------------------------------------------------- */
+
+static int cmd_fname_expantion (int wlen, char *name_expantion)
+{
+    int wl;
+
+    if ( wlen <= 0 ) return 0;
+
+    wl = wlen;
+    if ( (name_expantion[wl-1] == '/') && (ccmdp[ccmdpos] == '/') ) wl--;
+    return (cmd_insert (wl, name_expantion));
+}
+
+
+/* cmd_delete : remove char from the command string from current position */
+/* ---------------------------------------------------------------------- */
+
+static void cmd_delete (int wlen)
+{
+    int nb;
+
+    if ( wlen <= 0 ) return;
+
+    nb = ccmdlen - ccmdpos;
+    ccmdpos -= wlen;
+    if ( nb <= 0 ) {        /* end of the string */
+	ccmdlen = ccmdpos;
+    }
+    else {
+	memmove (&ccmdp[ccmdpos], &ccmdp[ccmdpos+wlen], nb);
+	ccmdlen -= wlen;
+    }
+    ccmdp[ccmdlen] = '\0';
+    move_cursor (wlen, YES);
+}
+
 
 #ifdef COMMENT
 void
@@ -1995,12 +2056,21 @@ param ()
 void
 param ()
 {
+    extern void clear_namelist ();
+    extern int get_next_name ();
+
+    long seek_point;    /* position on entry in param in keyfile */
+    int old_wlen;
+    Flag cmd_file_flg;  /* set when file expantion is active */
+    Flag used_file_flg; /* set if file expansion was uesed */
+    char *file_name_expantion;
+
     Flag cmdflg;
     Flag uselast;
     Flag clean_msg;
     static struct timeval nulsec = { 0, 0 };
 
-    uselast = NO;
+    uselast = used_file_flg = NO;
     entering = YES;     /* set this flag so that getkey1() knows you are in
 			   this routine. */
     savecurs ();
@@ -2048,6 +2118,8 @@ param ()
 #ifdef  NOCMDCMD
 rmcmd:
 #endif
+	seek_point = ftell (keyfile);
+
 	getkey (WAIT_KEY, nulsec);
 	switch (key) {
         /* <CMD> <key> command which are editing command */
@@ -2065,16 +2137,106 @@ rmcmd:
 	}
     }
 
-    cmdflg = NO;
+    clear_namelist ();
+    old_wlen = 0;
+    cmdflg = cmd_file_flg = NO;
     for (; ; cmdflg = key == CCCMD, keyused = YES, getkey (WAIT_KEY, nulsec)) {
         if ( ccmdlen <= 0 ) ccmdlen = ccmdpos = 0;
         if (ccmdlen >= ccmdl)
 	    ccmdp = gsalloc (ccmdp, ccmdlen, ccmdl += LPARAM, YES);
         ccmdp[ccmdlen] = '\0';
 
+	if ( ((unsigned) key == CCMOVEUP) || ((unsigned) key == CCMOVEDOWN) ) {
+	    int delta, wlen;
+	    Flag beep, cont;
+
+	    cont = beep = YES;  /* default beep and go back in the for loop */
+	    delta = ((unsigned) key == CCMOVEUP) ? -1 : 1;
+	    wlen = get_next_name (delta, &file_name_expantion);
+	    if ( wlen == -3 ) {
+		/* only one name in the list */
+		if ( delta > 0 ) {
+		    key = CCTAB;  /* simulate a Tab */
+		    beep = 0;
+		    cont = 0;
+		}
+	    } else if ( wlen >= 0 ) {
+		/* something in the list */
+		beep = 0;
+		if ( old_wlen > 0 ) {
+		    cmd_delete (old_wlen);
+		    old_wlen = 0;
+		}
+		if ( wlen > 0 ) {
+		    old_wlen = cmd_fname_expantion (wlen, file_name_expantion);
+		}
+	    } else if ( wlen == -5 ) {
+		/* nothing selected */
+		cont = beep = cmd_file_flg;
+	    }
+
+	    if ( beep ) putchar ('\007');
+	    if ( cont ) {
+		clean_msg = NO;
+		continue;
+	    }
+	} else {
+	    clear_namelist ();
+	    old_wlen = 0;
+	}
+
 	if ( CTRLCHAR ) 
-          /* make sure that all codes for which <CMD><key> is undefined are are ignored */
+	    /* make sure that all codes for which <CMD><key> is undefined are are ignored */
 	    switch ((unsigned) key) {
+
+		case CCTAB:     /* expand file name ? */
+		    {
+			extern int command_file ();
+			extern int expand_file_para ();
+			extern void incr_fname_para_sz ();
+			char *file_para;
+			char chr;
+			char strg[1024];
+			int i, nb, nbentr, wlen, dir_flg;
+
+			old_wlen = 0;
+			ccmdp[ccmdlen] = '\0';
+			memset (strg, 0, sizeof(strg));
+			strncpy (strg, ccmdp, sizeof(strg)-1);
+			if ( ccmdpos < sizeof(strg) ) strg[ccmdpos] = '\0';
+
+			cmd_file_flg = NO;
+			file_para = NULL;
+			if ( command_file (strg, &file_para) ) {
+			    /* the command could use a file name para */
+			    used_file_flg = YES;
+			    if ( file_para ) {
+				nbentr = expand_file_para (file_para, &file_name_expantion, &wlen, &dir_flg);
+				if ( nbentr > 0 ) {
+				    nb = cmd_fname_expantion (wlen, file_name_expantion);
+				    incr_fname_para_sz (nb);
+				    if ( dir_flg && (nb == 0) ) {
+					/* nothing more displayed, display the 1st entry */
+					wlen = get_next_name (1, &file_name_expantion);
+					if ( wlen > 0 ) old_wlen = cmd_fname_expantion (wlen, file_name_expantion);
+				    }
+				}
+				if ( nbentr > 1 ) putchar ('\007');
+				cmd_file_flg = YES;
+			    }
+			} else {
+			    /* not a command requesting a file name para */
+			    if ( !cmdflg ) {
+				if ( file_para && *file_para ) sfree (file_para);
+				file_para = NULL;
+				goto done;
+			    }
+			}
+			if ( file_para && *file_para ) sfree (file_para);
+			file_para = NULL;
+			break;
+		    }
+
 	    case CCBACKSPACE:
 		if ( ccmdpos <= 0 ) break;  /* beginig of the command */
 
@@ -2185,23 +2347,7 @@ rmcmd:
 					 &wlen)) == NULL)
 			break;
                     if ( wlen <= 0 ) break;
-
-		    /* make sure alloced space is big enough */
-		    if (ccmdlen + wlen >= ccmdl)
-			ccmdp = gsalloc (ccmdp, ccmdlen,
-					 ccmdl = ccmdlen + wlen + LPARAM, YES);
-		    /* make room for insertion */
-		    Block {
-			Reg1 Short  i;
-			if ((i = ccmdlen - ccmdpos) > 0)
-			    memmove (&ccmdp[ccmdpos + wlen], &ccmdp[ccmdpos], i);
-		    }
-		    /* insert the string and update the screen */
-	            memmove (&ccmdp[ccmdpos], wcp, wlen);
-		    ccmdlen += wlen;
-                    ccmdp[ccmdlen] = '\0';
-		    ccmdpos += wlen;
-                    move_cursor (wlen, YES);
+		    (void) cmd_insert (wlen, wcp);
 		}
 		break;
 
@@ -2225,18 +2371,33 @@ rmcmd:
 
 	    case CCINT:
 		/* do this whether or not preceded by <CMD> key */
-		if (ccmdlen > 0)
+		if (ccmdlen > 0) {
 		    /* we have generated something we may want to call back */
+		    if ( used_file_flg ) {
+			/* a file para could have been expanded,
+			   simulate the input in keyfile to save data
+			*/
+			int i;
+			(void) fseek (keyfile, seek_point, SEEK_SET);
+			for ( i = 0 ; i < ccmdlen ; i++ ) putc (ccmdp[i], keyfile);
+			clear_namelist ();
+			old_wlen = 0;
+			used_file_flg = NO;
+		    }
 		    exchgcmds ();
+		}
 		putc (CCINT, keyfile);
 		keyused = YES;
 		if (cmdmode) {
 		    mesg (TELSTOP);
+		    uselast = NO;
 		    goto parmstrt;
 		}
-                /*
+		/* to force that what was just saved will be use as
+		   last command during the done processing.
+		   If ccmdlen is not set to 0, this is not true
+		*/
 		ccmdlen = 0;
-                */
 		goto done;
 
 	    case CCRETURN:
@@ -2270,6 +2431,16 @@ rmcmd:
 	for ( ; ccmdlen && (ccmdp[ccmdlen -1] == ' ') ; ccmdlen-- ) ;
     }
     ccmdp[ccmdlen] = '\0';
+
+    if ( used_file_flg && (key != CCINT) ) {
+	/* a file para could have been expanded,
+	   simulates in the keyfile what is the current command string
+	*/
+	int i;
+	(void) fseek (keyfile, seek_point, SEEK_SET);
+	for ( i = 0 ; i < ccmdlen ; i++ ) putc (ccmdp[i], keyfile);
+	putc (key, keyfile);
+    }
 
     if (ccmdlen == 0)
 	paramtype = 0;

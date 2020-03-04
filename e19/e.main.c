@@ -25,7 +25,7 @@ main (argc, argv)
     implemented, all of the main1 stuff can be in one startup overlay that
     is discarded when it is time to call mainloop.
 #endif
-void
+int
 main (argc, argv)
 int     argc;
 char   *argv[];
@@ -34,5 +34,6 @@ char   *argv[];
 
     mainloop ();
     /* NOTREACHED */
+    return 0;
 }
 

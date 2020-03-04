@@ -12,10 +12,17 @@ WIN LEFT - This key causes the window to move to the left 16 spaces.  If the
 ~2
 ALT - This key switches the window between the current file and its
     alternate file.
+    In command mode, if preceeded by the CMD key, what was the last command
+    is recalled.
+    So, to recall the last command in edit mode, use the CMD CMD ALT key
+    stroke.
 ~3
 INT - This key causes the an interruption in whatever may be going on in
     the editor.  It may be used for halting a fill or justify command, or a
     replay.
+    When the editor is waiting for command, if the command string is not
+    empty, the command string is saved as the previous command and could
+    be recall later with the CMD ALT key stroke.
 ~4
 OPEN (Insert Line) - This key causes a single blank line to be opened above
     the cursor's current position.
@@ -172,6 +179,10 @@ RIGHT ARROW - This key causes the cursor position to be shifted one
     moves the cursor to the right of the last nonblank characteron the
     line.  If it was allready in that position, >RIGHT moves the cursor to
     the right margin.
+~32
+    String of characters sends to the terminal on initialisation
+~33
+    String of characters sends to the terminal on exit
 ~129
 ERASE - This key will erase the contents of the current line, leaving the
     blank line in the text.  If this key follows the CMD key, an UNERASE is
@@ -421,11 +432,20 @@ EDIT [ filename ]
     "filename" becomes the current file and the current file becomes
     the alternate file. The ALT key switches between them.
 
+    Filename parameter can be expanded with the TAB key,
+    If alternate name expansion exists, the UP ARROW and DOWN ARROW keys
+    provide navigation in the name expansion list.
+
 `redraw
 REDRAW - This command will cause the screen to be redrawn.
 
 `save
-SAVE - This command will save the file being edited with another name.
+SAVE [ filename ]
+    - This command will save the file being edited with another name.
+
+    Filename parameter can be expanded with the TAB key,
+    If alternate name expansion exists, the UP ARROW and DOWN ARROW keys
+    provide navigation in the name expansion list.
 
 `split
 SPLIT - This command splits the current line into two, breaking the text just
@@ -554,11 +574,19 @@ TABFILE [ filename ]
     Tabulators are added at positions given as integers separated by
     blanks in the file filename.
 
+    Filename parameter can be expanded with the TAB key,
+    If alternate name expansion exists, the UP ARROW and DOWN ARROW keys
+    provide navigation in the name expansion list.
+
 `-tabfile
 -TABFILE [ filename ]
     - remove tabulators as specified in a file.
     Tabulators are removed at positions given as integers separated by
     blanks in the file filename.
+
+    Filename parameter can be expanded with the TAB key,
+    If alternate name expansion exists, the UP ARROW and DOWN ARROW keys
+    provide navigation in the name expansion list.
 
 `track
 TRACK - turn on tracking in the current window.
@@ -593,6 +621,10 @@ WINDOW [ filename ]
     The new window is cut out of the current at the cursor.
     When filename is given the file will be in the window,
     otherwise the current file will be displayed.
+
+    Filename parameter can be expanded with the TAB key,
+    If alternate name expansion exists, the UP ARROW and DOWN ARROW keys
+    provide navigation in the name expansion list.
 
 `-window
 -WINDOW - remove the current window.
@@ -719,6 +751,9 @@ NAME <filename>
     editor is exited normally. It may be nullified by exiting with a
     parameter.
 
+    Filename parameter can be expanded with the TAB key,
+    If alternate name expansion exists, the UP ARROW and DOWN ARROW keys
+    provide navigation in the name expansion list.
 
 `open
 OPEN [ number ] [ linearea ]
@@ -948,8 +983,13 @@ FILE <option>
 VERSION - displays the program version and author.
 
 `cd
-CD - change the current directory to the given one. If no new directory is
+CD [ pathname ]
+    - change the current directory to the given one. If no new directory is
     provided, change to the default one (the initial working directory).
+
+    Pathname parameter can be expanded with the TAB key,
+    If alternate name expansion exists, the UP ARROW and DOWN ARROW keys
+    provide navigation in the name expansion list.
 
 `status
 STATUS - display the current status of the editor.
@@ -957,7 +997,8 @@ STATUS - display the current status of the editor.
 `---------------------- End of the command section ---------------------
 
 #New_features_Linux -----------------------------------------------------
-New Features of the Linux version (Dec 1998)
+------------------------------------------------------------------------------
+New Features of the Linux version 19 revision 50 (Dec 1998)
   New option : -verbose (for -help) : display full keyboard mapping on stdout.
   Handling of MS-DOS text file style (new line = cr/lf) (file cmd).
     nb : long file name with space must be given quoted with " or ' .
@@ -969,6 +1010,12 @@ New Features of the Linux version (Dec 1998)
     "help commands" ("help cmd"), "help keyfunctions" ("help keyf"),
     "help keyboard_check" ("help kbchk").
   Default tab stop sets at each 4th characters.
+
+New Features of the Linux version 19 revision 51 (Oct 1999)
+  File name command parameter can be expanded with the <tab> key,
+    like in most of the shell. If alternate name expansion exits
+    the <up arrow> and <down arrow> keys provide navigation in the list.
+------------------------------------------------------------------------------
 
 #Linux_key_mapping ------------------------------------------------------
 Recommandations for X key mapping on Linux :

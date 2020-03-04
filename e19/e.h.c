@@ -91,6 +91,8 @@ char *str, *abreviation;    /* current command and mini abreviation */
     char buf [256];
     char *type;
 
+    type = "???";
+
     helpin = open_help_file ();
     if ( helpin == NULL) {
 	return (0);   /* no more message */
@@ -351,6 +353,7 @@ static void browse_keyfhelp ();
 
 static char stmsg [] = "\n\
 \"help status\"         Display the actual editor parameters value\n\
+\"help NewFeatures\" or \"help new\"      Display the new features of the editor\n\
 \"help key <function>\" Info on the keys assigned to the given function\n\
 \"help keymap\"         Global keyboard mapping info\n\
 \"help <command>\"      Info on the given Editor Command\n\
@@ -378,6 +381,7 @@ extern void showstatus ();
 extern int set_crlf ();
 extern void reset_crlf ();
 extern void check_keyboard ();
+extern char verstr[];
 
     for ( i = 0 ; (ch = helparg[i]) ; i++ ) helparg[i] = tolower (ch);
 
@@ -406,12 +410,16 @@ extern void check_keyboard ();
 
 	nbli = stmsg_nbln;
 	fputs (stmsg, stdout);
-	(void) help_info ("New_features_Linux", &nbli);
-	check_new_page (&nbli, 1);
-	fputs (stmsg1, stdout); nbli++;
-
 	browse_keyboard (retmsg);
         }
+
+    else if ( strncasecmp (helparg, "NewFeatures", strlen(helparg)) == 0 ) {
+	fprintf (stdout, "%s\n\n", verstr);
+	nbli = 2;
+	(void) help_info ("New_features_Linux", &nbli);
+	check_new_page (&nbli, 1);
+	wait_keyboard (retmsg);
+	}
 
     else if ( strcmp (helparg, "status") == 0 ) {
         showstatus ();
@@ -468,7 +476,7 @@ extern void check_keyboard ();
 S_looktbl *keyftable = NULL;
 int keyftable_sz = 0;   /* nb of entry in keyftable */
 
-static FILE *outst = stdout;    /* stdout or the file stream */
+static FILE *outst = NULL;  /* stdout or the file stream */
 
 /* these flags are not yet used by the UNIX version */
 static int Esc_flg = 0;     /* Escape was just pushed flag */
@@ -535,6 +543,7 @@ int psiz;
 	if ( idx == 0 ) idx = sizeof (line) -2;
 	line[idx++] = '\n'; line[idx] = '\0';
 	if ( (line [0] == ' ') && (line [1] == ' ') ) line [0] = '#';
+	if ( outst == NULL ) outst = stdout;
 	fprintf (outst, line);
 	}
     return;
@@ -735,6 +744,7 @@ unsigned Short qq;
 
 static int wait_key ()
 {
+    if ( outst == NULL ) outst = stdout;
     if ( outst != stdout ) return (0);
     return ( waitkb (YES) );
 }
