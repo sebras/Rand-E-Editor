@@ -82,6 +82,7 @@ S_looktbl itsyms [] = {
 #ifdef LMCCMDS
     "exit",    CCEXIT,
     "fill",    CCFILL,
+    "flist",   CCFLIST,
     "fnavigate", CCFNAVIG,
 #endif
 #ifdef LMCCMDS
@@ -282,12 +283,15 @@ static Flag process_kbfile (filename, level)
 char *filename;
 int level;
 {
+    extern void set_charset_val ();
+    static Flag itparse ();
+
     char line[TMPSTRLEN], string[TMPSTRLEN], value[TMPSTRLEN];
     FILE *f;
     int lnb, str_len, val_len;
     char *incl_fname;
     char c;
-    Flag cc;
+    Flag cc, alt_flg;
 
     if ( verbose_helpflg ) printf ("Process kbfile : \"%s\"\n", filename);
     if ( level > 32 ) {
@@ -305,7 +309,11 @@ int level;
 	return NO;
     }
 
-    for ( lnb = 1 ; fgets (line, sizeof line, f) != NULL; lnb++ ) {
+    for ( lnb = 1 ; ; lnb++ ) {
+	memset (line, 0, sizeof (line));
+	memset (string, 0, sizeof (string));
+	memset (value, 0, sizeof (value));
+	if ( fgets (line, sizeof line, f) == NULL ) break;
 	line[strlen (line)-1] = '\0';   /* remove newline */
 	if ( verbose_helpflg ) printf ("%3d  %s\n", lnb, line);
 	if ( line[0] == '#' ) {         /* FP 14 Jan 2000 */
@@ -322,20 +330,25 @@ int level;
 	if ( line[0] == '!'             /* add FP 14 Jan 2000 */
 	     || line[0] == '\0' )       /* gww 21 Feb 82 */
 	    continue;                   /* gww 21 Feb 82 */
-	itparse (line, string, &str_len, value, &val_len);
-	switch (string[0]) {
-	case KBINIT:
-	    kbinilen = val_len;
-	    kbinistr = salloc (kbinilen, YES);
-	    move (value, kbinistr, kbinilen);
-	    break;
-	case KBEND:
-	    kbendlen = val_len;
-	    kbendstr = salloc (kbinilen, YES);
-	    move (value, kbendstr, kbendlen);
-	    break;
-	default:
-	    itadd (string, str_len, &ithead, value, val_len, line, lnb);
+	alt_flg = itparse (line, string, &str_len, value, &val_len);
+	if ( alt_flg ) {
+	    set_charset_val (string [0], value[0]);
+	}
+	else {
+	    switch (string[0]) {
+	    case KBINIT:
+		kbinilen = val_len;
+		kbinistr = salloc (kbinilen, YES);
+		move (value, kbinistr, kbinilen);
+		break;
+	    case KBEND:
+		kbendlen = val_len;
+		kbendstr = salloc (kbinilen, YES);
+		move (value, kbendstr, kbendlen);
+		break;
+	    default:
+		itadd (string, str_len, &ithead, value, val_len, line, lnb);
+	    }
 	}
     }
     fclose (f);
@@ -417,26 +430,42 @@ int line_nb;
     return;
 }
 
-itparse (inp, strp, str_lenp, valp, val_lenp)
+/* itparse : parse a line of kb file */
+/*  strg is the 1st token : before ':', value is the 2nd token : after ':' */
+static Flag itparse (inp, strp, str_lenp, valp, val_lenp)
 register char *inp;
 char *strp, *valp;      /* Pointers to string to match and value to return */
 int *str_lenp, *val_lenp; /* Where to put the respective lengths */
 {
-    register char c;
+    extern S_looktbl bordersyms [];
+    char c;
     unsigned int n;
+    long int ln;
     int i;
     int gotval = 0;
-    register char *outp = strp;
+    char *outp;
     char tmpstr[50], *tp;
     char *line = inp;            /* Save for error messages */
+    Flag alt_flg;
 
+    outp = strp;
+    alt_flg = NO;   /* default is normal key code symbol */
     while ((c = *inp++) != '\0') {
 	switch (c) {
+	    case ' ':
+		break;      /* ignore space */
+
+	    case '#':       /* comment mark */
+	    case '!':
+		break;
+
 	    case '"':       /* String "foo bar" (with no quotes) */
 		while ((c = *inp++) != '"')
 		    *outp++ = c;
 		break;
 	    case '<':
+#if 0
+		/* old version : does not allow decimal or hexadecimal number */
 		if ((c = *inp) >= '0' && c <= '7') {
 		    for (n = 0; (c = *inp++) != '>'; ) {
 			if (c < '0' || c > '7')
@@ -446,42 +475,59 @@ int *str_lenp, *val_lenp; /* Where to put the respective lengths */
 		    if (n > 0377)
 			getout (YES, "Number %d too big in kbfile\n", n);
 		    *outp++ = (char) n;
+#else
+		if ((c = *inp) >= '0' && c <= '9') {
+		    /* support decimal, octal (0...) and hexadecimal (0x..) number */
+		    ln = strtol (inp, &tp, 0);
+		    if ( *tp != '>' )
+			getout (YES, "kbfile bad digit '%c' in line %s\n", c, line);
+		    if ( (ln > 0377) || (ln < 0) )
+			getout (YES, "Number %d out of range (0...255) in kbfile in line %s\n", ln, line);
+		    inp = tp +1;
+		    *outp++ = (char) ln;
+#endif
 		} else {
 		    for (tp = tmpstr; (c = *inp++) != '>'; ) {
 			if (c == '\0')
-			    getout (YES, "kbfile mismatched < in %s\n", line);
+			    getout (YES, "kbfile mismatched < in line %s\n", line);
 			*tp++ = c;
 		    }
 		    *tp = '\0';
 		    i = lookup (tmpstr, itsyms);
-		    if (i < 0)
-			getout (YES, "Bad symbol %s in kbfile\n", tmpstr);
-		    *outp++ = (char) itsyms[i].val;
+		    if ( i >= 0 ) *outp++ = (char) itsyms[i].val;
+		    else {
+			/* try alternate symbols : border char set */
+			alt_flg = YES;
+			i = lookup (tmpstr, bordersyms);
+			if ( i >= 0 ) *outp++ = (char) bordersyms[i].val;
+			else
+			    getout (YES, "Bad symbol <%s> in kbfile in line %s\n", tmpstr, line);
+		    }
 		}
 		break;
 	    case '^':
 		c = *inp++;
 		if (c != '?' && (c < '@' || c > '_'))
-		    getout (YES, "kbfile bad char ^<%o> in %s\n", c, line);
+		    getout (YES, "kbfile control char ^%c out of range (^?, ^@...^_)in line %s\n", c, line);
 		*outp++ = c^0100;
 		break;
 	    case ':':
 		*str_lenp = outp - strp;
 		if (gotval++)
-		    getout (YES, "kbfile too many colons in %s\n", line);
+		    getout (YES, "kbfile too many colons in line %s\n", line);
 		if (*str_lenp > TMPSTRLEN)
-		    goto toolong;
+		    getout (YES, "kbfile line too long : %s\n", line);
 		outp = valp;
 		break;
 	    default:
-		getout (YES, "kbfile bad char <%o> in %s\n", c, line);
+		getout (YES, "kbfile bad char \'%c\' (0%o) in line %s\n", c, c, line);
 	}
+	if ( (c == '#') || (c == '!') ) break;  /* begining of comment */
     }
     *val_lenp = outp - valp;
     if (*str_lenp > TMPSTRLEN)
-toolong:
-	getout (YES, "kbfile line too long %s\n", line);
-    return;
+	getout (YES, "kbfile line too long : %s\n", line);
+    return alt_flg;
 }
 
 /* escstrg : return a printable string from a string with control char */

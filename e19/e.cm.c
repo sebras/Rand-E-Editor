@@ -8,6 +8,10 @@ file e.cm.c
 	Copyright abandoned, 1983, The Rand Corporation
 #endif
 
+#ifdef __linux__
+#define _FILE_OFFSET_BITS 64
+#endif
+
 #include <unistd.h>
 #include <dirent.h>
 #include <string.h>
@@ -1309,6 +1313,7 @@ Flag on;
 #endif
 #define SET_HY          20
 #define SET_NOHY        21
+#define SET_CHARSET     22
 
 /* setoption_msg : build current options state message */
 /* --------------------------------------------------- */
@@ -1344,9 +1349,13 @@ Cmdret
 setoption( showflag )
   int showflag;
 {
-	Reg1 char *arg;
-	Reg2 Small ind;
-	Reg3 Small value;
+	extern void alt_set_term ();
+	extern void fresh ();
+
+	char *ternm;
+	char *arg;
+	Small ind;
+	Small value;
 	Cmdret retval;
 	extern Flag fill_hyphenate;
 	static S_looktbl setopttable[] = {
@@ -1356,7 +1365,9 @@ setoption( showflag )
 	    "-page",        SET_MIPAGE,    /* defmipage */
 	    "?",            SET_SHOW,      /* show options */
 	    "bell",         SET_BELL,      /* echo \07 */
-	    "debug",        SET_DEBUG,     /* 0 = no debug, > 0 debug level */
+#ifdef __linux__
+	    "charset",      SET_CHARSET,   /* set reset the IBM PC character set */
+#endif
 	    "hy",           SET_HY,        /* fill: split hyphenated words */
 	    "left",         SET_WINLEFT,   /* deflwin */
 	    "line",         SET_LINE,      /* defplline and defmiline */
@@ -1381,7 +1392,7 @@ setoption( showflag )
 #endif
 	    "width",        SET_WIDTH,     /* linewidth */
 	    "window",       SET_WIN,       /* deflwin and defrwin */
-	    "worddelimiter",SET_WORDDELIM  ,/* set word delimiter */
+	    "worddelimiter",SET_WORDDELIM, /* set word delimiter */
 	    0        ,  0
 	};
 
@@ -1574,6 +1585,13 @@ setoption( showflag )
 
 	    case SET_NOHY:
 		fill_hyphenate = NO;
+		break;
+
+	    case SET_CHARSET:
+		ternm = ((value = abs( atoi( arg ))) == 0) ? NULL : tname;
+		alt_set_term (ternm, YES);
+		fresh ();
+		retval = CROK;
 		break;
 
 	    default:

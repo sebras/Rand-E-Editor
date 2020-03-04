@@ -1,7 +1,7 @@
-#!/usr/local/bin/bash
+#!/bin/bash
 # : System V
 #   1st para : version nb (default E19)
-#   2nd para : revision nb (default 56)
+#   2nd para : revision nb (default 57)
 #   3rd para : package name and package sub directory (default Rand)
 #   4th para : pacakage instalation directory (default /usr/local)
 #   5th para : can be use to provide the builder name in case of root loging
@@ -12,7 +12,7 @@
 
 #   ref to bask manual for string manipulation syntax
 rand_version=${1:-E19}
-release=${2:-56}
+release=${2:-57}
 
 pkgdir=${3:-Rand}
 pkgname=${pkgdir%/}
@@ -33,7 +33,11 @@ if test -n "$5"; then
 	then string1b=$5;
     fi;
 fi
-string1="by <$string1b@$string1c>"
+if test $string1b = "perrioll"; then
+    string1="by <Fabien.Perriollat@cern.ch>";
+else
+    string1="by <$string1b@$string1c>"
+fi;
 
 # echo "short revision = -${version};" > $ver
 # echo "short subrev = ${release};" >> $ver
@@ -44,6 +48,7 @@ string1="by <$string1b@$string1c>"
 
 cat <<EOF >$ver
 /* $ver file : dynamicaly build by NewVersion shell script */
+/*      by `whoami` on $string1c */
 /*      `date` */
 
 short revision = -${version};

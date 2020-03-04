@@ -331,7 +331,7 @@ static void check_tt_size (int *width, int *height)
 }
 
 /* Get the terminal size by ioctl call */
-void get_tt_size (int * width, int * height)
+void get_term_size (int * width, int * height)
 {
 #ifdef TIOCGWINSZ
     struct winsize windowsz;
@@ -345,6 +345,12 @@ void get_tt_size (int * width, int * height)
 	if ( windowsz.ws_row ) *height = windowsz.ws_row;
     }
 #endif
+}
+
+/* Get the terminal size by ioctl call */
+void get_tt_size (int * width, int * height)
+{
+    get_term_size (width, height);
     check_tt_size (width, height);
 }
 

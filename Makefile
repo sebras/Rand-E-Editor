@@ -12,13 +12,18 @@
 #       the curent directory name with ${SRCDIR}
 
 #+++ parameters which can be overwrite by the make call
-#       see Rand-editor-E19.56.spec
+#       see Rand-editor-E19.57.spec
 
 
 SHELL := /bin/sh
 
 # get the current directory
 PWD := $(shell pwd)
+PWD1 := $(shell cd ..; pwd)
+DIR1 := $(notdir $(PWD1))
+ifeq ($(DIR1), LynxOS)
+    DIR1 := ppc
+endif
 
 # Get the system identifier
 ifndef OS
@@ -34,7 +39,7 @@ endif
 BUILDER=perrioll
 
 VERSION=E19
-RELEASE=56
+RELEASE=57
 
 # Default value for package directory
 PKGDIR=Rand
@@ -55,31 +60,41 @@ endif
 TARG_OS := $(OS)
 
 
-# For cross compilation on sunps1 with
+# For cross compilation for Lynx OS, Power PC processor,  on sunps1 with
 #   environnement defined by :
-#       source /usr/lynx/3.1.0/ppc/SETUP.csh
-#       source /usr/lynx/3.1.0/ppc/SETUP.bash
+#       source /usr/lynx/3.1.0a/ppc/SETUP.csh
 ifdef LYNXTARGET
+    CC=gcc
     TARG_OS=LynxOS
 endif
 
+EXECDIR := $(TARGETDIR_PREFIX)/$(DIR1)
 TARGETDIR := $(TARGETDIR_PREFIX)/$(TARG_OS)
-#TARGETDIR=/usr/local
+TARGETDIRFLG := $(shell if test -d $(TARGETDIR); then echo "OK"; else echo "NO"; fi)
+TARGETNAME := $(DIR1)
 
 ifeq ($(TARG_OS), Linux)
-#    TARGETDIR=/usr/local
+    ifeq ($(TARGETDIRFLG), NO)
+	TARGETDIR=/usr/local
+	EXECDIR=$(TARGETDIR)
+	TARGETNAME := Linux
+	LINUXVERSION := $(PKGDIR)/Linux_version
+    endif
 endif
 
-ifeq ($(TARG_OS), AIX)
-#    TARGETDIR=/ps/local/AIX
-endif
-
-ifeq ($(TARG_OS), Solaris)
-#    TARGETDIR=/ps/local/Solaris
-endif
+# ifeq ($(TARG_OS), AIX)
+#     TARGETDIR=/ps/local/AIX
+# endif
+#
+# ifeq ($(TARG_OS), Solaris)
+#     TARGETDIR=/ps/local/Solaris
+# endif
 
 ifeq ($(TARG_OS), LynxOS)
+    CC=gcc
     TARGETDIR := $(TARGETDIR_PREFIX)/ppc
+    EXECDIR=$(TARGETDIR)
+    TARGETNAME := ppc
 endif
 
 # Utilities to be used
@@ -98,6 +113,7 @@ endif
 #-----------------------
 # notice : now LIBDIR and BINDIR must be the same directory
 
+BINDIR1=$(EXECDIR)/$(PKGDIR)
 BINDIR=$(TARGETDIR)/$(PKGDIR)
 LIBDIR=$(BINDIR)
 KBFDIR=$(BINDIR)/kbfiles
@@ -110,12 +126,23 @@ TAREXCL=$(TARPREFIX).*.tgz*
 TARALLSPEC=$(PKGDIR)-editor-*.spec
 TAREXCLSPEC=$(PKGDIR)-editor-E19.?[!$(RELEASE)].spec
 TARSPEC=$(PKGDIR)-editor-$(VERSION).$(RELEASE).spec
-SRCDIR=$(PKGDIR)-$(VERSION)
 ARCHIVE=archv
-BINTARFILE=$(TARPREFIX).$(RELEASE).$(TARG_OS).bin.tgz
+BINTARFILEPFX=$(TARPREFIX).$(RELEASE).$(TARGETNAME).bin
+BINTARFILE=$(TARPREFIX).$(RELEASE).$(TARGETNAME).bin.tgz
 
+SRCDIR=$(PKGDIR)-$(VERSION).$(RELEASE)
+SRCDIRFLG := $(shell if test -d ../$(SRCDIR); then echo "OK"; else echo "NO"; fi)
+ifeq ($(SRCDIRFLG), NO)
+    SRCDIR=$(PKGDIR)-$(VERSION)
+endif
 
+ifeq ($(TARG_OS), Linux)
+    ifeq ($(TARGETDIRFLG), NO)
+	TARGETDIR=/usr/local
+    endif
+endif
 
+# ----------------------------------------------
 
 all:    e19/le fill/fill
 	@echo Ready to deliver for $(TARG_OS)
@@ -124,22 +151,22 @@ local:
 	@./local.sh
 
 e19/le: e19/e.r.c la1/libla.a ff3/libff.a lib/libtmp.a
-	cd e19; $(MAKE) TARG_OS=$(TARG_OS)
+	cd e19; $(MAKE) TARG_OS=$(TARG_OS) CC=$(CC)
 
 e19/e.r.c::
 	cd e19; ./NewVersion $(VERSION) $(RELEASE) $(PKGDIR) $(TARGETDIR) $(BUILDER);
 
 la1/libla.a::
-	cd la1; $(MAKE) TARG_OS=$(TARG_OS)
+	cd la1; $(MAKE) TARG_OS=$(TARG_OS) CC=$(CC)
 
 ff3/libff.a::
-	cd ff3; $(MAKE) TARG_OS=$(TARG_OS)
+	cd ff3; $(MAKE) TARG_OS=$(TARG_OS) CC=$(CC)
 
 lib/libtmp.a::
-	cd lib; $(MAKE) TARG_OS=$(TARG_OS)
+	cd lib; $(MAKE) TARG_OS=$(TARG_OS) CC=$(CC)
 
 fill/fill::
-	cd fill; $(MAKE) TARG_OS=$(TARG_OS)
+	cd fill; $(MAKE) TARG_OS=$(TARG_OS) CC=$(CC)
 
 
 .PHONY: tar bintar clean preinstall install depend target test
@@ -164,8 +191,14 @@ tar:
 	 mv ./${TARFILE} ${SRCDIR}; \
 	 cd ./${SRCDIR}
 
+ifeq ($(OS), Linux)
+#   Special bintar processing for Linux
+#       gtar process correctly --exclude only on Linux (new version ?)
 bintar:
 	@echo "$(TAR) for ${BINTARFILE} in $(PWD)/.."
+	(if test ! -d /tmp/${PKGDIR}; then mkdir /tmp/${PKGDIR}; fi)
+	rm -f /tmp/$(LINUXVERSION)
+	cp -p /proc/version /tmp/$(LINUXVERSION)
 	rm -f ../${BINTARFILE}.old
 	(if test -f ../${BINTARFILE}; then mv -f ../${BINTARFILE} ../${BINTARFILE}.old; fi)
 	cd ${LIBDIR}; cd ../; $(TAR) \
@@ -181,10 +214,47 @@ bintar:
 	-cvf $(PWD)/../${BINTARFILEPFX}.tar ./${PKGDIR}
 	cd ${LIBDIR}; cd ../; $(TAR) \
 	-rvf $(PWD)/../${BINTARFILEPFX}.tar ./${PKGDIR}/e19.$(RELEASE)
+	cd /tmp; $(TAR) \
+	-rvf $(PWD)/../${BINTARFILEPFX}.tar ./$(LINUXVERSION)
+	rm -f /tmp/$(LINUXVERSION)
 	cd ${PWD}
 	rm -f ../${BINTARFILEPFX}.tar.gz
 	gzip ../${BINTARFILEPFX}.tar
 	mv ../${BINTARFILEPFX}.tar.gz ../${BINTARFILE}
+
+else
+
+bintar:
+	@echo -e "$(TAR) for ${BINTARFILE} \n into $(PWD)/.. \n from $(BINDIR1)"
+	rm -f ../${BINTARFILE}.old
+	(if test -f ../${BINTARFILE}; then mv -f ../${BINTARFILE} ../${BINTARFILE}.old; fi)
+	cd ${BINDIR1}; rm -f .e?1 .e?1.* ,*
+	cd ${BINDIR1}/kbfiles; rm -f .e?1 .e?1.* ,*
+	cd ${BINDIR1}; cd ../; $(TAR) \
+	    --exclude './${PKGDIR}/.e?1' \
+	    --exclude './${PKGDIR}/.e?1.*' \
+	    --exclude './${PKGDIR}/,*' \
+	    --exclude './${PKGDIR}/.nfs*' \
+	    --exclude './${PKGDIR}/kbfiles/.e?1.*' \
+	    --exclude './${PKGDIR}/kbfiles/.e?1*' \
+	    --exclude './${PKGDIR}/kbfiles/,*' \
+	    --exclude './${PKGDIR}/kbfiles/*.[0-9]*' \
+	    -cvf $(PWD)/../${BINTARFILEPFX}.tar ./${PKGDIR}
+	@cd ${BINDIR1}; \
+	    for f in e19.*; do \
+		if test $$f != e19.$(RELEASE); then \
+		    echo "--delete ./${PKGDIR}/$$f;"; \
+		    $(TAR) --delete --file=$(PWD)/../${BINTARFILEPFX}.tar \
+			   ./${PKGDIR}/$$f; \
+		fi; \
+	    done; \
+	cd $(PWD)
+
+	rm -f ../${BINTARFILEPFX}.tar.gz
+	gzip ../${BINTARFILEPFX}.tar
+	mv ../${BINTARFILEPFX}.tar.gz ../${BINTARFILE}
+
+endif
 
 
 clean:
@@ -193,6 +263,7 @@ clean:
 	for f in include help doc; do cd $$f; rm -f ,* .e?1 .e?1.*; cd ..; done
 	for f in help/kbfiles; do cd $$f; rm -f ,* .e?1 .e?1.*; cd ../..; done
 	for f in doc/man; do cd $$f; rm -f ,* .e?1 .e?1.*; cd ../..; done
+	for f in contributed; do cd $$f; rm -f ,* .e?1 .e?1.*; cd ../..; done
 
 preinstall:
 	-mkdir -p $(MANDIR) $(BINDIR) $(LIBDIR) $(KBFDIR)
@@ -229,10 +300,16 @@ target:
 	@echo
 
 test:
+	@echo -e "\n\nState for $(OS) platform, version $(VERSION).$(RELEASE)"
+	@echo -e     "========================================\n"
 	@echo "shell is $(SHELL)"
 	@echo "MAKE is $(MAKE)"
 	@echo "TAR is $(TAR)"
-	@echo "  bin tar file : $(BINTARFILE)"
+	@echo "CC is $(CC)"
+	@echo "SRCDIR is $(SRCDIR) , current dir is $(PWD)"
+	@echo "TARGETDIR is $(TARGETDIR)"
+	@echo "TARGETDIRFLG is $(TARGETDIRFLG)"
+	@echo -e "  bin tar file : $(BINTARFILE)\n\n"
 	cd e19; $(MAKE) TARG_OS=$(TARG_OS) test
 
 
@@ -241,5 +318,17 @@ test:
 truc:
 	@echo "shell is $(SHELL)"
 	@a=`which e`; \
-	if test -L $$a; then b=`readlink $$a`; fi; \
-	echo "e is : \"$$a\" --"; echo a link to $$b
+#        if test -L $$a; then b=`readlink $$a`; fi; \
+#        echo "e is : \"$$a\" --"; echo a link to $$b
+	@echo "LIBDIR is -$(LIBDIR)-"
+	@cd $(BINDIR1); for f in e19.*; do \
+	    if test $$f = e19.$(RELEASE); then \
+		echo ++$$f++; ls -l $$f; \
+	    else echo $$f; \
+	    fi; \
+	done
+	@echo -e "PWD1 id $(PWD1) \nTARGETNAME is $(TARGETNAME)"
+	@echo "BINDIR1 is $(BINDIR1)"
+	@echo "BINTARFILE is $(BINTARFILE)"
+	rm -f /tmp/list; gcc -v />/& /tmp/list
+	@cat /tmp/list

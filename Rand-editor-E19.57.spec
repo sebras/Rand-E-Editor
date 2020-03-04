@@ -6,7 +6,7 @@ Prefix: %{targdir}
 Summary: Rand full screen text Editor for Linux
 Name: Rand
 Version: E19
-Release: 56
+Release: 57
 Copyright: Copyright abandoned, 1983, The Rand Corporation
 Group: Applications/Editors
 Source: ftp://home.cern.ch/perrioll/Rand_Editor/%{name}-%{version}.%{release}.tgz
@@ -38,11 +38,11 @@ The current version is : %{name}-%{version}.%{release}
 # ----------------------------------------------------------------------------
 # to rebuild the package (bin and source files) :
 #   cd /usr/src/redhat/SPECS
-#   rpm -ba --clean Rand-editor-E19.56.spec
+#   rpm -ba --clean Rand-editor-E19.57.spec
 #
 #   To load somewhere else than the default build in : /usr/local
-#   rpm -ivh --prefix <somewhere> Rand-E19-56.i386.rpm
-#   rpm -ivh --relocate /usr/local=<somewhere> Rand-E19-56.i386.rpm
+#   rpm -ivh --prefix <somewhere> Rand-E19-57.i386.rpm
+#   rpm -ivh --relocate /usr/local=<somewhere> Rand-E19-57.i386.rpm
 #       to prevent creation of links in the doc system directory use
 #           --excludedocs rpm option flag
 #
@@ -78,7 +78,7 @@ The current version is : %{name}-%{version}.%{release}
 %define KbscDir ./help/%{KbDir}
 
 %prep
-%setup
+%setup -n %{pkgname}-%{version}.%{release}
 
 %build
 ./local.sh
@@ -151,6 +151,7 @@ make install TARGETDIR=%{targdir} PKGDIR=%{pkgdir}
 %{pkgtargdir}/errmsg
 %{pkgtargdir}/helpkey
 %{pkgtargdir}/recovermsg
+%{pkgtargdir}/e19
 %{pkgtargdir}/e19.%{release}
 %{pkgtargdir}/center
 %{pkgtargdir}/fill
@@ -169,7 +170,14 @@ make install TARGETDIR=%{targdir} PKGDIR=%{pkgdir}
 %{genericprgname}
 
 %changelog
-* Fri Feb 02 2001 by perrioll@psap62.cern.ch
+* Wed Jun 13 2001 by Fabien Perriollat <Fabien.Perriollat@cern.ch>
+- revision 57
+- Correct handling of very large file system.
+- Customisation of editing window boder characters set.
+- Better interaction with the edited files list.
+- Enter in command history navigation on <CMD> <CMD> <ALT> keys stroke.
+
+* Fri Feb 02 2001 by Fabien Perriollat <Fabien.Perriollat@cern.ch>
 - revision 56
 - New command "flipbkarrow" to flip between "DEL" and "DELCH" the Back Arrow
     key (in facte the key which generate the ascii del character (code 0177)
@@ -182,7 +190,7 @@ make install TARGETDIR=%{targdir} PKGDIR=%{pkgdir}
     NOX11 in order to not include anything from X11 library (which is normaly
       used to get the best result for keyboard mapping.
     NOXKB if the X11 library does not provide X11 keyboard extension
-* Mon Mar 13 2000 by perrioll@pspc7715.cern.ch
+* Mon Mar 13 2000 by Fabien Perriollat <Fabien.Perriollat@cern.ch>
 - revision 55
 - Support for long files (more than 32767 lines).
 - Version available for AIX (IBM Unix) on RS6000 family

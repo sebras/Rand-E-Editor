@@ -518,6 +518,7 @@ typedef struct savebuf {
 #define CCTICK         0233
 
 #define CCFNAVIG       0240
+#define CCFLIST        0241
 
 /* Resize entry code : to be used for replay only
  *   do not use for keyboard assignement

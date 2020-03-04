@@ -22,8 +22,15 @@ Short screensize;       /* term.tt_width * term.tt_height */
 extern
 Flag    fast;           /* running at a fast baud rate (>= 4800) */
 /* XXXXXXXXXXXXXXXXXXXXXXXXXXX */
+
+#ifdef __linux__
 extern
-short   ospeed;         /* tty output baud rate */
+int     ospeed;                 /* tty output baud rate */
+#else
+extern
+short   ospeed;                 /* tty output baud rate */
+#endif
+
 extern
 Flag    borderbullets;  /* Enable bullets on borders */
 extern

@@ -3,6 +3,11 @@
 file e.sv.c
     file saving routines
 
+    F. Perriollat : version 19.57
+	This version use the mkstemp routine, in stead of mktemp which
+	is unsafe. The old code is marked with "#if 0" and can be used
+	on system which does not provide mkstemp.
+
     F. Perriollat : version for Linux / Dec 1998
 
 	In the version for Linux, Window 95 / Window NT, a facility to define the
@@ -450,7 +455,7 @@ Flag filedir_flg;       /* YES : use the initial directory for this file */
     }
 
     /* make the backup name */
-    if (prebak[0] != '\0') Block {
+    if (prebak[0] != '\0') {
 	char *cp;
 	cp = append (prebak, filepart);
 	bakfile = append (dirname, cp);
@@ -470,7 +475,7 @@ Flag filedir_flg;       /* YES : use the initial directory for this file */
      * or the filename is the same as the old name of another renamed file,
      * then we must do the renaming now
      **/
-    if (filename == NULL) Block {
+    if (filename == NULL) {
 	Fn tmp;
 	if (   (tmp = hvoldname (origfile)) != -1
 	    && !svrename (tmp)
@@ -491,7 +496,7 @@ Flag filedir_flg;       /* YES : use the initial directory for this file */
     if ( filedir_flg ) (void) chdir (fdir);
 
     hasmultlinks = multlinks (origfile) > 1;
-    if (svinplace) Block {
+    if (svinplace) {
 	Fd origfd;
 	int origpriv;
 	save_msg (fn, origfile,
@@ -545,34 +550,43 @@ Flag filedir_flg;       /* YES : use the initial directory for this file */
 	}
 	close (origfd);
     }
-    else
-
-    Block {  /* not inplace */
+    else {
+	/* not inplace */
 	Fd tempfd;
 	struct stat stbuf;
+#if 0   /* old fashion : version <= 19.56 */
 	char *mktemp ();
+#endif
 	char *tempfile;
 	Nlines ltmp;
 
 	save_msg (fn, origfile, hasmultlinks ? "( breaking link)" : "");
 	d_put (0);
+
+#if 0   /* old fashion : version <= 19.56 */
 	tempfile = mktemp (append (dirname, ",esvXXXXXX"));
+	tempfd = creat (tempfile, groupid == 1 ? 0644 : 0664);
+#else
+	tempfile = append (dirname, ",esvXXXXXX");
+	tempfd = mkstemp (tempfile);
+#endif
 	sfree (dirname);
-	if ((tempfd = creat (tempfile, groupid == 1 ? 0644 : 0664)) == -1) {
+	if ( tempfd == -1 ) {
 	    mesg (ERRALL + 1, "Unable to create tmp file!");
- retno:     sfree (tempfile);
+	    sfree (tempfile);
 	    if ( cwd ) chdir (cwd);
 	    return NO;               /* error */
 	}
 	crlf_flg = file_mode (fn, NULL, NULL);
-	if ((ltmp = la_lflush (&fnlas[fn], (La_linepos) 0,
-		       la_lsize (&fnlas[fn]), tempfd, NO, NO, crlf_flg))
-	    != la_lsize (&fnlas[fn])
-	   ) {
+	ltmp = la_lflush (&fnlas[fn], (La_linepos) 0, la_lsize (&fnlas[fn]),
+			  tempfd, NO, NO, crlf_flg);
+	if ( ltmp != la_lsize (&fnlas[fn]) ) {
 	    mesg (ERRALL + 3, "Error saving ", origfile, " to disk");
-	    unlink (tempfile);
 	    close (tempfd);
-	    goto retno;              /* error */
+	    unlink (tempfile);
+	    sfree (tempfile);
+	    if ( cwd ) chdir (cwd);
+	    return NO;               /* error */
 	}
 	close (tempfd);
 
@@ -580,7 +594,7 @@ Flag filedir_flg;       /* YES : use the initial directory for this file */
 	 * we have to clear the INUSE and DELETED flags for that fn so our
 	 * file won't get deleted later as part of the saveall sequence
 	 **/
-	if ((tmp = hvdelname (origfile)) != -1) {
+	if ( (tmp = hvdelname (origfile)) != -1 ) {
 	    extern void marktickfile ();
 	    unlink (origfile);
 	    fileflags[tmp] &= ~(INUSE | DELETED);
@@ -591,8 +605,8 @@ Flag filedir_flg;       /* YES : use the initial directory for this file */
 	sfree (bakfile);
 	tmp = mv (tempfile, origfile);
 
-	if (!(fileflags[fn] & NEW)) {
-	    if (userid == 0) {
+	if ( !(fileflags[fn] & NEW) ) {
+	    if ( userid == 0 ) {
 		fstat (la_chan (&fnlas[fn]), &stbuf);
 		chown (origfile, stbuf.st_uid, stbuf.st_gid);
 		chmod (origfile, (int) stbuf.st_mode & 0777);
@@ -603,7 +617,7 @@ Flag filedir_flg;       /* YES : use the initial directory for this file */
 	sfree (tempfile);
     }
 
-    if (filename == NULL) {
+    if ( filename == NULL ) {
 	/* see to it that nothing more will happen to this file */
 	fileflags[fn] &= ~(CANMODIFY | NEW | DWRITEABLE);
 	la_unmodify (&fnlas[fn]);
@@ -625,7 +639,7 @@ Flag
 svrename (fn)
 Reg1 Fn fn;
 {
-    Block {
+    {
 	Reg2 char *old;
 	Reg3 char *new;
 	old = oldnames[fn];
@@ -642,7 +656,7 @@ Reg1 Fn fn;
      * we have to clear the INUSE and DELETED flags for that fn so our
      * file won't get deleted later as part of the saveall sequence
      **/
-    Block {
+    {
 	extern void marktickfile ();
 	Reg2 Fn tmp;
 	if ((tmp = hvdelname (names[fn])) != -1) {

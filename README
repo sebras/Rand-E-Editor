@@ -4,8 +4,35 @@ RAND editor sources and installation
 
 URL: http://home.cern.ch/perrioll/Rand_Editor
 
+June 2001
+Version 19.57 by Fabien Perriollat CERN/PS <Fabien.Perriollat@cern.ch>
+This version is mandatory for a corrrect handling of very large file
+system.
+  Very large file systems are supported with the _FILE_OFFSET_BITS conditional
+    compilation flag. This provides a correct navigation capability on very
+    large file systems.
+  Look at the output of the command "help new" for the other new features of
+    this release.
+  A small shell script "my_e" provide the correct mapping of F1 - F4 and
+    PF1 - PF4 xterm keys without disturbance for other applications.
+    This is contributed by Bob Drzyzgula Gaithersburg USA (bob@drzyzgula.org)
+
+  Major files updated :
+    ./Makefile
+    ./Rand-editor-E19.57.spec
+    ./e19/e.cm.c
+    ./e19/e.h.c
+    ./e19/e.m.c
+    ./e19/e.sv.c
+    ./e19/e.t.c
+    ./e19/e.u.c
+    ./e19/term/linux_pc.c
+    ./help/kbfiles/linuxkb
+
+  Creation of "./contributed" directory
+
 February 2001
-By Fabien Perriollat CERN/PS <Fabien.Perriollat@cern.ch>
+Version 19.56 by Fabien Perriollat CERN/PS <Fabien.Perriollat@cern.ch>
 
 This version of the rand editor currently compiles on the
 following architectures:
@@ -125,3 +152,19 @@ Note for Rand Editor developpers :
 
   NOX11 and NOXKB conditional compilation flags can be used to exclude
     X11 library or X11 Keyboard extension during compilation, loading.
+
+
+Major files updated :
+
+    ./Makefile
+    ./Rand-editor-E19.57.spec
+    ./e19/e.cm.c
+    ./e19/e.h.c
+    ./e19/e.m.c
+    ./e19/e.sv.c
+    ./e19/e.t.c
+    ./e19/e.u.c
+    ./e19/term/linux_pc.c
+    ./help/kbfiles/linuxkb
+
+Creation of "./contributed" directory

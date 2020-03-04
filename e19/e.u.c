@@ -11,6 +11,7 @@ file e.u.c
 #include "e.h"
 #include "e.m.h"
 #include "e.cm.h"
+#include "e.tt.h"
 #include <sys/stat.h>
 #include <pwd.h>
 #include <unistd.h>
@@ -18,6 +19,21 @@ file e.u.c
        void doedit ();
 extern char *getmypath ();
        char *ExpandName ();
+
+/* variables used to list the edited file */
+static int term_width, term_height; /* current display size */
+static Flag files_status_flg;   /* display the full status flag */
+static int first_tt_line = 0;   /* 1st video line index to display edited files */
+static int fi_list_offset = 0;  /* fi_list offset of the 1st displayed file */
+static int fi_highlight = 0;    /* file highlighted */
+static int fi_list_nb;          /* max number of element in fi_list */
+static int fi_list_idx;         /* index of highlighted file */
+static int fi_list [MAXFILES];
+
+static const char infstrg [] =
+"  Flags: 'N' = edited, 'A' = alternate, 'M' = modified, '*' active window";
+static char fi_title1 [128];    /* screen title (1st line) */
+static char fi_title2 [128];    /* screen title (2nd line) */
 
 /*  dochangedirectory : Change Directory Editor command */
 /* ---------------------------------------------------- */
@@ -56,63 +72,256 @@ Cmdret dochangedirectory () {
 
 
 /* display the list of edited files */
+/* -------------------------------- */
 
-static void edited_file ()
+static void display_line (char *fname, char *str, int size, Flag video_flg)
 {
-    extern char * fileslistString ();
+    static const char dot [] = "...";
+    int nb;
+    char *fn_pt;
 
-    static const char infstrg[] = "  In col 2 'N' : edited file, 'A' : alternate file";
-    int fi, wi, wn, i0, nb;
+    if ( strlen (str) < size ) {
+	nb = strlen (str) + strlen(fname) - size;
+	if ( nb <= 0 ) fn_pt = fname;
+	else {
+	    /* too long file name to be displayed */
+	    fn_pt = strchr (fname + nb + sizeof (dot) -1, '/');
+	    if ( ! fn_pt ) fn_pt = fname + nb;
+	    else {
+		strcat (str, dot);
+	    }
+	}
+	strcat (str, fn_pt);
+    }
+    str [size] = '\0';
+    if ( video_flg ) (*term.tt_video) (YES);
+    (void) fputs (str, stdout);
+    if ( video_flg ) (*term.tt_video) (NO);
+    (void) fflush (stdout);
+}
+
+static int one_edited_file (int fi, int iv_fi, Flag clr_flg)
+{
+    /* iv_fi : define for which file nb fi, the display must be in inverted
+       video mode, if iv_fi < 0 : inverted video for the Normal edited file
+       If iv_fi > MAXFILES the video will be normale
+    */
+    extern char * fileslistString ();
+    extern char * filestatusString ();
+    extern S_term term;
+
+    Flag video_flg;
+    int term_sz, sz, nb, vlidx, idx;
+    int wi, wn, i0;
     char ch, ch1, *wstg, *fname, *strg;
+    char str[256];
+    char *pt1, *pt2;
+
+    i0 = FIRSTFILE + NTMPFILES;
+    if ( (fi >= MAXFILES) || (fi < i0) ) return -1;
+    if ( !(fileflags[fi] & INUSE) ) return -1;
+
+    term_sz = term_width;
+    if ( term_sz > (sizeof (str) -1) ) term_sz = sizeof (str) -1;
+    strg = fileslistString (fi, &fname);
+    if ( ! strg ) return -1;
+    if ( ! files_status_flg ) {
+	pt1 = strchr (strg, ',');
+	pt2 = strchr (strg, ')');
+	if ( pt1 && pt2 ) {
+	    sz = strlen (++pt2);
+	    memmove (++pt1, pt2, sz);
+	    pt1 [sz] = '\0';
+	}
+    }
+    if ( nwinlist <= 1 ) {
+	ch1 = '*';
+	if ( fi == curwin->wksp->wfile ) ch = 'N';
+	else if ( fi == curwin->altwksp->wfile ) ch = 'A';
+	else ch = ' ';
+	memset (str, 0, sizeof (str));
+	sprintf (str, "%-2d %c %s", fi - i0 +1, ch, strg);
+    } else {
+	/* multiple window case */
+	ch = ch1 = ' ';     /* '*' for the active window */
+	wstg = "";
+	wn = 0;
+	for ( wi = nwinlist -1 ; wi >= 0 ; wi-- ) {
+	    if ( fi == winlist[wi]->wksp->wfile ) ch = 'N';
+	    else if ( fi == winlist[wi]->altwksp->wfile ) ch = 'A';
+	    else continue;
+	    wn = wi +1;
+	    if ( winlist[wi] == curwin ) {
+		ch1 = '*';
+		break;
+	    }
+	}
+	memset (str, 0, sizeof (str));
+	if ( wn ) sprintf (str, "%-2d %c%d%c %s", fi - i0 +1, ch1, wn, ch,
+			  strg);
+	else sprintf (str, "%-2d     %s", fi - i0 +1, strg);
+    }
+
+    video_flg = ( iv_fi < 0 ) ? ((ch == 'N') && (ch1 == '*')) : (fi == iv_fi);
+    if ( video_flg ) fi_highlight = fi;
+
+    /* found the fi in fi_list, if not, assume to be put at the end of list */
+    for ( idx = 0 ; idx < fi_list_nb ; idx++ ) {
+	if ( fi_list [idx] == fi ) break;
+    }
+    vlidx = first_tt_line + (idx - fi_list_offset);
+    if ( (vlidx >= first_tt_line) && (vlidx <= (term_height -2)) ) {
+	/* inside the current display window */
+	(*term.tt_addr) (vlidx, 0);
+	if (clr_flg ) (*term.tt_clreol) ();
+	display_line (fname, str, term_sz, video_flg);
+    }
+    return (fi);
+}
+
+static void fi_list_redraw (Flag resize_flg)
+{
+    int i, lnb, offset;
+
+    if ( (fi_list_idx < 0) || (fi_list_idx > fi_list_nb) )
+	return;
+
+    lnb = term_height - first_tt_line -1;
+    if ( ! resize_flg ) offset = fi_list_idx - (lnb / 2);
+    else {
+	offset = fi_list_offset;
+	if ( lnb < (fi_list_idx - offset +1) ) offset  = fi_list_idx - (lnb -1);
+	if ( lnb > (fi_list_nb  - offset)    ) offset -= lnb - fi_list_nb;
+    }
+    if ( offset > (fi_list_nb - lnb) ) offset = fi_list_nb - lnb;
+    if ( offset < 0 ) offset = 0;
+    fi_list_offset = offset;
+
+    (*term.tt_addr) (first_tt_line, 0);
+    for ( i = 0 ; i <= lnb ; i++ )
+	(void) one_edited_file (fi_list[i + fi_list_offset], fi_highlight, YES);
+    (*term.tt_addr) (term_height -1, 0);
+}
+
+static void display_fi_title ()
+{
+    char format [16];
+
+    (*term.tt_home) ();
+    sprintf (format, "%s%ds", "%.", term_width);
+    printf (format, fi_title1);
+    (*term.tt_addr) (1, 0);
+    printf (format, fi_title2);
+}
+
+static void fi_list_resize (int width, int height)
+{
+    int min_hgt;
+
+    term_width = width;
+    term_height = height;
+
+    min_hgt = first_tt_line +2;
+    (*term.tt_clear) ();
+    if ( term_height >= min_hgt ) {
+	display_fi_title ();
+	fi_list_redraw (YES);
+    } else
+	printf ("Too small terminal window : minimum height %d\a\n", min_hgt);
+
+    (*term.tt_addr) (term_height -1, 0);
+}
+
+static void fi_list_refresh ()
+{
+    int vlidx;
+
+    if ( (fi_list_idx < 0) || (fi_list_idx > fi_list_nb) )
+	return;
+    vlidx = first_tt_line + fi_list_idx - fi_list_offset;
+    if ( (vlidx >= first_tt_line) && ((vlidx +1) < term_height) )
+	return;
+
+    fi_list_redraw (NO);
+}
+
+static Flag my_list_kbhandler (int gk, int *val)
+{
+    int idx, fi;
+
+    if ( (gk != CCMOVEDOWN) && (gk != CCMOVEUP) )
+	return NO;
+
+    idx = fi_list_idx + ((gk == CCMOVEUP) ? -1 : 1);
+    if ( (idx >= 0) && (idx < fi_list_nb) ) {
+	(void) one_edited_file (fi_list[fi_list_idx], MAXFILES+1, NO);
+	fi_list_idx = idx;
+	fi = fi_list [idx];
+	fi_highlight = one_edited_file (fi, fi, NO);
+	(*term.tt_addr) (term_height -1, 0);
+	if ( fi_highlight > 0 ) *val = fi - (FIRSTFILE + NTMPFILES) +1;
+	fi_list_refresh ();
+    } else putchar ('\a');
+    return YES;
+}
+
+static Flag (*edited_files ())()
+{
+    static const char flgstrg [] =
+    "  Flags: 'N' = edited, 'A' = alternate, 'M' = modified";
+    static const char flgstrg2 [] = ", '*' active window";
+
+    int i0, fi, fi_nb, nb;
+    int lnb;
 
     i0 = FIRSTFILE + NTMPFILES;
     nb = MAXFILES - i0;
 
+    strcpy (fi_title2, flgstrg);
     if ( nwinlist <= 1 ) {
-	printf ("Edited file list (max nb of files %d)\n%s\n\n", nb, infstrg);
+	sprintf (fi_title1, "Edited file list (max nb of files %d)\n", nb);
     } else {
-	printf ("Edited file list (max nb of files %d) in %d windows\n%s, '*' : the active window\n\n",
-		nb, nwinlist, infstrg);
+	sprintf (fi_title1, "Edited file list (max nb of files %d) in %d windows\n",
+		 nb, nwinlist);
+	strcat (fi_title2, flgstrg2);
     }
+    display_fi_title ();
+
+    first_tt_line = 3;
+    fi_highlight = fi_list_nb = fi_list_offset = 0;
+    memset (fi_list, 0, sizeof (fi_list));
     for ( fi = i0 ; fi < MAXFILES ; fi++ ) {
-	if ( !(fileflags[fi] & INUSE) ) continue;
-	strg = fileslistString (fi, &fname);
-	if ( ! strg ) continue;
-	if ( nwinlist <= 1 ) {
-	    if ( fi == curwin->wksp->wfile ) ch = 'N';
-	    else if ( fi == curwin->altwksp->wfile ) ch = 'A';
-	    else ch = ' ';
-	    printf ("%-2d %c %s%s\n", fi - i0 +1, ch, strg, fname);
-	} else {
-	    /* multiple window case */
-	    ch = ch1 = ' ';     /* '*' for the active window */
-	    wstg = "";
-	    wn = 0;
-	    for ( wi = nwinlist -1 ; wi >= 0 ; wi-- ) {
-		if ( fi == winlist[wi]->wksp->wfile ) ch = 'N';
-		else if ( fi == winlist[wi]->altwksp->wfile ) ch = 'A';
-		else continue;
-		wn = wi +1;
-		if ( winlist[wi] == curwin ) {
-		    ch1 = '*';
-		    break;
-		}
-	    }
-	    if ( wn ) printf ("%-2d %c%d%c %s%s\n", fi - i0 +1, ch1, wn, ch,
-			      strg, fname);
-	    else printf ("%-2d     %s%s\n", fi - i0 +1, strg, fname);
+	fi_nb = one_edited_file (fi, -1, NO);
+	if ( fi_nb > 0 ) {
+	    if ( fi_nb == fi_highlight ) fi_list_idx = fi_list_nb;
+	    fi_list[fi_list_nb++] = fi_nb;
 	}
     }
+    fi_list_refresh ();
+    return my_list_kbhandler;
 }
 
 /* Display the list of edited files and switch files if requested */
 
-Cmdret displayfileslist () {
-    extern void show_info (void (*my_info) (), int *, char *);
-    static char listmsg [] = "---- <file nb> <RETURN> to switch to this file, or <Ctrl C> just to return ----";
+static void my_size (int *width_pt, int *height_pt)
+{
+    if ( width_pt ) *width_pt = term_width;
+    if ( height_pt ) *height_pt = term_height;
+}
+
+Cmdret displayfiles (Flag status_flg)
+{
+    extern void show_info (Flag (*my_info ()) (), int *, char *,
+			   void (*my_service) (), void (*my_size) (int *, int*) );
+
+    static char listmsg [] =
+    "---- up, down or <file nb> & <RETURN> to switch file, <Ctrl C> just to return -----";
     int val, fi;
 
-    show_info (edited_file, &val, listmsg);
+    term_width = term.tt_width;
+    term_height = term.tt_height;
+    files_status_flg = status_flg;
+    show_info (edited_files, &val, listmsg, fi_list_resize, my_size);
     if ( val > 0 ) {
 	fi = val -1 + FIRSTFILE + NTMPFILES;
 	if ( (fi < MAXFILES) && (fileflags[fi] & INUSE) ) {
@@ -120,10 +329,15 @@ Cmdret displayfileslist () {
 		(void) editfile (names [fi], (Ncols) -1, (Nlines) -1, 1, YES);
 	    }
 	} else {
-	    putchar ('\007');
+	    putchar ('\a');
 	}
     }
     return CROK;
+}
+
+Cmdret displayfileslist ()
+{
+    return (displayfiles (YES));    /* full files status */
 }
 
 #ifdef COMMENT
@@ -145,7 +359,7 @@ edit ()
     }
     sz = strlen (opstr);
     if ( (sz == 1) && (*opstr == '?') ) {
-	cc = displayfileslist ();
+	cc = displayfiles (NO);
 	return cc;
     }
 

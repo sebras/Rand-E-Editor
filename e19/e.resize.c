@@ -280,20 +280,22 @@ static void resize_now (Flag msg_flg, int height, int width)
 #endif /* VBSTDIO */
 
 
-static get_size (int * width, int * height)
+static get_size (int * width, int * height, Flag chk_min)
 {
-    extern void get_tt_size (int *, int *);
+    extern void get_tt_size   (int *, int *);
+    extern void get_term_size (int *, int *);
 
     *width  = term.tt_width;
     *height = term.tt_height;
-    get_tt_size (width, height);
+    if ( chk_min ) get_tt_size (width, height);
+    else get_term_size (width, height);
 }
 
 static void do_resize_screen (Flag msg_flg)
 {
     int height, width;
 
-    get_size (&width, &height);
+    get_size (&width, &height, YES);
     resize_now (msg_flg, height, width);
 }
 
@@ -320,7 +322,7 @@ void sig_resize (int num)
 	do_resize_screen (!silent);
     } else {
 	if ( alt_resize ) {
-	    get_size (&width, &height);
+	    get_size (&width, &height, NO);
 	    (*alt_resize) (width, height, alt_resize_para);
 	}
     }

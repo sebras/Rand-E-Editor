@@ -13,8 +13,13 @@ WIN LEFT - This key causes the window to move to the left 16 spaces.  If the
 ~2
 ALT - This key switches the window between the current file and its
     alternate file.
+    If preceeded by the CMD key, and not in command mode, enter in full
+    screen display edited file list and navigation. This is equivalent to
+    the command "edit ?" or "e ?". Then UP and DOWN keys can be used to
+    select the file to be edited.
     In command mode, if preceeded by the CMD key, what was the last command
-    is recalled.
+    is recalled. Then UP and DOWN keys can be used to navigate into the
+    command history list.
     So, to recall the last command in edit mode, use the CMD CMD ALT key
     stroke.
 ~3
@@ -350,6 +355,13 @@ FNAVIGATE - This key enter into the edited file list navigation mode,
     When in this mode, navigate in a turn around behaviour,
     when we cross in the file list the currently active window edited file,
     a beep is generated.
+~161
+FLIST - This key enter into the edited file list display mode,
+    this is equivalent to 'edit ?' key stroke.
+    When in this mode, the Up and DOWN key can be used to select the
+    file to be the Normal edited file.
+    Trying to cross the top or the bottom the edited file list generate a bip.
+    Entering the file number from the keyboard is an alternated method.
 ~184
     This key value can be used only for replay, (entry of resizing command).
 ~---------------------- End of the key section ---------------------
@@ -735,6 +747,11 @@ SET <option>
 		characters in addition to blanks and newlines, and the
 		cursor advances to the first alphanumeric character
 		following the delimiter.
+    charset n   n = 0 resets to the default character set and non graphic
+		window border charater marks.
+		n = 1 sets the alternate character set and graphic border
+		if any. This is currently only available for the consol
+		of PC linux paltform.
 
     The "line", "page", and "window" options may be individually set in
     different windows.
@@ -1092,6 +1109,33 @@ FLIPBKARROW - flip between "DEL" and "DELCH" keyboard function the function
 
 #New_features_Linux -----------------------------------------------------
 ------------------------------------------------------------------------------
+New Features of the Linux version 19 revision 57 (June 2001)
+  Corrected files navigation for very large file systems. This version
+    is mandatory if you have very large file system (64 bit addressing).
+    This feature was not tested on non Linux PC platforms.
+  Some customisation of the editing window border is provided. An alternate
+    border char set can be used with the "set charset 1" command or with
+    the <userchar>:<1> keyboard file directive. When the alternate set is
+    in use, the border characters are displayed using the unicode capbility
+    of the terminal driver. The characters used are in the UCS2 special value
+    in range 0xF000..0xF1FF : 'PRIVATE AREA'. For more information refere to
+    the UNICODE(7) man page on linux. Build in border character sets are
+    defined for IBM-PC console (Linux console) and xterm familly X11 terminal
+    emulator familly. The alternate border characters can be customised with
+    the keyboard new directives : <blcmch>:<char code>...<ttmch>:<char code>.
+    Look at the output of "help keymap" for the full list of border char
+    directive and also for the current setting.
+    The default border character set is build in and cannot be customised,
+    look at .../Rand-E19/e19/term/standard.c file.
+    This is only for Linux platforms.
+    This feature is only available on Linux platforms.
+  A better interaction with the edited file list is provided with a full
+    screen display window where UP and DOWM keys navigate in the list to
+    selected the "Normal" edited file. The key stroke <CMD> <ALT> or the
+    command "edit ?" enter this mode.
+  The key stroke <CMD> <CMD> <ALT> recall the last command, but also enable
+    command history navigation (with UP and DOWN keys).
+
 New Features of the Linux version 19 revision 56 (January 2001)
   New command and key function "tick" to mark a position in an edited file,
     go back quickly to this position with the "goto tick" command

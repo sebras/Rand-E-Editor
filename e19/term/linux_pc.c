@@ -3013,8 +3013,6 @@ Flag get_keyboard_map (char *terminal, int strg_nb,
 		       char *strg1, char *strg2, char *strg3,
 		       char *strg4, char *strg5, char *strg6)
 {
-    static char *init_msg = NULL;
-
     int i, sz;
     Flag app_mode, alt_cursor_mode;
     char *strg[6];
@@ -3033,8 +3031,8 @@ Flag get_keyboard_map (char *terminal, int strg_nb,
     for ( sz = i = 0 ; i < strg_nb ; i++ )
 	if ( strg[i] ) sz += strlen (strg[i]);
     if ( sz ) {
-	init_msg = malloc (sz);
-	memset (init_msg, 0, sz);
+	init_msg = malloc (sz+1);
+	if ( init_msg ) memset (init_msg, 0, sz+1);
     }
     if ( init_msg ) {
 	for ( i = 0 ; i < strg_nb ; i++ )
@@ -3739,6 +3737,7 @@ static char nomapping_warning [] = "\n\
     the \"build-kbmap\" command.\n\n\
 ";
 
+    extern char *TI, *KS, *VS;
     static char * escseqstrg ();
     char *st, *st1, buf [1024];
     int applmod, cursmod;
@@ -3752,7 +3751,11 @@ static char nomapping_warning [] = "\n\
     get_kbmode_strgs (&st, &st1);
     printf ("\n--- terminal mode : %s key pad, %s cursor ----\n", st, st1);
     printf ("    Initialisation string : %s\n", escseqstrg (init_msg));
-    printf ("    <kbinit> (from kbfile) : %s\n\n", escseqstrg (kbinistr));
+    printf ("    <kbinit> (from kbfile) : %s\n", escseqstrg (kbinistr));
+    if ( TI && *TI ) printf ("    <ti> (from terminfo) : %s\n\n", escseqstrg (TI));
+    if ( KS && *KS ) printf ("    <ks> (from terminfo) : %s\n\n", escseqstrg (KS));
+    if ( VS && *VS ) printf ("    <vs> (from terminfo) : %s\n\n", escseqstrg (VS));
+    putchar ('\n');
 
     if ( Xterminal_flg ) {
 	xterm_msg (buf + strlen (buf));
@@ -4385,6 +4388,8 @@ No keyboard map is available in this configuration.\
  */
 void display_keymap (Flag prg_verbose)
 {
+    extern void display_xlate (char *);
+
     int ctrlc;
     char *str1, *str2;
     int sz, nbnl;
@@ -4403,6 +4408,16 @@ void display_keymap (Flag prg_verbose)
 
     /* display control key mapping */
     display_ctrl ();
+
+#ifdef __linux__
+    /* display the border char set */
+    if ( ! verbose ) {
+	ctrlc = wait_keyboard ("Push a key to continue with Border character set, <Ctrl C> to exit", NULL);
+	fputs (              "\r                                                                  ", stdout);
+	if ( ctrlc ) return;
+    }
+    display_xlate (tname);
+#endif /* __linux__ */
 
     if ( ! verbose ) {
 	ctrlc = wait_keyboard ("Push a key to return to edition session", NULL);

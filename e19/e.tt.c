@@ -25,7 +25,11 @@ Small   termtype;               /* which kind of terminal */
 Short   screensize;             /* term.tt_width * term.tt_height */
 Flag    fast;                   /* running at a fast baud rate (>= 4800) */
 /* XXXXXXXXXXXXXXXXXXXXX */
+#ifdef __linux__
+int     ospeed;                 /* tty output baud rate */
+#else
 short   ospeed;                 /* tty output baud rate */
+#endif
 Flag    borderbullets = YES;    /* Enable bullets on borders */
 S_term  term;
 S_kbd   kbd;

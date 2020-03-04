@@ -1,4 +1,4 @@
-#!/usr/local/bin/bash
+#!/bin/bash
 # shell script to create a new release of Rand editor Version E19
 #   update all the release value in specification and build files
 # F. Perriollat February 2001

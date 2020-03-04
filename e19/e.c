@@ -219,7 +219,7 @@ char *statefile;    /* argument to -state=xxx option */
 
 char stdk[] = "standard";   /* standard comipled keyboard name */
 Flag stdkbdflg;     /* use the standard compiled keyboard definition */
-static Flag Xterm_flg;  /* YES for xterm terminal afmilly */
+static Flag Xterm_flg;  /* YES for xterm terminal familly */
 
 Flag helpflg,
      verbose_helpflg,
@@ -1953,11 +1953,16 @@ void reset_term ()
     reset_term_proc = NULL;
 }
 
-void set_term ()
+void alt_set_term (char *ternm, Flag force)
 {
     extern void (*alt_specialchar ()) ();
 
-    reset_term_proc = alt_specialchar (tname);
+    reset_term_proc = alt_specialchar (ternm, force);
+}
+
+void set_term ()
+{
+    alt_set_term (tname, NO);
 }
 
 /* build_kbfile : build the default keyboard definition file name */
@@ -2169,6 +2174,7 @@ gettermtype ()
 	extern int in_file();
 	extern int nop ();
 
+	set_term ();    /* userxlate must be filled before processing kbfile */
 	if ( getkbfile (kbfile) ) kbd.kb_inlex = in_file;
 	else kname = stdk;
 	/* -------

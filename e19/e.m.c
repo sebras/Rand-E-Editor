@@ -72,11 +72,12 @@ extern void testandset_resize ();
 extern void marktick (Flag set);
 
 #ifdef LMCCMDS
-char *nix = "\0";
-char *abortstg = "ab\0";
-char *quitstg = "q\0";
-char *pickstg = "pick\0";
-char *boardstg = "status\0";
+static char *nix = "\0";
+static char *abortstg = "ab\0";
+static char *quitstg = "q\0";
+static char *pickstg = "pick\0";
+static char *boardstg = "status\0";
+static char *editstg = "?\0";
 /*
 char *boardstg = "l\0";
 */
@@ -480,6 +481,11 @@ contin:
 		case CCMOVEUP:
 		default:
 		    goto badkeyerr;
+
+		case CCFLIST:
+		    (void) command (CMDEDIT, editstg);
+		    goto doneswitch;
+
 #ifdef LMCCMDS
 		case CCNULL:
 		    goto funcdone;
@@ -519,7 +525,12 @@ gotcmd:
 		    goto funcdone;
 
 		case CCSETFILE:
+		    /* enter in edited file list and select (19.57) */
+		    (void) command (CMDEDIT, editstg);
+		    goto funcdone;
+		    /* before 19.57
 		    goto notimperr;
+		    */
 
 		case CCINT:
 		    goto funcdone;

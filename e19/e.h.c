@@ -28,6 +28,10 @@ static int Esc_flg = 0;     /* Escape was just pushed flag, not yet used by the 
 static Flag by_flg = NO; /* add the "by ..." info */
 static int nl_nb = 0;   /* number of line in the call to help_description_ext */
 
+/* registered resize screen routine for full screen info display */
+static void (*resize_service) () = NULL;    /* specifique resize routine */
+static void (*resize_param) (int *, int *) = NULL;  /* get current term size */
+
 /* browse_keyboard : display the description of the pushed key assigned function */
 /* ----------------------------------------------------------------------------- */
 /*  return when :
@@ -602,13 +606,16 @@ Cmdret help_std (char * helparg)
 
 /* utility to display some info and wait for keyboard */
 
-static Cmdret process_show_info (void (*my_info) (), int *val_ret, char *msg)
+static Cmdret process_show_info (
+		Flag (*(*my_info)())(int, int *),
+		int *val_ret, char *msg)
 {
     int ctrlc, gk, val, i;
     char val_strg [16], *str;
     char msg_str [128];
+    Flag (*my_kbhandler) (int, int *);
 
-    (*my_info) ();
+    if ( my_info ) my_kbhandler = (*my_info) ();
 
     memset (msg_str, 0, sizeof (msg_str));
     str = ( msg ) ? msg : retmsg;
@@ -618,19 +625,28 @@ static Cmdret process_show_info (void (*my_info) (), int *val_ret, char *msg)
 	memset (val_strg, 0, sizeof (val_strg));
 	for ( i = 0 ; i < sizeof (val_strg) -1 ; ) {
 	    ctrlc = wait_keyboard (msg_str, &gk);
-	    if ( ctrlc || (gk == CCRETURN) || (gk == CCCMD) || (gk == CCINT) ) break;
+	    if ( ctrlc || (gk == CCCMD) || (gk == CCINT) ) {
+		/* cancel */
+		val = 0;
+		break;
+	    }
+	    if ( gk == CCRETURN ) {
+		/* done */
+		if ( ! val ) val = atoi (val_strg);
+		break;
+	    }
 	    if ( (gk == CCMOVELEFT) || (gk == CCDELCH) || (gk == CCBACKSPACE) ) {
 		if ( i > 0 ) i--;
 		msg_str [i] = str [i];
 		val_strg [i] = '\0';
 		continue;
+	    } else if ( my_kbhandler ) {
+		if ( my_kbhandler (gk, &val) ) continue;
 	    }
 	    if ( (gk < '0') || (gk > '9') ) continue;
+	    val = 0;
 	    val_strg [i++] = (char) gk;
 	    memcpy (msg_str, val_strg, strlen (val_strg));
-	}
-	if ( !ctrlc && (gk == '\r') ) {
-	    val = atoi (val_strg);
 	}
 	*val_ret = val;
     } else {
@@ -639,9 +655,13 @@ static Cmdret process_show_info (void (*my_info) (), int *val_ret, char *msg)
     return CROK;
 }
 
-void show_info (void (*my_info) (), int *val_ret, char *msg)
+void show_info (void (*my_info) (), int *val_ret, char *msg,
+		void (*my_resize) (), void (*my_size) ())
 {
+    resize_service = my_resize;
+    resize_param = my_size;
     (void) do_fullscreen (process_show_info, (void *) my_info, (void *) val_ret, (void *) msg);
+    resize_param = resize_service = NULL;
 }
 
 /* ----------------------------------------------------------------------- */
@@ -924,7 +944,7 @@ static int wait_key ()
     return True (YES) if <Ctrl C> key was pushed
 */
 
-void update_msg (int width, int height, void *para)
+static void update_msg (int width, int height, void *para)
 {
     char * msg, ch;
 
@@ -940,24 +960,38 @@ void update_msg (int width, int height, void *para)
     if ( ch ) msg [width] = ch;
 }
 
+static void resize_update_msg (int width, int height, void *para)
+{
+    char * msg, ch;
+
+    if ( resize_service ) (*resize_service) (width, height);
+    update_msg (width, height, para);
+}
+
 int wait_keyboard (char *msg, int *gk_pt)
 {
     extern void set_alt_resize (void (* my_resize) (int width, int height, void *para), void *para);
     extern void switch_ctrlc ();
     int qq;
     char str [256], *strg;
+    int width, height;
 
     if ( CtrlC_flg ) return CtrlC_flg;
 
     memset (str, 0, sizeof (str));
     if ( msg ) {
-	(*term.tt_addr)  (term.tt_height -1, 0);
+	if ( resize_param ) (* resize_param) (&width, &height);
+	else {
+	    width  = term.tt_width;
+	    height = term.tt_height;
+	}
+	(*term.tt_addr)  (height -1, 0);
 	strncpy (str, msg, sizeof (str) -1);
-	update_msg ((int) term.tt_width, (int) term.tt_height, (void *) str);
+	update_msg (width, height, (void *) str);
     }
     keyused = YES;
     switch_ctrlc (YES);
-    set_alt_resize (update_msg, (void *) str);
+    set_alt_resize (resize_update_msg, (void *) str);
     qq = getkey (WAIT_KEY);
     set_alt_resize (NULL, NULL);
     if ( (qq == CCINT) && keyfile ) putc (CCINT, keyfile);

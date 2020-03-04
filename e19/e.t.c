@@ -257,6 +257,21 @@ static char * history_get (Flag forward)
     return hist_get;
 }
 
+/* version 19.57 */
+static void check_history_get (char * ccmdp)
+{
+    char *saved_hist_get, *hist_strg;
+
+    if ( !ccmdp || !*ccmdp ) return;
+
+    saved_hist_get = hist_get;
+    hist_strg = history_get (NO);   /* get previous entry */
+    if ( ! hist_strg ) return;
+
+    if ( strcmp (ccmdp, hist_strg) != 0 )
+	hist_get = saved_hist_get;  /* restaure history get pointer */
+	/* else a mouve backward will not duplicate the command */
+}
 
 /* edited file list navigation handling */
 /* ------------------------------------ */
@@ -2423,15 +2438,28 @@ param ()
 
 	    if ( uselast ) {
 		/* re-display and re-use the last (or saved) command string */
+		char * cmdstrg;
+		Short cmdl;
+
 		uselast = NO;
-		if (lcmdlen >= ccmdl)
-		    ccmdp = gsalloc (ccmdp, 0, ccmdl = lcmdlen + LPARAM, YES);
-		memmove (ccmdp, lcmdp, lcmdlen);
-		ccmdpos = ccmdlen = lcmdlen;
-		ccmdp[ccmdlen] = '\0';
+		cmdl = lcmdlen;
+		cmdstrg = lcmdp;
+		if ( cmdl == 0 ) {
+		    /* if the last command is empty, try the last cmd in history */
+		    /* version 19.57 */
+		    cmdstrg = history_get (NO); /* get last command */
+		    if ( cmdstrg ) cmdl = strlen (cmdstrg);
+		    else cmdstrg = lcmdp;
+		}
+		if (cmdl >= ccmdl)
+		    ccmdp = gsalloc (ccmdp, 0, ccmdl = cmdl + LPARAM, YES);
+		memmove (ccmdp, cmdstrg, cmdl);
+		ccmdpos = ccmdlen = cmdl;
+		ccmdp[cmdl] = '\0';
 		key_cnt = ccmdpos +2;   /* for the <CMD> <ALT> keys */
 		putmsg ();
 		all_cmdflg = NO;
+		if ( ccmdlen ) check_history_get (ccmdp);   /* version 19.57 */
 	    }
 	    else {
 		/* keyfile write position, for file expension and CCINT */
@@ -2775,11 +2803,13 @@ param ()
 			break;
 
 		    /* <CMD> <alt file> : redisplay the previous command string */
+		    /*      and enter in history navigation (19.57) */
 		    mesg (TELSTOP);
 		    uselast = YES;
 		    keyused = YES;
 		    parmstrt_flg = YES;
 		    done_flg = NO;
+		    hist_flg = hist_cont_flg = YES; /* new in version 19.57 */
 		    break;
 
 		case CCCTRLQUOTE:
