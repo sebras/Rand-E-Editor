@@ -58,7 +58,7 @@ nop () {}
 
 /* Special characters */
 
-static char defxlate[] = {      /* default setting */
+static unsigned char defxlate[] = {     /* default setting */
     0177,    /* ESCCHAR escape character */
 	/*
 	 * For terminals that don't support any BLOT character,
@@ -82,7 +82,7 @@ static char defxlate[] = {      /* default setting */
     '.'      /* INMCH   inactive border */
 };
 
-static char ibmpcxlate[] = {
+static unsigned char ibmpcxlate[] = {
     0177,    /* ESCCHAR escape character */
 	/*
 	 * For terminals that don't support any BLOT character,
@@ -106,7 +106,7 @@ static char ibmpcxlate[] = {
     '.'         /* INMCH         inactive border */
     };
 
-char *stdxlate = defxlate;  /* current special character set */
+unsigned char *stdxlate = defxlate;  /* current special character set */
 
 /* terminal character set routines */
 /* ------------------------------- */

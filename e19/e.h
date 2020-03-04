@@ -154,7 +154,10 @@ typedef Small Cmdret;           /* comand completion status */
 #define FNSTRLEN 14             /* max allowable filename string length */
 #endif
 
+#ifndef abs
 #define abs(a) ((a)<0?(-(a)):(a))
+#endif
+
 #define min(a,b) (((a) < (b))? (a): (b))
 #define max(a,b) (((a) > (b))? (a): (b))
 #define Goret(a) {retval= a;goto ret;}
@@ -230,6 +233,15 @@ extern Flag optstick;
 #endif
 
 
+/* the struct markenv was initialy define in e.m.h */
+struct markenv
+{
+    Nlines  mrkwinlin;
+    ANcols  mrkwincol;
+    ASlines mrklin;
+    Scols   mrkcol;
+};
+
 /* workspace - two per window: wksp and altwksp
  **/
 typedef struct workspace {
@@ -243,6 +255,7 @@ typedef struct workspace {
     La_stream *brnglas;         /* beginning of range, if set */
     La_stream *ernglas;         /* end of range, if set */
     ASmall wkflags;
+    struct markenv wkpos;       /* last goto position */
 } S_wksp;
 /* S_wksp flags: */
 # define RANGESET 1             /* RANGE is set */
@@ -502,6 +515,7 @@ typedef struct savebuf {
 #else
 #define CCDWORD        CCUNAS1
 #endif
+#define CCTICK         0233
 
 #define CCFNAVIG       0240
 
@@ -883,7 +897,7 @@ extern void getline ();
 extern void getpath ();
 extern void gotomvwin ();
 extern void igsig ();
-extern void info ();
+extern void rand_info ();
 extern void infoprange ();
 extern void inforange ();
 extern void infotrack ();

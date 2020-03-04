@@ -27,32 +27,21 @@ depend:
 
 # DO NOT DELETE THIS LINE -- make depend depends on it.
 
-center.o: /usr/include/stdio.h /usr/include/features.h
-center.o: /usr/include/sys/cdefs.h /usr/include/gnu/stubs.h
-center.o: /usr/lib/gcc-lib/i386-redhat-linux/egcs-2.91.66/include/stddef.h
-center.o: /usr/lib/gcc-lib/i386-redhat-linux/egcs-2.91.66/include/stdarg.h
-center.o: /usr/include/bits/types.h /usr/include/libio.h
-center.o: /usr/include/_G_config.h /usr/include/bits/stdio_lim.h
-center.o: /usr/include/ctype.h /usr/include/endian.h
-center.o: /usr/include/bits/endian.h /usr/include/sys/types.h
-center.o: /usr/include/time.h /usr/include/sys/select.h
-center.o: /usr/include/bits/select.h /usr/include/bits/sigset.h
-center.o: /usr/include/sys/sysmacros.h /usr/include/sys/stat.h
-center.o: /usr/include/bits/stat.h
-fill.o: /usr/include/stdio.h /usr/include/features.h /usr/include/sys/cdefs.h
-fill.o: /usr/include/gnu/stubs.h
-fill.o: /usr/lib/gcc-lib/i386-redhat-linux/egcs-2.91.66/include/stddef.h
-fill.o: /usr/lib/gcc-lib/i386-redhat-linux/egcs-2.91.66/include/stdarg.h
-fill.o: /usr/include/bits/types.h /usr/include/libio.h
-fill.o: /usr/include/_G_config.h /usr/include/bits/stdio_lim.h
-fill.o: /usr/include/ctype.h /usr/include/endian.h /usr/include/bits/endian.h
-fill.o: /usr/include/sys/types.h /usr/include/time.h
-fill.o: /usr/include/sys/select.h /usr/include/bits/select.h
-fill.o: /usr/include/bits/sigset.h /usr/include/sys/sysmacros.h
-fill.o: /usr/include/sys/stat.h /usr/include/bits/stat.h
-run.o: /usr/include/stdio.h /usr/include/features.h /usr/include/sys/cdefs.h
-run.o: /usr/include/gnu/stubs.h
-run.o: /usr/lib/gcc-lib/i386-redhat-linux/egcs-2.91.66/include/stddef.h
-run.o: /usr/lib/gcc-lib/i386-redhat-linux/egcs-2.91.66/include/stdarg.h
-run.o: /usr/include/bits/types.h /usr/include/libio.h
-run.o: /usr/include/_G_config.h /usr/include/bits/stdio_lim.h
+center.o: /usr/include/stdio.h /usr/include/standards.h
+center.o: /usr/include/va_list.h /usr/include/sys/types.h
+center.o: /usr/include/sys/inttypes.h /usr/include/sys/m_types.h
+center.o: /usr/include/sys/limits.h /usr/include/float.h /usr/include/ctype.h
+center.o: /usr/include/sys/localedef.h /usr/include/sys/lc_core.h
+center.o: /usr/include/locale.h /usr/include/sys/localedef31.h
+center.o: /usr/include/sys/stat.h /usr/include/sys/mode.h
+fill.o: /usr/include/stdio.h /usr/include/standards.h /usr/include/va_list.h
+fill.o: /usr/include/sys/types.h /usr/include/sys/inttypes.h
+fill.o: /usr/include/sys/m_types.h /usr/include/sys/limits.h
+fill.o: /usr/include/float.h /usr/include/ctype.h
+fill.o: /usr/include/sys/localedef.h /usr/include/sys/lc_core.h
+fill.o: /usr/include/locale.h /usr/include/sys/localedef31.h
+fill.o: /usr/include/sys/stat.h /usr/include/sys/mode.h
+run.o: /usr/include/stdio.h /usr/include/standards.h /usr/include/va_list.h
+run.o: /usr/include/sys/types.h /usr/include/sys/inttypes.h
+run.o: /usr/include/sys/m_types.h /usr/include/sys/limits.h
+run.o: /usr/include/float.h

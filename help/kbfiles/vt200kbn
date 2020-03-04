@@ -4,6 +4,10 @@
 #                   1998 Dec 17 : better handling of nxterm in linux
 #                   2000 Jan 11 : differenciate ctrl H <008> and Bksp <0177>
 #                                 for the zvt emulator in gnome-terminal
+#                   2001 Jan 10 : add comment on the new directive available : 'noX11'
+#-----------------------------------------------------------------------------
+# The "#!noX11" directive line can be used to prevent any call to X11 lib
+#   to get the keyboard mapping
 #-----------------------------------------------------------------------------
 # Linux specific case :
 # ---------------------
@@ -130,8 +134,10 @@
 ^["OQ":<+word>
 ^["Oo":<+word>
 #PF3
-^["OR":<open>
-^["Oj":<open>
+^["OR":<tick>
+^["Oj":<tick>
+#^["OR":<open>
+#^["Oj":<open>
 #PF4
 ^["OS":<fnavigate>
 # ^["OS":<insmd>

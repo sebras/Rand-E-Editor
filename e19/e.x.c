@@ -39,6 +39,8 @@ char      *names[MAXFILES];
 char      *oldnames[MAXFILES];
 S_wksp     lastlook[MAXFILES];
 short      fileflags[MAXFILES];
+Flag       fileticksflags[MAXFILES]; /* tick mark in use for the file */
+struct markenv fileticks[MAXFILES];  /* tick mark in the file */
 
 
 S_wksp  *curwksp;

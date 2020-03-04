@@ -16,11 +16,18 @@ file e.t.c
 #include "e.wi.h"
 #endif
 
+#include <errno.h>
+
 #ifdef  SYSSELECT
 #include <sys/time.h>
 #else
 #include SIG_INCL
 #endif
+
+#ifdef __sun
+#undef EMPTY
+#endif
+
 
 #ifdef TESTRDNDELAY
 # undef EMPTY
@@ -83,7 +90,7 @@ extern void param ();
 extern void exchgcmds ();
 extern void getarg ();
 extern void limitcursor ();
-extern void info ();
+extern void rand_info ();
 extern void mesg ();
 extern void credisplay ();
 extern void redisplay ();
@@ -1540,6 +1547,8 @@ Small peekflg;
     static Uchar chbuf[NREAD];
     static Uchar *lp;
 
+    char fmsg [128];
+
     if ( replaying ) {
 	static Small replaydone = 0;
 	if ( replaydone ) {
@@ -1602,8 +1611,10 @@ Small peekflg;
 		    }
 		    break;
 		}
-		if (errno != EINTR)
-		    fatal (FATALIO, "Error reading input.");
+		if (errno != EINTR) {
+		    sprintf (fmsg, "Error reading input (errno=%d).", errno);
+		    fatal (FATALIO, fmsg);
+		}
 	    }
 	}
 	if (   lcnt == 0
@@ -1693,8 +1704,10 @@ Small peekflg;
 			lcnt += lexrem;
 		}
 		else if (nread < 0) {
-		    if (errno != EINTR)
-			fatal (FATALIO, "Error reading input.");
+		    if (errno != EINTR) {
+			sprintf (fmsg, "Error reading input (errno=%d).", errno);
+			fatal (FATALIO, fmsg);
+		    }
 		    if (peekflg == WAIT_PEEK_KEY)
 			break;
 		}
@@ -3081,7 +3094,7 @@ static char info_line [MAXWIDTH +1];
 
 #ifdef COMMENT
 void
-info (column, ncols, msg)
+rand_info (column, ncols, msg)
     Scols column;
     Scols ncols;
     char *msg;
@@ -3092,7 +3105,7 @@ info (column, ncols, msg)
     the old message is blanked out.
 #endif
 void
-info (column, ncols, msg)
+rand_info (column, ncols, msg)
 Scols column;
 Scols ncols;
 char *msg;
@@ -3145,7 +3158,7 @@ char *msg;
 void refresh_info ()
 {
     info_line [sizeof (info_line) -1] = '\0';
-    info (0, 0, info_line);
+    rand_info (0, 0, info_line);
 }
 
 #ifdef COMMENT
@@ -3260,7 +3273,7 @@ unsigned char *msg1,*msg2,*msg3,*msg4,*msg5,*msg6,*msg7;
         for (nmsg = 0; nmsg < nb_msg ; nmsg++ ) {
 	    unsigned char *cp;
 	    unsigned char chr;
-	    cp = (Uchar *) msgarray[nmsg];
+	    cp = (unsigned char *) msgarray[nmsg];
             if ( ! cp ) continue;
 	    if (to_image) {
 	        for ( ; cursorcol < enterwin.redit && (chr = *cp) ; cp++ ) {
@@ -3562,7 +3575,7 @@ tglinsmode ()
 void
 tglinsmode ()
 {
-    info (inf_insert, 6, (insmode = !insmode) ? "INSERT" : "");
+    rand_info (inf_insert, 6, (insmode = !insmode) ? "INSERT" : "");
     return;
 }
 
@@ -3575,7 +3588,7 @@ tglpatmode ()
 void
 tglpatmode ()                           /* MAB */
 {
-    info (inf_pat, 2, (patmode = !patmode) ? "RE" : "  ");
+    rand_info (inf_pat, 2, (patmode = !patmode) ? "RE" : "  ");
     return;
 }
 

@@ -3,8 +3,27 @@
 #   correct path to 'bash'.
 # The program name can be specified, if it must be something else than
 #   the default 'e'.
-# This shell can run on linux and on AIX.
-# F. Perriollat March 2000
+# This shell can run on linux and on AIX, sun Solaris and LynxOS.
+# By Fabien Perriollat CERN/PS <Fabien.Perriollat@cern.ch>
+#   last edit : February 2001
+
+# Update the script with the bash path
+up_bash ()
+{
+    if grep "^#\!$BASH" $1 > /dev/null 2>&1 ; then \
+	echo "$1 is OK"; \
+    else \
+	rm -f $1.new; \
+	sed "/^#\!/ s|^\(#\!\)\(.*\)|\1$BASH|" $1 > $1.new; \
+	touch -r $1 $1.new; \
+	chmod a+x $1.new; \
+	ls -l $f $1.new; \
+	mv -f $1.new $1; \
+	echo "$1 is updated"; \
+    fi
+    chmod a+x $1
+}
+
 
 synopsis="synopsis : $0 [-h] [--help] [local_program_name]"
 
@@ -23,23 +42,27 @@ if [ $# -gt 0 ]; then
 fi;
 
 fnv="e19/NewVersion"
+fnr="new_release.sh"
 fmk="./Makefile"
 
 BASH=`which bash`
 OS=`uname -s`
 
+up_bash $fnv
+up_bash $fnr
+
 # Update the NewVersion script
-if ! grep -q -e "^#\!$BASH" $fnv; then \
-    rm -f $fnv.new; \
-    sed "/^#\!/ s|\(^#\!\)\(.*\)|\1$BASH|" $fnv > $fnv.new; \
-    touch -r $fnv $fnv.new; \
-    chmod a+x $fnv.new; \
-    ls -l $f $fnv.new; \
-    mv -f $fnv.new $fnv; \
-    echo "$fnv is updated"; \
-else \
-    echo "$fnv is OK"; \
-fi
+# if ! grep -q -e "^#\!$BASH" $fnv; then \
+#     rm -f $fnv.new; \
+#     sed "/^#\!/ s|\(^#\!\)\(.*\)|\1$BASH|" $fnv > $fnv.new; \
+#     touch -r $fnv $fnv.new; \
+#     chmod a+x $fnv.new; \
+#     ls -l $f $fnv.new; \
+#     mv -f $fnv.new $fnv; \
+#     echo "$fnv is updated"; \
+# else \
+#     echo "$fnv is OK"; \
+# fi
 
 if [ $# -eq 0 ]; then
     exit 0;

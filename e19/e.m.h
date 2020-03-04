@@ -102,7 +102,7 @@ extern char *nxtop;     /* next word after opstr - use for further getwords */
 #define CMDCCASE        106  /************************************/
 #endif
 
-/* new command available on PC Linux, AIX and  Microsoft Windows versions */
+/* new command available on Unix, and LynxOS */
 #define CMDCHECKSCR     110  /* check the current screen and keyboard */
 #define CMDFILE         111  /* set / query file status */
 #define CMDQFILE        112  /* query file status */
@@ -111,6 +111,10 @@ extern char *nxtop;     /* next word after opstr - use for further getwords */
 #define CMDSTATUS       115  /* help status equivalent */
 #define CMDSHFILES      116  /* display the curent files list */
 #define CMDBKBFILE      117  /* interactively build a mapping file */
+#define CMDFLIPBKAR     118  /* flip BackArrow key between 'del' and 'dchar' */
+#define CMDTICK         119  /* set a tick at current position */
+#define CMD_TICK        120  /* unset tick in current file */
+#define CMDQTICK        121  /* display tick state */
 
 
 
@@ -133,6 +137,8 @@ extern char   *copy ();
 
 /**/
 
+#if 0
+/* now struct markenv is defined in e.h */
 struct markenv
 {
     Nlines  mrkwinlin;
@@ -140,6 +146,8 @@ struct markenv
     ASlines mrklin;
     Scols   mrkcol;
 };
+#endif
+
 extern
 struct markenv *curmark,
 	       *prevmark;

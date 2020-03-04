@@ -25,6 +25,8 @@ file e.h.c
 static int Esc_flg = 0;     /* Escape was just pushed flag, not yet used by the UNIX version*/
        int CtrlC_flg = 0;   /* Ctrl C was just pushed flag */
 
+static Flag by_flg = NO; /* add the "by ..." info */
+static int nl_nb = 0;   /* number of line in the call to help_description_ext */
 
 /* browse_keyboard : display the description of the pushed key assigned function */
 /* ----------------------------------------------------------------------------- */
@@ -39,7 +41,7 @@ static void browse_keyboard (char *msg)
     static int help_description ();
     char blank [128];
     char *str;
-    int qq, ctrlc, sz;
+    int qq, ctrlc, sz, nbli;
 
     sz = (msg) ? strlen (msg) : 0;
     if ( sz > (sizeof (blank) -2) ) sz = sizeof (blank) -2;
@@ -54,7 +56,12 @@ static void browse_keyboard (char *msg)
 	    str = itsyms_by_val (key);
 	    if ( !str ) str = "???";
 	    fputs (blank, stdout);
+	    (*term.tt_home) ();
+	    (*term.tt_clear) ();
+	    by_flg = YES;
 	    (void) help_description ('~', -1, key, NULL, str, NULL);
+	    sz = term.tt_height -nl_nb -2;
+	    if ( sz > 0 ) for ( ; sz >= 0 ; sz -- ) fputc ('\n', stdout);
 	}
     }
 }
@@ -102,13 +109,17 @@ int nbli;   /* number of line already displayed on the screen (-1 : nocheck) */
 int val;    /* message value : command or key function value */
 char *cmd_str;  /* if defined, the message is a command description */
 char *str, *abreviation;    /* current command and mini abreviation */
-int *nlnb_pt;   /* when not NULL just count the number of line in the text */
+int *nlnb_pt;   /* when not NULL just count the number of line in the text, no output */
 {
     extern Flag verbose_helpflg;
+    extern char * it_strg ();
+    extern char * escstrg ();
+
     FILE *helpin, *fopen();
-    int go, n, sz, nl, nl_nb, ctrlc;
+    int go, n, sz, nl, ctrlc;
     char buf [256];
     char *type;
+    Flag flg;
 
     type = "???";
     ctrlc = NO;
@@ -130,9 +141,12 @@ int *nlnb_pt;   /* when not NULL just count the number of line in the text */
 	    if ( strlen (abreviation) < strlen (str) )
 		if ( !nlnb_pt ) printf (", abreviated down to \"%s\"", abreviation);
 	} else if ( sep == '~' ) {
-	    type = ((val == KBINIT) || (val == KBEND))
+	    type = (flg = (val == KBINIT) || (val == KBEND))
 		 ? "Defined String" : "Key Function";
 	    if ( !nlnb_pt ) printf ("%s (%d) : %s", str, val, type);
+	    if ( !flg && by_flg ) {
+		printf (" by \"%s\"", escstrg (it_strg ()));
+	    }
 	}
 	if ( !nlnb_pt ) puts ("\n");    /* 2 nl ! */
 	nbli +=2;
@@ -193,19 +207,20 @@ int val;    /* message value : command or key function value */
 char *cmd_str;  /* if defined, the message is a command description */
 char *str, *abreviation;    /* current command and mini abreviation */
 {
-    help_description_ext (sep, nbli, val, cmd_str, str, abreviation, NULL);
+    (void) help_description_ext (sep, nbli, val, cmd_str, str, abreviation, NULL);
+    by_flg = NO;
 }
 
 
 /* get the number of line in the help output */
 static int help_description_check (sep, nbli, val)
-char sep;   /* separator character : ~ (keyfunc) ` (coomand) # (info) */
+char sep;   /* separator character : ~ (keyfunc) ` (comand) # (info) */
 int nbli;   /* number of line already displayed on the screen (-1 : nocheck) */
 int val;    /* message value : command or key function value */
 {
     int nlnb;
 
-    help_description_ext (sep, nbli, val, NULL, NULL, NULL, &nlnb);
+    (void) help_description_ext (sep, nbli, val, NULL, NULL, NULL, &nlnb);
     return (nlnb);
 }
 
@@ -221,6 +236,7 @@ char *cmd_str, *str, *abreviation;
 {
     int go;
 
+    by_flg = NO;
     go = help_description ('`', 0, cmd, cmd_str, str, abreviation);
     return (go);
 }
@@ -231,6 +247,7 @@ int help_info (char *str, int *nbli)
     int nb;
 
     nb = ( nbli ) ? *nbli : -1;
+    by_flg = NO;
     go = help_description ('#', nb, 0, str, NULL, NULL);
     if ( nbli ) *nbli += go;
     return (go);
@@ -503,6 +520,7 @@ extern char verstr[];
 	    if ( sz >= 0 ) {
 		for ( ; sz >= 0 ; sz -- ) fputc ('\n', stdout);
 		fputs ("<Ctrl C> is assigned to :", stdout);
+		by_flg = YES;
 		(void) help_description ('~', -1, fkey, NULL, NULL, NULL);
 	    }
 	}
@@ -584,13 +602,13 @@ Cmdret help_std (char * helparg)
 
 /* utility to display some info and wait for keyboard */
 
-static Cmdret process_show_info (void (*info) (), int *val_ret, char *msg)
+static Cmdret process_show_info (void (*my_info) (), int *val_ret, char *msg)
 {
     int ctrlc, gk, val, i;
     char val_strg [16], *str;
     char msg_str [128];
 
-    (*info) ();
+    (*my_info) ();
 
     memset (msg_str, 0, sizeof (msg_str));
     str = ( msg ) ? msg : retmsg;
@@ -621,9 +639,9 @@ static Cmdret process_show_info (void (*info) (), int *val_ret, char *msg)
     return CROK;
 }
 
-void show_info (void (*info) (), int *val_ret, char *msg)
+void show_info (void (*my_info) (), int *val_ret, char *msg)
 {
-    (void) do_fullscreen (process_show_info, (void *) info, (void *) val_ret, (void *) msg);
+    (void) do_fullscreen (process_show_info, (void *) my_info, (void *) val_ret, (void *) msg);
 }
 
 /* ----------------------------------------------------------------------- */
@@ -740,7 +758,7 @@ static void browse_cmdhelp ()
 {
     extern char * get_cmd_name ();
     extern S_looktbl cmdtable[];
-    static int waitkb ();
+    static int waitkb (short);
     int *abv_tbl;
 
     int nb, i, di, j, idx, cmd, sz, cc;
@@ -975,10 +993,11 @@ int any_flg;    /* ! 0 : wait in any case */
 static void browse_keyfhelp ()
 {
     extern Flag verbose_helpflg;
+    extern Flag noX11flg;
     static int sort_keyftable ();
 
     int nb, i, di, fcnt, cc;
-    Flag funcval_flg;
+    Flag funcval_flg, tflg;
     char *fcnt_str, *sp;
     char msg[256];
 
@@ -990,9 +1009,12 @@ static void browse_keyfhelp ()
         fcnt_str = keyftable[i].str;
 	if ( fcnt == 0177 ) fcnt = CCBACKSPACE; /* special case for del char */
 	funcval_flg = ( (fcnt == KBINIT) || (fcnt == KBEND) );
+	by_flg = NO;
         (void) help_keyf (fcnt, fcnt_str);
 	for ( sp = fcnt_str ; *sp ; sp++ ) putchar (toupper (*sp));
 	funcval_flg = ( (fcnt == KBINIT) || (fcnt == KBEND) );
+	tflg = verbose_helpflg;
+	verbose_helpflg = noX11flg;
 	sp = ( funcval_flg ) ? " Current value: " :
 			       ( verbose_helpflg )
 				    ? " Current Key Assignement: "
@@ -1000,6 +1022,7 @@ static void browse_keyfhelp ()
 	fputs (sp, stdout);
 	memset (msg, 0, sizeof (msg));
 	key_assigned (msg, sizeof (msg), fcnt, fcnt_str, funcval_flg);
+	verbose_helpflg = tflg;
 	puts (msg);
 	cc = waitkb (NO);
         if ( cc > 0 ) break;

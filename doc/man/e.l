@@ -193,6 +193,11 @@ etc.) may be saved by exiting, and renaming the state file (".es1").
 Option \-stick sets the behavior at the right margin to stop in response
 to typing or a <RT ARROW>.  \-nostick is the default, and will automatically
 shift the window right in response to text or <RT ARROW> key.
+.TP
+.B \-nox11
+.br
+Option \-nox11 disables calls to X11 library during startup to get the keyboard
+mapping.
 .SH TERMINAL TYPES
 The terminal type is defined by the option -terminal if given,
 otherwise by the TERM environment variable.

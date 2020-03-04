@@ -9,6 +9,10 @@
  *   last update 23 Jan 2000 : Fabien.Perriollat@cern.ch
  *                8 Mar 2000 : Fabien.Perriollat@cern.ch
  *                             provide capability for AIX Unix system
+ *               11 Jan 2001 : Fabien.Perriollat@cern.ch
+ *                             can be compiled without X11 package (ref NOX11)
+ *                             can be compiled without X11 KeyBoard extension (ref NOXKB)
+ *                             handling of -noX11 option and #!noX11 directive
  * --------------------------------------------------------------------------
  *  Exported routines :
  *      Flag get_keyboard_map (char *terminal, int strg_nb, char *strg1, ...
@@ -33,41 +37,63 @@ static const char version[] = "version 2.1 Mar 2000 by Fabien.Perriollat@cern.ch
  */
 /* ---------------------------------------------------------------------- */
 
+#include <stdlib.h>
+
 #ifdef TEST_PROGRAM
 #define CCUNAS1 0202 /* defined in e.h */
 typedef char Flag;
 #define NO 0
 #define YES 1
-#include <signal.h>
 #else  /* -TEST_PROGRAM */
+#include <signal.h>
 #include "e.h"
 #include "e.cm.h"
 #include "e.it.h"
 #include "e.tt.h"
 #endif /* TEST_PROGRAM */
 
+#if 0
 #include <stdlib.h>
+#endif
 #include <termios.h>
+#include <termio.h>
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <time.h>
 #include <sys/types.h>
 #include <sys/time.h>
+#include <setjmp.h>
 
 #ifdef __linux__
 #include <linux/kd.h>
 #include <linux/keyboard.h>
 #endif /* __linux__ */
 
+#ifdef NOX11
+#define NOXKB
+#include <my_keysymdef.h>
+#ifndef NoSymbol
+#define NoSymbol 0L
+#ifndef KeySym
+#define KeySym int
+#endif
+#endif
+
+#else /* - NOX11 */
 #include <X11/Xlib.h>
 #include <X11/Intrinsic.h>
 #include <X11/Xutil.h>
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
+#ifndef NOXKB
 #include <X11/XKBlib.h>
 #include <X11/extensions/XKBfile.h>
 #include <X11/extensions/XKBgeom.h>
+#else
+#define XkbKeyNameLength 128
+#endif /* - NOXKB */
+#endif /* - NOX11 */
 
 #ifndef K_HOLE
 #define K_HOLE -1
@@ -75,6 +101,8 @@ typedef char Flag;
 
 
 extern Flag verbose_helpflg;                /* from e.c */
+extern Flag noX11flg;
+
 extern char * get_kbmap_file_name (Flag create_dir, Flag *exist);
 
 extern S_term term;
@@ -84,6 +112,8 @@ extern struct itable *ithead;
 char * get_keyboard_mode_strg ();
 static void terminal_type (char *);
 static char * escseqstrg (char *escst);
+
+static jmp_buf jmp_env;
 
 
 /* structure to define symbolic name to non printing char */
@@ -152,7 +182,7 @@ static char *key_shift_msg [nb_kbmap] = { "", "Shift ", "Ctrl ", "Alt " };
 
 typedef struct _Key_Assign {
     short lkcode;           /* linux keycode (as displayed by "showkey -k" XLATE mode) */
-    short Xkeysym;          /* X11 keycode (use xev or showkey progs to display value) */
+    unsigned short Xkeysym; /* X11 keycode (use xev or showkey progs to display value) */
     char *klabel;           /* label for listing and display */
     int kcode;              /* keycode linux console or X11 */
     int ktfunc [nb_kbmap];  /* key function (retuned by linux key mapping) */
@@ -808,29 +838,36 @@ static const char undef_dpy_name [] = "--Undefined--";
 
 char *emul_name = NULL, *emul_class = NULL;
 
+#ifndef NOX11
 static Display *dpy = NULL;
+static Window emul_window;
+static XClassHint class_hints;
+#ifndef NOXKB
+static XkbDescRec * xkb_rec = NULL;
+#endif
+#endif
+
+static KeySym *x_keyboard_map = NULL;
 static char *dpy_name = NULL;
 static char *dpy_msg = NULL;
+static char *noX_msg = NULL;
 static char *Xvendor_name = NULL;
 static int min_keycode = 0, max_keycode = 0;
 static int max_shift_level = 0;
-static Window emul_window;
-static XClassHint class_hints;
-static KeySym *x_keyboard_map = NULL;
 static int keysym_per_keycode;
 static Flag use_XKB_flg = NO;
 static Terminal_Class x_terminal_class = unknow;
 static Flag gnome_swap_flg = NO;
 static Flag xterm_backarrow_flg = NO;
 static char *xkb_ext_msg = NULL;    /* why XKB is not used */
-static XkbDescRec * xkb_rec = NULL;
 static char *keycodes_str, *geometry_str, *symbols_str,
 	    *types_str, *compat_str, *phys_symbols_str;
 
 /* Keyboard structure : keyboard sections (for XFree sever)
  *   The "Alpha" section must be the last one.
- */
 static unsigned char *section_names [] = {
+ */
+static char *section_names [] = {
 	"Function", "Editing", "Keypad", "Alpha"
     };
 #define num_section_names (sizeof (section_names) / sizeof (section_names[0]))
@@ -1309,6 +1346,41 @@ static void get_console_map ()
 /* Routines specific for the xterm family terminal */
 /* ----------------------------------------------- */
 
+#ifdef NOstrcasecmp
+static int strcase (char *st1, char *st2, int (*cmp)(), int n)
+{
+    char *str1, *str2, *st, *str;
+    int sz, cc;
+    char c;
+
+    sz = strlen (st1) + strlen (st2) +2;
+    if ( sz == 0 ) return 0;
+    str1 = malloc (sz);
+    if ( ! str1 ) return -1;
+    memset (str1, 0, sz);
+    str2 = &str1[strlen (st1) +1];
+    for ( st = st1, str = str1; c = *st; st++, str++ ) *str = toupper(c);
+    for ( st = st2, str = str2; c = *st; st++, str++ ) *str = toupper(c);
+    if ( n == 0 ) cc = (*cmp) (str1, str2);
+    else cc = (*cmp) (str1, str2, n);
+    free (str1);
+    return cc;
+}
+
+static int strcasecmp (char *st1, char *st2)
+{
+    return strcase (st1, st2, strcmp, 0);
+}
+
+static int strncasecmp (char *st1, char *st2, int n)
+{
+    return strcase (st1, st2, strncmp, n);
+}
+
+#endif /* NOstrcasecmp */
+
+#ifndef NOX11
+
 static int compare_Key_Assign_keysym (Key_Assign **kdesc1, Key_Assign **kdesc2)
 {
     return ((*kdesc1)->Xkeysym - (*kdesc2)->Xkeysym );
@@ -1318,6 +1390,8 @@ static int compare_Xkt_desc_tcap (struct KTdesc **Xkt_desc1, struct KTdesc **Xkt
 {
     return (strcasecmp ((*Xkt_desc1)->tcap, (*Xkt_desc2)->tcap) );
 }
+
+#endif /* - NOX11 */
 
 static int compare_Xkt_desc_keysym (struct KTdesc **Xkt_desc1, struct KTdesc **Xkt_desc2)
 {
@@ -1350,6 +1424,13 @@ static void sort_keysym_desc ()
 	   sizeof (struct KTdesc *), (int (*)()) compare_Xkt_desc_keysym);
 }
 
+
+#ifdef NOX11
+static void get_xterm_map ()
+{
+    return;
+}
+#else /* - NOX11 */
 
 static void get_xterm_map ()
 {
@@ -1536,6 +1617,7 @@ static void get_xterm_map ()
 	}
     }
 }
+#endif /* - NOX11 */
 
 /* xterm_keysym2string : get the terminal emulator string generated
  *   for the given keysym code
@@ -1607,7 +1689,6 @@ static char * get_ktcode2escseq (int ktcode, char **tcap_strg)
     switch ( kbmap_type ) {
 	case user_mapfile :
 	    return (get_my_kt_escseq (ktcode, tcap_strg));
-	    return NULL;
 
 #ifdef __linux__
 	case linux_console :
@@ -2372,6 +2453,7 @@ void swap_cmd_back_del ( char *bksp_str, char *del_str, Flag swap_flg)
 }
 
 
+#ifndef NOX11
 static void gnome_setting ()
 {
     static char gnome_term_conf [] = "/.gnome/Terminal";
@@ -2420,7 +2502,9 @@ static void gnome_setting ()
     /* swap also in the cmd list */
     swap_cmd_back_del (bksp_str, del_str, swap_flg);
 }
+#endif /* -NOX11 */
 
+#ifndef NOX11
 /* Get the X terminal emulator class */
 static Terminal_Class get_terminal_class ()
 {
@@ -2435,8 +2519,10 @@ static Terminal_Class get_terminal_class ()
     if ( ! tover->class_name ) return;
     x_terminal_class = tover->class;
 }
+#endif /* -NOX11 */
 
 
+#ifndef NOX11
 /* Overwrite entry in the KTdesc for the given X terminal emulator */
 static void overwrite_ktdesc (char * emul_class)
 {
@@ -2472,9 +2558,11 @@ static void overwrite_ktdesc (char * emul_class)
     sort_keysym_desc ();
     if ( x_terminal_class == gnome ) gnome_setting ();
 }
+#endif /* -NOX11 */
 
 
 
+#ifndef NOX11
 /* Provide for 'status' command some info */
 static void xkb_info (char *buf)
 {
@@ -2502,10 +2590,13 @@ static void xkb_info (char *buf)
 	    sprintf (&buf[strlen(buf)], "  Backspace and Delete keys are swapped\n");
     }
 }
+#endif /* -NOX11 */
 
+#ifndef NOX11
 /* Get the X Keyboard data */
 static void get_xkb_data (Display *dpy)
 {
+#ifndef NOXKB
     Status cc1, cc2, cc3;
     char *sName;
     int i, j;
@@ -2546,11 +2637,23 @@ static void get_xkb_data (Display *dpy)
     }
     get_kbmap_strg = "Keyboard map got from X11 Keyboard Extension";
     kbmap_type = X11_KBExt;
+#endif /* NOXKB */
 }
+#endif /* - NOX11 */
 
+#ifndef NOX11
 /* Check and init the XKB extension library */
 Flag CheckXKBExtention (Display *dpy, int *reason,
 				  Flag *xkb_extension)
+#ifdef NOXKB
+{
+    xkb_ext_msg = "Not compiled with XKeyboard Extension";
+    if ( xkb_extension ) *xkb_extension = False;
+    return False;
+}
+
+
+#else /* - NOXKB */
 {
     int  major_num, minor_num;
     int  *major_rtrn, *minor_rtrn;
@@ -2612,6 +2715,8 @@ Flag CheckXKBExtention (Display *dpy, int *reason,
     if ( reason ) *reason= XkbOD_Success;
     return True;
 }
+#endif /* - NOXKB */
+#endif /* - NOX11 */
 
 
 /* terminal_type : test for X terminal case and get the keyboard mapping */
@@ -2631,6 +2736,7 @@ Flag CheckXKBExtention (Display *dpy, int *reason,
  */
 
 
+#ifndef NOX11
 static Flag get_xterm_backarrow (Display *dpy, Window wind, char *name, char *class)
 {
     XtAppContext app_context;
@@ -2669,24 +2775,99 @@ static Flag get_xterm_backarrow (Display *dpy, Window wind, char *name, char *cl
     }
     return backarrow_flg;
 }
+#endif /* -NOX11 */
 
-static void terminal_type (char *terminal)
+
+#ifndef NOX11
+
+
+void xopen_alarm (int val)
+{
+    longjmp (jmp_env, val);
+}
+
+/* get_Xdisplay : try to open a connection to X server, with time out protection */
+void get_Xdisplay (char *str)
 {
     static char dpy_msg_buf [128];
 
+#ifdef SYSIII
+    struct termio saved_termio, temp_termio;
+    Flag termio_flg;
+#endif
+
+    int jmp_val;
+
+    dpy = (Display *) NULL;
+    if ( str ) {
+	dpy_name = malloc (strlen (str) +1);
+	if ( dpy_name ) strcpy (dpy_name, str);
+	else dpy_name = (char *) unknow_dpy_name;
+    } else {
+	dpy_msg = "X11 not called : \"DISPLAY\" variable is not defined\n";
+	dpy_name = (char *) undef_dpy_name;
+	Xterminal_flg = NO; /* no access to X11 */
+	return;
+    }
+    dpy_msg = dpy_msg_buf;
+
+    /* call XOpenDisplay with protection */
+#ifdef SYSIII
+    termio_flg = NO;
+    if ( ioctl (STDIN, TCGETA, &saved_termio) >= 0 ) {
+	temp_termio = saved_termio;
+	temp_termio.c_lflag |= ISIG;
+	(void) ioctl (STDIN, TCSETAW, &temp_termio);
+	termio_flg = YES;
+    }
+#endif
+    (void) signal (SIGALRM, xopen_alarm);
+    (void) signal (SIGINT, xopen_alarm);
+    alarm (2);
+    if ( (jmp_val = setjmp (jmp_env)) == 0 ) {
+	dpy = XOpenDisplay (NULL);
+	alarm (0);
+	if ( dpy ) dpy_msg = NULL;
+	else sprintf (dpy_msg_buf, "X11 not used : X11 connection is refused to \"DISPLAY\" %s\n", str);
+    } else {
+	/* XOpenDisplay interrupted */
+	alarm (0);
+	if ( dpy ) XCloseDisplay (dpy);
+	dpy = (Display *) NULL;
+	if ( str ) sprintf (dpy_msg_buf, "X11 not used : %s during connection to \"DISPLAY\" %s\n",\
+			    (jmp_val == SIGINT) ? "interrupted" : "time out", str);
+    }
+    (void) signal (SIGALRM, SIG_IGN);
+    (void) signal (SIGINT, SIG_IGN);
+
+#ifdef SYSIII
+    if ( termio_flg ) {
+	(void) ioctl (STDIN, TCSETAW, &saved_termio);
+    }
+#endif
+    Xterminal_flg = (dpy != (Display *) NULL);
+}
+#endif /* -NOX11 */
+
+
+
+static void terminal_type (char *terminal)
+{
     char tnm [64];
     int cc;
     char *str, *str1;
     long int lival;
-    Window wind, root, parent, *children;
+    Flag overwrite;
     int nchildren;
+
+#ifndef NOX11
+    Window wind, root, parent, *children;
     XClassHint class_hints;
     XrmDatabase db;
-    Flag overwrite;
+#endif
 
     /* default */
     kbmap_type = no_map;
-    x_keyboard_map = (KeySym *) NULL;
     use_XKB_flg = NO;
     x_terminal_class  == unknow;
     emul_name  = "unknown";
@@ -2694,8 +2875,11 @@ static void terminal_type (char *terminal)
     max_shift_level = keysym_per_keycode = nb_kbmap;
     min_keycode = max_keycode = 0;
     dpy_name = Xvendor_name = (char *) unknow_dpy_name;
-    dpy = NULL;
     dpy_msg = NULL;
+    x_keyboard_map = (KeySym *) NULL;
+#ifndef NOX11
+    dpy = NULL;
+#endif /* - NOX11 */
 
     /* By default we assume to be an X terminal emulator */
     Xterminal_flg = YES;
@@ -2711,22 +2895,30 @@ static void terminal_type (char *terminal)
 	return;
     }
 
-    dpy = XOpenDisplay (NULL);
-    if ( ! dpy ) {
-	str = getenv ("DISPLAY");
-	if ( ! str ) {
-	    dpy_msg = "  but \"DISPLAY\" variable is not defined\n";
-	    dpy_name = (char *) undef_dpy_name;
-	} else {
-	    sprintf (dpy_msg_buf, "  but X11 connection is refused to \"DISPLAY\" %s\n", str);
-	    dpy_msg = dpy_msg_buf;
-	    dpy_name = malloc (strlen (str) +1);
-	    if ( dpy_name ) strcpy (dpy_name, str);
-	    else dpy_name = (char *) unknow_dpy_name;
-	}
+    str = getenv ("DISPLAY");
+
+#ifdef NOX11
+    noX11flg = YES;
+    Xterminal_flg = NO;
+    if ( str ) dpy_name = str;
+    return;
+
+#else /* -NOX11 */
+
+    if ( noX11flg ) {
+	dpy_msg = "X11 is not called to get keyboard mapping\n";
 	Xterminal_flg = NO; /* no access to X11 */
 	return;
     }
+
+    if ( ! str ) {
+	dpy_msg = "X11 not called : \"DISPLAY\" variable is not define\n";
+	Xterminal_flg = NO; /* no access to X11 */
+	return;
+    }
+
+    get_Xdisplay (str);
+    if ( ! dpy ) return;
 
     /* Running on a X server, set default terminal type */
     Xterminal_flg = YES;
@@ -2810,6 +3002,8 @@ static void terminal_type (char *terminal)
     XCloseDisplay (dpy);
     dpy = NULL;
     return;
+
+#endif /* -NOX11 */
 }
 
 /* get_keyboard_map : load the key map according to the init escape sequence */
@@ -2950,12 +3144,18 @@ static char *get_kt_strg (int ktcode, char **tcap_strg)
 /* xterm_terminal : check for xterm terminal type */
 /* ---------------------------------------------- */
 
+static Flag xterm_name ()
+{
+    if ( !Xterm_flg ) return (NO);
+    return (strcasecmp (tname, "xterm") == 0);
+}
+
 static Flag xterm_terminal ()
 {
     extern char *tname;
 
     if ( !Xterm_flg ) return (NO);
-    if ( strcasecmp (tname, "xterm") != 0 ) return NO;
+    if ( ! xterm_name () ) return NO;
     if ( emul_class && (strcasecmp (emul_class, "xterm") != 0) ) return NO;
     return YES;
 }
@@ -3021,6 +3221,7 @@ static struct _pretty_label {
     };
 #define pretty_label_nb (sizeof (pretty_label) / sizeof (pretty_label[0]))
 
+#ifndef NOX11
 static int compare_pretty_label (struct _pretty_label *prname1, struct _pretty_label *prname2)
 {
     return (strcasecmp (prname1->name, prname2->name));
@@ -3057,7 +3258,7 @@ static char * pretty_key_label (char *keyname)
     for ( chpt = keylabel +1 ; *chpt ; chpt++ ) *chpt = tolower (*chpt);
     return (keylabel);
 }
-
+#endif /* - NOX11 */
 
 static char * keycode2keylabel (int keycode)
 {
@@ -3067,11 +3268,13 @@ static char * keycode2keylabel (int keycode)
     if ( (keycode < min_keycode) ||
 	 (keycode > max_keycode) ) return NULL;
 
+#ifndef NOXKB
     if ( use_XKB_flg && xkb_rec->names ) {
 	/* X Keyboard extension available */
 	str = pretty_key_label ((char *) &xkb_rec->names->keys [keycode]);
 	return str;
     }
+#endif /* - NOXKB */
 
     /* X Keyboard extension is not available */
     for ( i = 0 ; i < pc_keyboard_desc_nb ; i++ ) {
@@ -3081,7 +3284,7 @@ static char * keycode2keylabel (int keycode)
     return "???";
 }
 
-/* walk across keymap for all <keycde, shift> for a given keysym
+/* Walk across keymap for all <keycde, shift> for a given keysym
  *  start with *keycode = 0
  *  end when return 0;
  */
@@ -3137,7 +3340,7 @@ static KeySym string2keysym (char *strg, int *idx)
 /* string2key_label, x_string2key_label : return the key label
  * -----------------------------------------------------------
  *  Get the key and modifier for a given string (escape sequence)
- *  To start a new scan ; *key = -1
+ *  To start a new scan ; *keycode = -1
  *  Return key label and modifier string,
  *      or NULL if nothing or no more key
  */
@@ -3157,9 +3360,8 @@ static char * x_string2key_label (char *strg, int *keycode, int *idx,
 	if ( keysym == NoSymbol ) break;
 	if ( keysym == ks ) continue;   /* to prevent duplication */
 	ks = keysym;
-	for ( ; ; ) {
-	    kc = keysymb2keycode (keysym, keycode, shift);
-	    if ( kc == 0 ) break;
+	kc = keysymb2keycode (keysym, keycode, shift);
+	if ( kc != 0 ) {
 	    if ( modstrg ) *modstrg = key_shift_msg [*shift];
 	    str = keycode2keylabel (*keycode);
 	    return str;
@@ -3468,8 +3670,38 @@ static void checkkeyb (Flag echo)
 }
 
 /* Build a message for status like command */
+
+void term_msg (char *buf)
+{
+#ifdef NOX11
+    strcat (buf, "Rand Editor is not build with X11 library\n");
+    if ( ! xterm_name () )
+	return;
+
+    strcat (buf, "It is assumed to be a X-Terminal emulator\n");
+    sprintf (buf + strlen (buf), "X-Terminal \"%s\"", tname);
+
+    if ( strcmp (dpy_name, unknow_dpy_name) != 0 ) {
+	sprintf (buf + strlen (buf), " on X11-Server DISPLAY \"%s\"\n", dpy_name);
+    }
+    strcat (buf, "\n");
+
+#endif
+    if ( ! dpy_msg ) return;
+    strcat (buf, dpy_msg);
+    if ( noX_msg ) {
+	if ( buf[strlen (buf) -1] == '\n' ) buf[strlen (buf) -1] = '\0';
+	strcat (buf, " : ");
+	strcat (buf, noX_msg);
+    }
+    if ( buf[strlen (buf) -1] != '\n' ) strcat(buf, "\n");
+}
+
 void xterm_msg (char *buf)
 {
+#ifdef NOX11
+    term_msg (buf);
+#else /* - NOX11 */
     if ( ! x_keyboard_map ) {
 	strcat (buf, "It is assumed to be a X-Terminal emulator\n");
 	if ( dpy_msg ) strcat (buf, dpy_msg);
@@ -3481,7 +3713,13 @@ void xterm_msg (char *buf)
 	     emul_name, emul_class);
     if ( x_keyboard_map && dpy_msg ) strcat (buf, dpy_msg);
     xkb_info (buf + strlen (buf));
+#endif /* - NOX11 */
 }
+
+void set_noX_msg (char * msg) {
+    if ( msg ) noX_msg = msg;
+}
+
 
 #ifndef TEST_PROGRAM
 /* check_keyboard : interactive check fo keyboard state */
@@ -3663,11 +3901,22 @@ static void ctrlkey_print (unsigned char *ctrl_asg, char *line_pt, int idx)
 {
     extern char * itsyms_by_val (short);
     int i;
+    char ch, *ctl;
 
     i = idx * 3;
-    (void) sprintf (line_pt, "<Ctrl %c> %s %s", ctrl_asg [i],
-		itsyms_by_val (ctrl_asg [i+1]),
-		( ctrl_asg [i+2] != CCUNAS1 ) ? itsyms_by_val (ctrl_asg [i+2]) : "");
+    ch = ctrl_asg [i];
+    ctl = "Ctrl";
+    if ( ch > 'Z' ) {
+	if ( ch == '\177' ) ctl = "Del";
+	else ctl = "???";
+	(void) sprintf (line_pt, "<%s>    ", ctl, ch);
+    } else (void) sprintf (line_pt, "<%s %c> ", ctl, ch);
+
+    strcat (line_pt, itsyms_by_val (ctrl_asg [i+1]));
+    if ( ctrl_asg [i+2] != CCUNAS1 ) {
+	strcat (line_pt, " ");
+	strcat (line_pt, itsyms_by_val (ctrl_asg [i+2]));
+    }
 }
 
 /* print_sorted : routine to print in columns a list of strings */
@@ -3729,8 +3978,12 @@ static void display_ctrl ()
     /* get the assignement of control characters */
     memset (ctrl_asg, CCUNAS1, sizeof (ctrl_asg));
     idx = i = 0;
-    for ( ch = 'A' ; ch <= 'Z' ; ch++ ) {
+    for ( ch = 'A' ; ; ch++ ) {
 	cmd[0] = (ch & '\037'); cmd[1] = '\0';
+	if ( ch > 'Z' ) {
+	    ch = '\177';    /* del char */
+	    cmd[0] = ch;
+	}
 	lnb = 1;
 	nb = (*kbd.kb_inlex) (cmd, &lnb);
 	if ( nb <= 0 ) continue;
@@ -3739,6 +3992,7 @@ static void display_ctrl ()
 	if ( nb > 1 ) ctrl_asg [i] = cmd[1];
 	i++;
 	idx++;
+	if ( ch > 'Z' ) break;
     }
     printf ("\nControl Key assignement \n");
     print_sorted ((void *) ctrl_asg, ctrlkey_print, idx, 4, 19, 1);
@@ -3891,6 +4145,7 @@ static void display_keyboard_map (int *nbnl)
     putchar ('\n');
 }
 
+#ifndef NOXKB
 /* Display the X11 current terminal emulator keyboard mapping
  *   using XKB Extension (need geometry description)
  */
@@ -3945,6 +4200,7 @@ static void display_xkb_map (int *nbnl)
     }
     putchar ('\n');
 }
+#endif /* - NOXKB */
 
 /* Return the string about the way in which the keyboard mapping was got */
 char * mapping_strg (char ** str)
@@ -3991,7 +4247,7 @@ No keyboard map is available in this configuration.\
 	if ( ! verbose ) {
 	    fputs ("\n\n\n", stdout);
 	    ctrlc = wait_keyboard ("Push a key to continue with Control keys, <Ctrl C> to exit", NULL);
-	    fputs ("\r                                              ", stdout);
+	    fputs (              "\r                                                          ", stdout);
 	    nbnl = 0;
 	}
 	return ctrlc;
@@ -4021,6 +4277,7 @@ No keyboard map is available in this configuration.\
 	    }
 	    break;
 
+#ifndef NOX11
 	case X11_default :
 	case X11_KBExt :
 	case X11_xmodmap :
@@ -4044,17 +4301,20 @@ No keyboard map is available in this configuration.\
 						 phys_symbols_str);
 		else sprintf (&buf[strlen(buf)], "\"\n");
 		nbnl++;
+#ifndef NOXKB
 		if ( xkb_rec && xkb_rec->geom )
 		    strcat (buf, "    Using X Keyboard Extension geometry description.\n");
 		else
 		    strcat (buf, "    X Keyboard Extension does not provide geometry description.\n");
 		nbnl++;
+#endif /* - NOXKB */
 	    } else if ( xkb_ext_msg ) {
 		strcat (buf, xkb_ext_msg);
 		buf [strlen (buf)] = '\n';
 		nbnl++;
 	    }
 	    break;
+#endif /* - NOX11 */
 
 	default :
 	    ;
@@ -4094,22 +4354,27 @@ No keyboard map is available in this configuration.\
 	    display_keyboard_map (&nbnl);
 	    break;
 
+#ifndef NOX11
+#ifndef NOXKB
 	case X11_KBExt :
 	    if ( xkb_rec->geom ) {
 		display_xkb_map (&nbnl);
 		break;
 	    }
+#endif /* - NOXKB */
 	case X11_default :
 	case X11_xmodmap :
 	    display_keyboard_map (&nbnl);
 	    break;
+#endif /* - NOX11 */
+
 	default :
 	    return 0;   /* nothing can be done */
     }
 
     if ( ! verbose ) {
 	ctrlc = wait_keyboard ("Push a key to continue with Control keys, <Ctrl C> to exit", NULL);
-	fputs ("\r                                              ", stdout);
+	fputs (              "\r                                                          ", stdout);
 	nbnl = 0;
     }
     return ctrlc;

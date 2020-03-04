@@ -88,6 +88,7 @@ extern char *ttyname ();
 #define OPTVHELP       22
 #define OPTVERSION     23
 #define OPTDUMPESF     24
+#define OPTNOX11       25
 
 /* Entries must be alphabetized. */
 /* Entries of which there are two in this table must be spelled out. */
@@ -117,6 +118,7 @@ S_looktbl opttable[] = {
 #endif
     "notracks" , OPTNOTRACKS ,
     /* XXXXXXXXXXXXXXXXXXXXXXXXXXXX */
+    "nox11"    , OPTNOX11    ,
     "package"  , OPTDIRPACKG ,
     "regexp"   , OPTPATTERN  ,  /* Added Purdue CS 2/8/83 */
     "replay"   , OPTREPLAY   ,
@@ -239,6 +241,8 @@ static char *tcap_name = NULL; /* name of termcap entry used */
 static char tcap_name_default[] = "vt100";
 
 Flag dump_state_file=NO; /* YES = dump the state file defined with -state=<fname> option */
+Flag noX11flg=NO;        /* YES = do not use X11 to get the keyboard mapping */
+static Flag noX11opt=NO; /* YES = noX11flg defined by -noX11 option */
 
 
 /* ++XXXXXXXXXXXXXXXXXXXXXXXXX */
@@ -514,6 +518,8 @@ checkargs ()
 void
 checkargs ()
 {
+    extern void set_noX_msg (char *);
+
     optusedflg = dbgflg = NO;
     for (curarg = 1; curarg < numargs; curarg++) {
 	char *cp;
@@ -664,6 +670,11 @@ checkargs ()
 
 	case OPTDUMPESF:
 	    dump_state_file = YES;
+	    break;
+
+	case OPTNOX11:
+	    noX11flg = noX11opt = YES;
+	    set_noX_msg ("\'-noX11\' option in use");
 	    break;
 
 	default:
@@ -1050,6 +1061,7 @@ startup ()
 void
 startup ()
 {
+    extern void marktickfile ();
     extern char * from_host (char **hostname_pt, char **display_pt, const char *loopback_IP);
     extern Flag get_keyboard_map ();
     extern char *TI, *KS, *VS;
@@ -1335,6 +1347,8 @@ startup ()
     names[CHGFILE] = la_cfile;
     fileflags[CHGFILE] = INUSE;
     fileflags[NULLFILE] = INUSE;
+    marktickfile (CHGFILE, NO);
+    marktickfile (NULLFILE, NO);
 
     /* make the rest of the file names */
     bkeystr[VRSCHAR] = keystr[VRSCHAR] = evrsn;
@@ -1564,6 +1578,11 @@ Overall status of the editor parameters\n\
 	sprintf (bigbuf + strlen (bigbuf), "\
   -dump_state_file : display the content of the state file defined by -state\n");
 
+    if ( full_flg )
+	sprintf (bigbuf + strlen (bigbuf), "\
+%c -noX11 : do not use X11 to get the keyboard mapping\n",
+	noX11opt ? '*' : ' ');
+
     if ( optusedflg )
 	sprintf (bigbuf + strlen (bigbuf),
 		 "\"*\" means this option is in effect.\n");
@@ -1603,6 +1622,9 @@ Environment variables known by Rand editor:\n\
 	    sprintf (bigbuf + strlen (bigbuf), "  \"%s\" is using terminfo data for \"%s\"\n",
 		     tname, tcap_name);
     } else {
+	extern void term_msg ();
+
+	term_msg (bigbuf + strlen (bigbuf));
 	if ( termtype )
 	    sprintf (bigbuf + strlen (bigbuf), "Terminal : \"%s\" (using compiled description), keyboard : %s (%d)\n",
 		     tname, kname, kbdtype);
@@ -2316,7 +2338,7 @@ represent which is true but undocumented for System 3.
 In fact the system 3 B's are identical to the version 7 B's.
 */
 #endif
-#define SPEED ((out_termio.c_cflag)&CBAUD)
+/* #define SPEED ((out_termio.c_cflag)&(CBAUD)) */
 	i = out_termio.c_oflag;
 	out_termio.c_oflag &= ~(OLCUC|ONLCR|OCRNL|ONOCR|ONLRET);
 	if( (out_termio.c_oflag & TABDLY) == TAB3)
@@ -2324,9 +2346,10 @@ In fact the system 3 B's are identical to the version 7 B's.
 	if(ioctl(STDOUT,TCSETA,&out_termio) >= 0) {
 	    ostyflg = YES;
 	    out_termio.c_oflag = i;  /* all set up for cleanup */
+	ospeed = (out_termio.c_cflag)&(CBAUD);
 	}
 #else /* - SYSIII */
-#define SPEED (outstty.sg_ospeed)
+/* #define SPEED (outstty.sg_ospeed) */
 	i = outstty.sg_flags;
 	outstty.sg_flags &= ~CRMOD;
 	if ((outstty.sg_flags & TBDELAY) == XTABS)
@@ -2335,6 +2358,7 @@ In fact the system 3 B's are identical to the version 7 B's.
 	    ostyflg = YES;
 	    outstty.sg_flags = i;             /* all set up for cleanup */
 	}
+	ospeed = outstty.sg_ospeed
 #endif /* SYSIII */
 
 #ifdef MESG_NO
@@ -2348,7 +2372,8 @@ In fact the system 3 B's are identical to the version 7 B's.
 #endif
 	    if (ttynstr != NULL) chmod (ttynstr, 0600); /* turn off messages */
 #endif
-	fast = (ospeed = SPEED) >= B4800;
+
+	fast = (ospeed >= B4800);
     }
     /* no border bullets if speed is slow */
     if (!fast && optbullets == -1)
@@ -2414,6 +2439,7 @@ makescrfile ()
 void
 makescrfile ()
 {
+    extern void marktickfile ();
     extern char *cwdfiledir [];
     int j;
 
@@ -2429,6 +2455,7 @@ makescrfile ()
 	(void) la_clone (&fnlas[j], &lastlook[j].las);
 	lastlook[j].wfile = j;
 	fileflags[j] = INUSE | CANMODIFY;
+	marktickfile (j, NO);
     }
 
     for (j = 0; j < NQBUFS; j++)
@@ -2685,6 +2712,7 @@ Flag dump_state;
     if ( ! dump_state ) {
 	if ( (ichar == NO_WINDOWS) || notracks ) {
 	    /* do not read state file, do not edit scratch file */
+	    insmode = YES;  /* by default set in INSERT mode" */
 	    makestate (NO);
 	    return;
 	}
@@ -2695,6 +2723,7 @@ Flag dump_state;
 	/* state file cannot be opened (non existing, ...) */
 	if ( dump_state ) getout (YES, "  state file cannot be opened");
 	else makestate (gbuf == NULL);
+	insmode = YES;  /* by default set in INSERT mode" */
 	return;
     }
 
@@ -2788,10 +2817,10 @@ Startup file: \"%s\" was made for a terminal with a different screen size. \n\
     }
 
     insmode = getc (gbuf);
-    if ( dump_state ) printf ("insmode %d\n", insmode);
+    if ( dump_state ) printf ("insmode %d : %s\n", insmode, insmode ? "YES" : "NO");
 
     dchr = getc (gbuf);
-    if ( dump_state ) printf ("patmode %d\n", dchr);
+    if ( dump_state ) printf ("patmode %d : %s\n", dchr, dchr ? "YES" : "NO");
     if ( dchr || patmode )  patmode = YES;  /* Added Purdue CS 10/8/82 MAB */
 
     dchr = getc (gbuf);
@@ -2812,7 +2841,7 @@ Startup file: \"%s\" was made for a terminal with a different screen size. \n\
     if ( dump_state ) printf ("autofill %d\n", autofill);
     autolmarg = getshort (gbuf);
     if ( dump_state ) printf ("autolmarg %d\n", autolmarg);
-    if ( !dump_state ) info (inf_auto, 2, autofill ? "WP" : "  ");
+    if ( !dump_state ) rand_info (inf_auto, 2, autofill ? "WP" : "  ");
 #else
     (void) getc (gbuf);
     (void) getshort (gbuf);
@@ -2882,6 +2911,38 @@ Startup file: \"%s\" was made for a terminal with a different screen size. \n\
 	    /* restaure the active window edited files */
 	    if ( acwfi > 0 ) editfile (names [acwfi], (Ncols) -1, (Nlines) -1, 0, NO);
 	    if ( ncwfi > 0 ) editfile (names [ncwfi], (Ncols) -1, (Nlines) -1, 0, NO);
+	}
+    }
+
+    if ( ! feof (gbuf) ) {
+	/* Set the <Del> character function assignement */
+	extern char * itgetvalue (char *);
+	extern char * itsyms_by_val (short);
+	extern char del_strg [];
+	char *val_pt;
+	char del_ch, del_fc;
+
+	del_ch = getc (gbuf);
+	del_fc = getc (gbuf);
+	if ( feof (gbuf) ) {
+	    if ( dump_state ) {
+		printf ("No function assigned to <Del> key (\\%03o)\n", del_strg [0]);
+	    }
+	} else {
+	    if ( dump_state ) {
+		printf ("<Del> (\\%03o) key assigned to function \"%s\"\n",
+			del_ch, itsyms_by_val ((short) del_fc));
+	    } else {
+		if ( (del_ch == del_strg [0]) &&
+		     ((del_fc == CCBACKSPACE) || (del_fc == CCDELCH)) ) {
+		    val_pt = itgetvalue (del_strg);
+		    if ( val_pt ) {
+			*val_pt = del_fc;
+		    }
+		}
+	    }
+	    /* skip end of section mark */
+	    (void) getshort (gbuf);
 	}
     }
 
@@ -3038,8 +3099,8 @@ infoinit ()
     inf_file = col;             /* filename     */
 #endif
 
-    info (inf_at, 2, "At");
-    info (inf_in, 2, "in");
+    rand_info (inf_at, 2, "At");
+    rand_info (inf_in, 2, "in");
     infoline = -1;
     infofile = NULLFILE;
     if (insmode) {

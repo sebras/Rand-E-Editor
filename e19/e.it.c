@@ -61,18 +61,16 @@ int *count;
 }
 
 
-static int itget_addr (cpp, countp, head, valp, it_pt)
+static int itget_addr (cpp, countp, head, it_pt)
 char **cpp;
 int *countp;
 struct itable *head;
-char *valp;
 struct itable **it_pt;
 
 {
     register struct itable *it;
     register char *cp;
     int count;
-    int len;
 
     if ( it_pt) *it_pt = NULL;
     cp = *cpp;
@@ -87,10 +85,8 @@ next:
 	    if (it->it_leaf) {
 		    if ( it_pt) *it_pt = it;
 		    *cpp = cp;
-		    len = it->it_len;
-		    if ( valp ) move (it->it_val, valp, len);
 		    *countp = count;
-		    return len;
+		    return it->it_len;
 	    }
 	    else {
 		head = it->it_link;
@@ -103,6 +99,13 @@ next:
 
 #endif
 
+/* storage for the last matched input string */
+static char matched_strg [128];
+
+char * it_strg ()
+{
+    return matched_strg;
+}
 
 #ifdef COMMENT
 itget (..) matches input (at *cpp) against input table
@@ -126,12 +129,41 @@ int *countp;
 struct itable *head;
 char *valp;
 {
-    int cc;
+    int cc, nb;
+    char *icpp;
+    struct itable *it_pt;
 
-    cc = itget_addr (cpp, countp, head, valp, NULL);
+    icpp = *cpp;
+    cc = itget_addr (cpp, countp, head, &it_pt);
+    if ( cc > 0 ) {
+	memset (matched_strg, 0, sizeof (matched_strg));
+	nb = (int) (*cpp - icpp);
+	if ( nb >= sizeof (matched_strg) ) nb = sizeof (matched_strg) -1;
+	memcpy (matched_strg, icpp, nb);
+	if ( valp ) memcpy (valp, it_pt->it_val, it_pt->it_len);    /* can overwrite input */
+    }
     return cc;
 }
 
+
+/* itswapdeldchar : swap between de l and dchar for string fstrg */
+void itswapdeldchar (char * fstrg)
+{
+    int cc;
+    char *cp, cmd;
+    int count;
+    struct itable *its;
+
+    cp = fstrg;
+    count = strlen (cp);
+    cc = itget_addr (&cp, &count, ithead, &its);
+    if ( !its || (cc < 0) ) return;
+    if ( its->it_len != 1 ) return;
+
+    cmd = *(its->it_val);
+    if ( cmd == CCBACKSPACE ) *(its->it_val) = CCDELCH;
+    else if ( cmd == CCDELCH ) *(its->it_val) = CCBACKSPACE;
+}
 
 /* itoverwrite : overwrite the value of the leave define by dsetstrg
  *               by value of the leave defined by srcstrg
@@ -149,12 +181,12 @@ struct itable *head;
 
     cp = srcstrg;
     count = strlen (cp);
-    cc = itget_addr (&cp, &count, head, NULL, &its);
+    cc = itget_addr (&cp, &count, head, &its);
     if ( !its || (cc < 0) ) return cc;
 
     cp = deststrg;
     count = strlen (cp);
-    cc = itget_addr (&cp, &count, head, NULL, &itd);
+    cc = itget_addr (&cp, &count, head, &itd);
     if ( !itd || (cc < 0) ) return cc;
 
     itd->it_len = its->it_len;
@@ -178,6 +210,19 @@ struct itable *head;
 
     cp = strg;
     count = strlen (cp);
-    cc = itget_addr (&cp, &count, head, NULL, it_pt);
+    cc = itget_addr (&cp, &count, head, it_pt);
     return (cc);
+}
+
+/* Get the address of the value for a given string */
+char * itgetvalue (char * strg)
+{
+    int cc;
+    struct itable *it_pt;
+
+    cc = itgetleave (strg, &it_pt, ithead);
+    if ( !it_pt || (cc < 0) ) return NULL;
+    if ( it_pt->it_len != 1 ) return NULL;
+
+    return (it_pt->it_val);
 }

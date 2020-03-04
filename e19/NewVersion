@@ -1,7 +1,7 @@
-#!/bin/bash
+#!/usr/local/bin/bash
 # : System V
 #   1st para : version nb (default E19)
-#   2nd para : revision nb (default 55)
+#   2nd para : revision nb (default 56)
 #   3rd para : package name and package sub directory (default Rand)
 #   4th para : pacakage instalation directory (default /usr/local)
 #   5th para : can be use to provide the builder name in case of root loging
@@ -12,7 +12,7 @@
 
 #   ref to bask manual for string manipulation syntax
 rand_version=${1:-E19}
-release=${2:-55}
+release=${2:-56}
 
 pkgdir=${3:-Rand}
 pkgname=${pkgdir%/}

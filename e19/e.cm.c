@@ -27,6 +27,9 @@ extern void resize_screen ();
 
 #include SIG_INCL
 
+/* string for <Del> character */
+char del_strg [] ="\177";
+
 S_looktbl cmdtable[] = {
 #ifdef CMDVERALLOC
     "#veralloc", CMDVERALLOC,
@@ -42,7 +45,9 @@ S_looktbl cmdtable[] = {
 #endif
     "-erase"  , CMD_ERASE   ,
     "-join"   , CMDSPLIT    ,
+#ifdef FUTURCMD
     "-macro"  , CMD_MACRO   ,
+#endif
     "-mark"   , CMD_MARK    ,
     "-pick"   , CMD_PICK    ,
     "-range"  , CMD_RANGE   ,
@@ -54,6 +59,7 @@ S_looktbl cmdtable[] = {
     "-tab"    , CMD_TAB     ,
     "-tabfile", CMD_TABFILE ,
     "-tabs"   , CMD_TABS    ,
+    "-tick"   , CMD_TICK    ,
     "-track"  , CMD_TRACK   ,
     "-update" , CMD_UPDATE  ,
     "-w"      , CMD_WINDOW  ,
@@ -64,6 +70,7 @@ S_looktbl cmdtable[] = {
     "?file"   , CMDQFILE    ,
     "?range"  , CMDQRANGE   ,
     "?set"    , CMDQSET     ,
+    "?tick"   , CMDQTICK    ,
     "b"       , CMDEXIT     ,
     "blot"    , CMDBLOT     ,
     "box"     , CMDBOX      ,
@@ -97,6 +104,8 @@ S_looktbl cmdtable[] = {
     "file"    , CMDFILE     ,
     "files"   , CMDSHFILES  ,
     "fill"    , CMDFILL     ,
+    "flipbkar", CMDFLIPBKAR ,
+    "flipbkarrow", CMDFLIPBKAR ,
     "goto"    , CMDGOTO     ,
     "help"    , CMDHELP     ,
     "insert"  , CMDINSERT   ,
@@ -106,8 +115,8 @@ S_looktbl cmdtable[] = {
     "logout"  , CMDLOGOUT   ,
 #ifdef FUTURCMD
     "macro"   , CMDMACRO    ,
-    "mark"    , CMDMARK     ,
 #endif
+    "mark"    , CMDMARK     ,
     "name"    , CMDNAME     ,
     "open"    , CMDOPEN     ,
     "overlay" , CMDOVERLAY  ,
@@ -135,6 +144,7 @@ S_looktbl cmdtable[] = {
     "tab"     , CMDTAB      ,
     "tabfile" , CMDTABFILE  ,
     "tabs"    , CMDTABS     ,
+    "tick"    , CMDTICK     ,
     "track"   , CMDTRACK    ,
     "underlay", CMDUNDERLAY ,
     "undo"    , CMDUNDO     ,
@@ -159,6 +169,7 @@ static S_looktbl multi_cmd [] = {
     "-regexp",  CMD_PATTERN,
     "split",    CMDSPLIT,
     "join",     CMDJOIN,
+    "flipbkarrow", CMDFLIPBKAR ,
     0,          0
     };
 
@@ -337,6 +348,9 @@ int direntry_cmp (struct dirent *dent)
 int expand_file_para (char *file_para, char **name_expantion_pt,
 		      int *wlen_pt, int *dir_flg_pt)
 {
+    extern int alphasort ();
+    extern int scandir ();
+
     int i, j, sz, flg;
     char fp_strg[512];
     char *dir;
@@ -384,9 +398,14 @@ int expand_file_para (char *file_para, char **name_expantion_pt,
     dir_select = direntry_cmp;
     nb_namelist = scandir (dir, &namelist, dir_select, alphasort);
     namelist_idx = -1;
-/*
-printf (" '%s / %s' : dflg %d %d %d", dir, fname_para, dir_cmd_flg, fname_para_sz, nb_namelist); fflush(stdout); sleep(5);
-*/
+    /* to debug
+    {
+	char info_str [16];
+	sprintf (info_str, "nb %d", nb_namelist);
+	rand_info (7, 5, info_str);
+	printf (" '%s / %s' : dflg %d %d %d", dir, fname_para, dir_cmd_flg, fname_para_sz, nb_namelist); fflush(stdout); sleep(5);
+    }
+    */
     if ( nb_namelist > 0 ) {
 	memset (name_exp, 0, sizeof(name_exp));
 	dent = namelist[0];
@@ -571,6 +590,9 @@ command ()
     extern void cmds_prompt_mesg ();
     extern Cmdret displayfileslist ();
     extern Cmdret buildkbfile ();
+    extern void itswapdeldchar (char *);
+    extern void infotick ();
+    extern void marktick (Flag set);
 
     Short cmdtblind;
     Cmdret retval;
@@ -1014,12 +1036,47 @@ command ()
 	retval = CROK;
 	break;
 
+    case CMDFLIPBKAR:
+	/* flip the function of BackArrow key between "del" and "dchar"
+	 *  assumed the BackArrow key generate the <del> (0177) ASCII char
+	 */
+	itswapdeldchar (del_strg);
+	retval = CROK;
+	break;
+
+    case CMDMARK:
+	mark ();
+	retval = CROK;
+	break;
+
+    case CMD_MARK:
+	unmark ();
+	retval = CROK;
+	break;
+
+    case CMDTICK:
+	marktick (YES);
+	retval = CROK;
+	break;
+
+    case CMD_TICK:
+	marktick (NO);
+	retval = CROK;
+	break;
+
+    case CMDQTICK:
+	infotick ();
+	retval = CROK;
+	break;
+
     default:
 	mesg (ERRALL + 3, "Command \"", cmdtable[cmdtblind].str,
 		"\" not implemented yet");
 	retval = CROK;
 	break;
     }
+
+
     if (opstr[0] != '\0')
 	sfree (opstr);
 
@@ -1071,25 +1128,44 @@ gotocmd ()
 Cmdret
 gotocmd ()
 {
+    extern void gototick ();
+    extern void savemark (struct markenv *);
+    extern Small movemark (struct markenv *, Flag);
+    extern void copymark (struct markenv *, struct markenv *);
+
+    struct markenv tmpmk;
+    Nlines lnb, dlnb;
+
+    savemark (&tmpmk);
+
     if (opstr[0] == '\0') {
 	gotomvwin (0);
+	copymark (&tmpmk, &curwksp->wkpos);
 	return CROK;
     }
     if (*nxtop)
 	return CRTOOMANYARGS;
 
     Block {
-	Reg2 Short tmp;
-	Reg1 char *cp;
-	char *cp1;
+	Short tmp;
+	char ch;
+	char *cp, *cp1;
 
-	cp1 = opstr;
+	for (cp1 = opstr; *cp1 && *cp1 == ' '; cp1++) continue;
+	ch = (cp1) ? *cp1 : '\0';
+	if ( (ch == '+') || (ch == '-') ) cp1++;
 	tmp = getpartype (&cp1, 0, 0, 0);
 	if (tmp == 1) {
 	    for (cp = cp1; *cp && *cp == ' '; cp++)
 		continue;
 	    if (*cp == 0) {
-		gotomvwin (parmlines - 1);
+		lnb = parmlines - 1;
+		if ( ch == '-' ) lnb = curwksp->wlin + cursorline - parmlines;
+		if ( ch == '+' ) lnb = curwksp->wlin + cursorline + parmlines;
+		dlnb = lnb - curwksp->wlin;
+		if ( (dlnb < 0) || (dlnb > curwin->btext) ) gotomvwin (lnb);
+		else poscursor (cursorcol, dlnb);
+		copymark (&tmpmk, &curwksp->wkpos);
 		return CROK;
 	    }
 	}
@@ -1103,18 +1179,24 @@ gotocmd ()
 	    "beginning",    0,
 	    "e",            1,  /* guranteed abbreviation */
 	    "end",          1,
+	    "p",            5,
+	    "prev",         5,
 	    "rb",           2,  /* guranteed abbreviation */
 	    "rbeginning",   2,
 	    "re",           3,  /* guranteed abbreviation */
 	    "rend",         3,
+	    "t",            4,
+	    "tick",         4,
 	     0,             0,
 	};
-	Reg1 Small ind;
-	Reg2 Small val;
+	Small ind;
+	Small val;
+
 	if ((ind = lookup (opstr, gttbl)) < 0) {
 	    mesg (ERRSTRT + 1, opstr);
 	    return ind == -2 ? CRAMBIGARG : CRUNRECARG;
 	}
+
 	switch (val = gttbl[ind].val) {
 	case 0:
 	    gotomvwin ((Nlines) 0);
@@ -1133,7 +1215,14 @@ gotocmd ()
 	    else
 		return NORANGERR;
 	    break;
+	case 4:
+	    gototick ();
+	    break;
+	case 5:
+	    (void) movemark (&curwksp->wkpos, YES);
+	    break;
 	}
+	copymark (&tmpmk, &curwksp->wkpos);
     }
     return CROK;
 }
@@ -1224,20 +1313,24 @@ Flag on;
 /* setoption_msg : build current options state message */
 /* --------------------------------------------------- */
 void setoption_msg (char *buf)
-	/* buf must be >= 80 char */
+	/* buf must be >= 128 char */
 {
     extern Flag fill_hyphenate;
+    char * buf_pt;
 
 #ifndef LMCVBELL
-    sprintf(buf, "+li %d, -li %d, +pg %d, -pg %d, wr %d, wl %d, wid %d, bell %s, hy %s",
-	defplline, defmiline, defplpage, defmipage, defrwin, deflwin,
-	linewidth, NoBell ? "off" : "on", fill_hyphenate ? "on" : "off" );
+    sprintf (buf, "+li %d, -li %d, +pg %d, -pg %d, wr %d, wl %d, wid %d, bell %s, hy %s",
+	     defplline, defmiline, defplpage, defmipage, defrwin, deflwin,
+	     linewidth, NoBell ? "off" : "on", fill_hyphenate ? "on" : "off" );
 #else
-    sprintf(buf, "+li %d, -li %d, +pg %d, -pg %d, wr %d, wl %d, wid %d, bell %s, vb %s, hy %s",
-	defplline, defmiline, defplpage, defmipage, defrwin, deflwin,
-	linewidth, NoBell ? "off" : "on", VBell ? "on" : "off",
-	fill_hyphenate ? "on" : "off" );
+    sprintf (buf, "+li %d, -li %d, +pg %d, -pg %d, wr %d, wl %d, wid %d, bell %s, vb %s, hy %s",
+	     defplline, defmiline, defplpage, defmipage, defrwin, deflwin,
+	     linewidth, NoBell ? "off" : "on", VBell ? "on" : "off",
+	     fill_hyphenate ? "on" : "off" );
 #endif
+    buf_pt = & buf [strlen (buf)];
+    if ( DebugVal == 0 ) strcpy (buf_pt, ", debug off");
+    else sprintf (buf_pt, ", debug %d", DebugVal);
 }
 
 #ifdef COMMENT
@@ -1263,7 +1356,7 @@ setoption( showflag )
 	    "-page",        SET_MIPAGE,    /* defmipage */
 	    "?",            SET_SHOW,      /* show options */
 	    "bell",         SET_BELL,      /* echo \07 */
-	    "debug",        SET_DEBUG,
+	    "debug",        SET_DEBUG,     /* 0 = no debug, > 0 debug level */
 	    "hy",           SET_HY,        /* fill: split hyphenated words */
 	    "left",         SET_WINLEFT,   /* deflwin */
 	    "line",         SET_LINE,      /* defplline and defmiline */
@@ -1306,7 +1399,7 @@ setoption( showflag )
 		return ind;
 	    }
 
-	    arg = getword(&nxtop);
+	    arg = getword (&nxtop);
 	    if (arg == NULL) {
 		cmdname = cmdopstr;
 		return CRNEEDARG;
@@ -1316,22 +1409,8 @@ setoption( showflag )
 	switch( setopttable[ind].val ) {
 
 	    case SET_SHOW:
-		{       char buf[80];
+		{   char buf[128];
 		    setoption_msg (buf);
-/*
-#ifndef LMCVBELL
-sprintf(buf, "+li %d, -li %d, +pg %d, -pg %d, wr %d, wl %d, wid %d, \
-bell %s, hy %s",
-    defplline, defmiline, defplpage, defmipage, defrwin, deflwin,
-    linewidth, NoBell ? "off" : "on", fill_hyphenate ? "on" : "off" );
-#else
-sprintf(buf, "+li %d, -li %d, +pg %d, -pg %d, wr %d, wl %d, wid %d, \
-bell %s, vb %s, hy %s",
-    defplline, defmiline, defplpage, defmipage, defrwin, deflwin,
-    linewidth, NoBell ? "off" : "on", VBell ? "on" : "off",
-    fill_hyphenate ? "on" : "off" );
-#endif
-*/
 		    mesg (TELALL + 1, buf);
 		}
 		loopflags.hold = YES;
@@ -1502,8 +1581,8 @@ BadVal:         retval = CRBADARG;
 		break;
 	}
 
-	if (arg)
-	    sfree(arg);
+	if ( arg && *arg )
+	    sfree (arg);
 
 	return (retval);
 }

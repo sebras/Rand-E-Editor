@@ -69,6 +69,7 @@ mainloop ()
 {
 extern int command_file ();
 extern void testandset_resize ();
+extern void marktick (Flag set);
 
 #ifdef LMCCMDS
 char *nix = "\0";
@@ -100,13 +101,13 @@ newnumber:
 #else
 		sprintf (ich, "%-5d", nlines);
 #endif
-		info (inf_line, 5, ich);
+		rand_info (inf_line, 5, ich);
 		infoline = nlines;
 	    }
 	}
 
 	if (curfile != infofile && (fileflags[curfile] & INUSE)) {
-	    info (inf_file, strlen (names[infofile]), names[curfile]);
+	    rand_info (inf_file, strlen (names[infofile]), names[curfile]);
 	    infofile = curfile;
 	}
 
@@ -162,7 +163,7 @@ contin:
 		Reg3 int len;
 		cp = append (mklinstr, mkcolstr);
 		len = strlen (cp);
-		info (inf_area, max (len, infoarealen), cp);
+		rand_info (inf_area, max (len, infoarealen), cp);
 		infoarealen = len;
 		sfree (cp);
 	    }
@@ -351,6 +352,10 @@ contin:
 
 		case CCMARK:
 		    mark ();
+		    goto funcdone;
+
+		case CCTICK:
+		    marktick (YES);
 		    goto funcdone;
 
 		case CCREPLACE:
@@ -587,6 +592,12 @@ gotcmd:
 		    unmark ();
 		    goto funcdone;
 
+		case CCTICK:
+		    if (paramtype != 0)
+			goto notimperr;
+		    marktick (NO);
+		    goto funcdone;
+
 		case CCMOVELEFT:
 		case CCMOVEDOWN:
 		case CCMOVEUP:
@@ -674,8 +685,14 @@ gotcmd:
 		case CCMIPAGE:
 		case CCPLPAGE:
 		    switch (paramtype) {
+		    extern void savemark (struct markenv *);
+		    extern void copymark (struct markenv *, struct markenv *);
+		    struct markenv tmpmk;
+
 		    case 0:
+			savemark (&tmpmk);
 			gotomvwin (key == CCPLPAGE ? la_lsize (curlas) : 0);
+			copymark (&tmpmk, &curwksp->wkpos);
 			break;
 
 		    case 1:

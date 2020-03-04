@@ -674,6 +674,6 @@ Reg1 Flag onoff;
     static Flag wason;
 
     if ((onoff = onoff ? YES : NO) ^ wason)
-	info (inf_track, 5, (wason = onoff) ? "TRACK" : "");
+	rand_info (inf_track, 5, (wason = onoff) ? "TRACK" : "");
     return;
 }

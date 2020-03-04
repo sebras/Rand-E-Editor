@@ -13,3 +13,10 @@ $GROUP_DIR : /afs/cern.ch/group/pz
     2.2 - AIX ( 4.2 or latter )
 	$GROUP_DIR/.rs_aix42/Rand
 	/ps/local/AIX/Rand
+    2.3 - Sparc Solaris ( 2.6 or latter : UNIX SysV flavor)
+	  or SunOS ( 5.6 or latter)
+	$GROUP_DIR/.sun4x_56/Rand
+	/ps/local/Solaris/Rand
+    2.4 - LynxOS for PowerPC( 3.1 or latter : Posix complient)
+	/ps/local/ppc/Rand
+	No AFS access

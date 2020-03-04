@@ -5,6 +5,10 @@
 # Modifeied by F. Perriollat for IBM PC style keyboard
 # see dtterm documentation on AIX for key escape sequences
 # ----------------------------------------------------------------------------
+# The "#!noX11" directive line can be used to prevent any call to X11 lib
+#   to get the keyboard mapping
+
+# #!noX11 Do not call X11 to get the keyboard mapping
 
 <kbini>:^["="^["[2l"
 ^["="^["[2l":<kbini>
@@ -44,7 +48,8 @@
 #Add
 ^["Ok":<edit>
 #Multiply
-^["Oj":<open>
+#^["Oj":<open>
+^["Oj":<tick>
 #Divide
 ^["Oo":<+word>
 

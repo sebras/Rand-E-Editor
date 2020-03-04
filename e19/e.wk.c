@@ -160,9 +160,9 @@ Reg1 Flag onoff;
 
     if ((onoff = onoff ? YES : NO) ^ wason) {
 	if (wason = onoff)
-	    info (inf_range + 1, 5, "RANGE");
+	    rand_info (inf_range + 1, 5, "RANGE");
 	else {
-	    info (inf_range, 6, "");
+	    rand_info (inf_range, 6, "");
 	    lastwhere = " ";
 	}
     }
@@ -192,7 +192,7 @@ Reg2 Nlines line;
     if (   *lastwhere == ' '
 	|| *where != *lastwhere
        ) {
-	info (inf_range, 1, where);
+	rand_info (inf_range, 1, where);
 	lastwhere = where;
     }
     return;

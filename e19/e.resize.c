@@ -282,6 +282,8 @@ static void resize_now (Flag msg_flg, int height, int width)
 
 static get_size (int * width, int * height)
 {
+    extern void get_tt_size (int *, int *);
+
     *width  = term.tt_width;
     *height = term.tt_height;
     get_tt_size (width, height);

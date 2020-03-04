@@ -108,7 +108,7 @@ static void edited_file ()
 /* Display the list of edited files and switch files if requested */
 
 Cmdret displayfileslist () {
-    extern void show_info (void (*info) (), int *, char *);
+    extern void show_info (void (*my_info) (), int *, char *);
     static char listmsg [] = "---- <file nb> <RETURN> to switch to this file, or <Ctrl C> just to return ----";
     int val, fi;
 
@@ -199,7 +199,10 @@ Nlines  line;
 Small   mkopt;
 Flag    puflg;
 {
+    extern void savemark (struct markenv *);
+    extern void infosetmark ();
     extern char *cwdfiledir [];
+
     int retval;
     static Flag toomany = NO;
     Short   j;
@@ -442,6 +445,9 @@ editit:
     limitcursor ();
     poscursor (curwksp->ccol, curwksp->clin);
     retval = 1;
+    savemark (&curwksp->wkpos);
+    infosetmark ();
+
 ret:
 #ifdef SYMLINKS
     if (wassymlink) {
@@ -509,13 +515,15 @@ getnxfn ()
 Fn
 getnxfn ()
 {
-    register Fn fn;
+    extern void marktickfile ();
+    Fn fn;
 
     for (fn = FIRSTFILE + NTMPFILES; fileflags[fn] & INUSE; )
 	if (++fn >= MAXFILES)
 	    fatal (FATALBUG, "Too many files");
 
     fileflags[fn] = INUSE;
+    marktickfile (fn, NO);
     return fn;
 }
 

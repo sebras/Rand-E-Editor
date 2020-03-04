@@ -16,7 +16,9 @@ extern int      errno;
 
 #define FF_BSIZE   BUFSIZ	/* Size of a FF block */
 
+#ifndef NOFILE
 #define NOFILE _NFILE		/* Number of system opens allowed */
+#endif
 #if NOFILE > 64                 /* must be small enough for the 'char' storage */
 #undef NOFILE
 #define NOFILE 64

@@ -2,14 +2,18 @@
 RAND editor sources and installation
 ===========================================================
 
-March 2000
+URL: http://home.cern.ch/perrioll/Rand_Editor
+
+February 2001
 By Fabien Perriollat CERN/PS <Fabien.Perriollat@cern.ch>
 
 This version of the rand editor currently compiles on the
 following architectures:
 
-- Linux  2.*, (ReadHat 6.* distribution)
+- Linux  2.*, (ReadHat 6.* distribution) for i386 familly
 - AIX    4.x
+- Solaris (Sun OS 5.*) on sun hardware
+- LynxOS (RT kernel), Posix complient, version 3.* for PowerPC
 
 As it is there, it does look any more for special files in /ps/local/$OS/e
 where $OS = AIX, ULTRIX or OSF1 (as reported by uname)
@@ -77,8 +81,8 @@ To do a local customization of the keyboard definition,
       a '/' character, the file name path is relative to the current
       including file, else it is an absolute file name path.
 
-Linux installation specific case :
-=================================
+Installation specific case :
+============================
   The linux installation is done normally with the RPM package manager :
 
     The package can be relocated into a user define directory instead of
@@ -88,8 +92,21 @@ Linux installation specific case :
     parameter of the rpm call
 
 
+  Installation on system which does not provide rpm package management facility.
+    The installation is done with the "make preinstall" and "make install"
+    (using gmake program).
+    It can be necessary to edit the Makefile file (in the Rand source root
+    directory) to reflect the local file system structure.
+
+
 Note for Rand Editor developpers :
 ==================================
+
+  Before using Makfile to compile the rand editor, it is mandatory to
+  run the local.sh (Born) shell script. This script update the other
+  script which are using the bash shell with the local full path name
+  of the bash shell. It allow also to modifie the local name of the Rand
+  editor (see output of "./local.sh --help").
 
   The shell script new_release.sh (which use bask shell) is provide
   to generate updated version of files for a new revision of
@@ -98,3 +115,13 @@ Note for Rand Editor developpers :
   the e19/NewVersion shell script.
   This new_release.sh script can be used also to do a simple consistency
   check of revsion number between these 3 files.
+
+  The GNU make is needed to run the Makefiles of the distribution.
+    The if facility of GNU make is used to define somme flags for
+    the various OS targets.
+  The GNU tar and install programs are used by the Makefile, some specific
+    features of these gnu pacakages are used to produce the compressed tar
+    file and to install the Rand editor package.
+
+  NOX11 and NOXKB conditional compilation flags can be used to exclude
+    X11 library or X11 Keyboard extension during compilation, loading.

@@ -125,7 +125,7 @@ ERROR:  must define one or the other
 	fileflags[curfile] |= RENAMED;
     }
  ret:
-    info (inf_file, strlen (names[infofile]), opstr);
+    rand_info (inf_file, strlen (names[infofile]), opstr);
     names[curfile] = append (opstr, "");
 	cwdfiledir [curfile] = NULL;
 	cwd = getcwd (cwdbuf, sizeof (cwdbuf));
@@ -196,7 +196,7 @@ delete ()
     curwin->winflgs &= ~TRACKSET;
     infotrack (NO);
     dlfile (curfile);
-    info (inf_file, len, names[curfile]);
+    rand_info (inf_file, len, names[curfile]);
     return CROK;
 }
 

@@ -581,8 +581,10 @@ Flag filedir_flg;       /* YES : use the initial directory for this file */
 	 * file won't get deleted later as part of the saveall sequence
 	 **/
 	if ((tmp = hvdelname (origfile)) != -1) {
+	    extern void marktickfile ();
 	    unlink (origfile);
 	    fileflags[tmp] &= ~(INUSE | DELETED);
+	    marktickfile (tmp, NO);
 	}
 
 	tmp = mv (origfile, bakfile);
@@ -641,9 +643,12 @@ Reg1 Fn fn;
      * file won't get deleted later as part of the saveall sequence
      **/
     Block {
+	extern void marktickfile ();
 	Reg2 Fn tmp;
-	if ((tmp = hvdelname (names[fn])) != -1)
+	if ((tmp = hvdelname (names[fn])) != -1) {
 	    fileflags[tmp] &= ~(INUSE | DELETED);
+	    marktickfile (tmp, NO);
+	}
     }
     return YES;
 }

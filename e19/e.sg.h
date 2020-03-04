@@ -10,6 +10,13 @@
 #include SGTT_INCL
 #endif
 
+/* termio.h must be include before sys/termio.h in Lynx os :
+ *          problem with mutual exclusion between termio.h ioctl.h and sys/ioctl.h
+ */
+#ifdef SYSIII
+#include <termio.h>
+#endif
+
 #ifndef NOIOCTL_H
 #include <sys/ioctl.h>
 #endif

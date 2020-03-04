@@ -201,7 +201,7 @@ infoauto (cmdmod)
 
     autofill = autofill ? NO : YES;
     if (autofill) {
-	info (inf_auto, 2, "WP");
+	rand_info (inf_auto, 2, "WP");
 	if (curmark) {
 	    moved = gtumark(YES);
 #ifdef LMCMARG
@@ -215,7 +215,7 @@ infoauto (cmdmod)
 	    domark (moved);
 	}
     } else
-	info (inf_auto, 2, "");
+	rand_info (inf_auto, 2, "");
 }
 #endif
 

@@ -13,6 +13,7 @@ file e.q.c
 #include "e.cm.h"
 #include "e.fn.h"
 #include "e.tt.h"
+#include "e.it.h"
 
 #include SIG_INCL
 
@@ -411,6 +412,7 @@ Flag
 savestate ()
 {
     extern void history_dump (FILE *stfile);
+    void delchar_dump (FILE *);
 
     int fi, wi, wn, i0, nb;
     Short i, fflag;
@@ -544,7 +546,11 @@ savestate ()
 	put_fname (fi, stfile);
 	putshort (fileflags [fi], stfile);
     }
-    putshort (0, stfile);   /* end of list flag */
+    putshort (0, stfile);   /* end of section flag */
+
+    /* Dump the key function assigned to <Del> character */
+    delchar_dump (stfile);
+
     if (ferror (stfile)) {
 	fclose (stfile);
 	return NO;
@@ -554,4 +560,18 @@ savestate ()
     putshort (revision, stfile);   /* state file is OK */
     fclose (stfile);
     return  YES;
+}
+
+void delchar_dump (FILE *stfile)
+{
+    extern char * itgetvalue (char *);
+    extern char del_strg [];
+    char *val_pt;
+
+    val_pt = itgetvalue (del_strg);
+    if ( ! val_pt ) return;
+
+    putc (del_strg [0], stfile);
+    putc (*val_pt, stfile);
+    putshort (0, stfile);   /* end of section flag */
 }

@@ -20,6 +20,15 @@ static void itadd ();
 
 int kbfile_wline = 0;   /* line number of a duplicated string */
 
+/* directives which can be use in kb files */
+/* A directive line must start with '#!' string
+ *   and only upper case char must be used to define the directive strings
+ *   in kb file upper or lower case char can be used
+ *   see check_directive routine
+ */
+static char noX[] = "#!NOX11";  /* flag for noX11 usage for keyboard mapping */
+				/* must be in upper case (see check_noX11 routine) */
+
 struct itable *ithead = NULLIT;
 
 S_looktbl itsyms [] = {
@@ -115,6 +124,7 @@ S_looktbl itsyms [] = {
     "stopx",   CCSTOPX,
 #endif
     "tab",     CCTAB,
+    "tick",    CCTICK,
 #ifdef LMCCMDS
     "track",   CCTRACK,
 #endif
@@ -210,6 +220,29 @@ static void include_cccmd ()
     }
 }
 
+static Flag check_directive (char *line)
+{
+    extern Flag noX11flg;
+    extern void set_noX_msg (char *);
+    char chr, str[32], *strg;
+
+    if ( strncmp (line, "#!", 2) != 0 ) return NO;
+
+    strncpy (str, line, sizeof (str));
+    str[sizeof (str) -1] = '\0';
+    for ( strg = str; chr = *strg; strg++) *strg = toupper(chr);
+    if ( isspace (str[strlen (noX)]) ) str[strlen (noX)] = '\0';
+    if ( strncmp (str, noX, sizeof (noX)) != 0 )
+	return NO;
+
+    if ( ! noX11flg ) {
+	noX11flg = YES;
+	set_noX_msg ("\'#!noX11\' directive in kb file");
+    }
+    if ( verbose_helpflg ) printf ("--- \'%s\' directive found ---\n", noX);
+    return YES;
+}
+
 static char * check_include (line, path)
 char *line, *path;
 {
@@ -276,6 +309,7 @@ int level;
 	line[strlen (line)-1] = '\0';   /* remove newline */
 	if ( verbose_helpflg ) printf ("%3d  %s\n", lnb, line);
 	if ( line[0] == '#' ) {         /* FP 14 Jan 2000 */
+	    if ( check_directive (line) ) continue; /* FP 10 Jan 2001 */
 	    incl_fname = line+1;
 	    for ( ; c = *incl_fname ; incl_fname++ ) if ( c != ' ') break;
 	    incl_fname = check_include (incl_fname, filename);
@@ -334,7 +368,7 @@ int str_len, val_len;
 char *line;             /* For debugging */
 int line_nb;
 {
-    char * itsyms_by_val ();
+    char * itsyms_by_val (short);
     struct itable *it;         /* Current input table entry */
     struct itable *pt;         /* Previous table entry */
 
@@ -460,7 +494,7 @@ char * escstrg (char *escst)
     memset (st, 0, sizeof (st));
     for ( sp = escst; (ch = *sp) ; sp++ ) {
 	if ( ch == '\033' ) strcat (st, "<Esc>");
-	else if ( ch == '\177' ) strcat (st, "<Bksp>");
+	else if ( ch == '\177' ) strcat (st, "<Del>");
 	else if ( ch == '\t' ) strcat (st, "<Tab>");
 	else if ( ch < ' ' ) {
 	    st[strlen(st)] = '^';
@@ -549,8 +583,8 @@ static int it_listall ()
 
 	nb_leaves++;
 	printf ("%3d : %-10s = ", nb_leaves, escstrg (strg));
-	for (cp = it->it_val, i = it->it_len ; i-- > 0 ; ) {
-	    sp = itsyms_by_val ((short) *cp);
+	for (cp = (unsigned char *) it->it_val, i = it->it_len ; i-- > 0 ; ) {
+	    sp = (unsigned char *) itsyms_by_val ((short) *cp);
 	    printf (" (%#4o)", *cp++);
 	    if ( sp ) printf ("<%s>", sp);
 	}
@@ -584,7 +618,7 @@ static void itwalk (int val, struct itable **it_pt, int *n, char *strg)
 	strg [*n] = c;
 	strg [*n+1] = '\0';
 	if (it->it_leaf) {
-	    for (cp = it->it_val, i = it->it_len; i-- > 0; ) {
+	    for (cp = (unsigned char *) it->it_val, i = it->it_len; i-- > 0; ) {
 		if ( *cp = val ) return;
 	    }
 	}
@@ -668,7 +702,7 @@ int it_value_to_string (int value,
     for ( ; ; ) {
 	it = it_walk (ithead, 0, strg);
 	if ( ! it ) break;  /* no more leaves */
-	cp = it->it_val;    /* if more than 1 value, it must be <cmd><xxx> */
+	cp = (unsigned char *) it->it_val;  /* if more than 1 value, it must be <cmd><xxx> */
 	i = it->it_len;
 	if ( cp[i-1] != value ) continue;
 
