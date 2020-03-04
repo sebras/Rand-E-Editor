@@ -36,3 +36,15 @@
 #define NDMARKERR       ((Cmdret) 17)
 #define NORANGERR       ((Cmdret) 18)
 #define NOTIMPERR       ((Cmdret) 19)
+
+#define RE_CMD          ((Cmdret) 99)
+
+
+/* Command class value : returned by command_class () */
+
+#define NOT_CMD_CLASS  0    /* not a command */
+#define FILE_CMD_CLASS 1    /* file parameter command */
+#define DIR_CMD_CLASS  2    /* directory parameter command */
+#define HELP_CMD_CLASS 3    /* help command */
+#define ARG_CMD_CLASS  4    /* command with predifined argument(s) */
+

@@ -72,7 +72,7 @@ struct ff_stream {
                     f_count;	/* Reference count	 */
     Ff_file        *f_file;	/* Fnode pointer	 */
     long            f_offset;	/* Current file position */
-}               Ff_stream;	/* or buffered amount	 */
+}               Ff_stream;      /* or buffered amount    */
 /* f_flag bits */
 #define F_READ	01		/* File opened for read */
 #define F_WRITE 02		/* File opened for write */

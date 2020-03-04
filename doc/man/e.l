@@ -10,7 +10,7 @@
 e \- Rand full screen text editor
 .SH SYNOPSIS
 .B e
-[ options ]  file [ altfile ]
+[ options ]  [ file ] [ altfile ] [ other file ] ....
 .br
 .B ned
 .SH DESCRIPTION
@@ -43,8 +43,11 @@ A reference manual
 is available on the PRIAM VAX using the
 notesfile scheme and the printdoc command.
 .SH CHANGES
+.sp
+To see the last changes in version E19 : look at the output of "help new"
+command.
 .TP
-E19 changes include:
+E19 (initial) changes include:
 .br
 - word processing mode (WP mode)
 .br
@@ -95,6 +98,8 @@ The currently available command line options are:
 This causes a display of the currently available
 options and their values along with the version number
 of the editor.
+.br
+Use this option to list the updated list of options.
 .TP
 .BR \-bullets " or " \-nobullets
 .br
@@ -188,6 +193,13 @@ read from the indicated "state" file.  The state file from a previous
 \fIE\fR session (with alternate files, windows, cursor positioning,
 etc.) may be saved by exiting, and renaming the state file (".es1").
 .TP
+.B \-dump_state_file
+.br
+Option \-dump_state_file display in a readable format the content of the
+"state" file. This state file can be explicitely define by the
+"\-state=filename" option or is the state file which will be used
+when the editor is called without file name parameter.
+.TP
 .B \-[no]stick
 .br
 Option \-stick sets the behavior at the right margin to stop in response
@@ -198,6 +210,21 @@ shift the window right in response to text or <RT ARROW> key.
 .br
 Option \-nox11 disables calls to X11 library during startup to get the keyboard
 mapping.
+.TP
+.B \-debug=[debug output file name]:[debug level]
+.br
+Option \-debug starts a debugging session, level = 0 : debugging suspended,
+level != 0 : debugging actif. Use the command 'set debuglevel x' to
+suspend, resume the debugging. When the debugging is suspended, the
+debugging output file is flused, and closed. When debugging is resumed,
+entering in a level != 0, the debugging output file is reopened for append.
+On starting the debugging session, the sizeof the major Rand data type
+(like Char, Flag, ...) is dumped on the debugging file.
+.TP
+.B \-version
+.br
+Option \-version display editor version informations. It is equivalent to
+the \-help option.
 .SH TERMINAL TYPES
 The terminal type is defined by the option -terminal if given,
 otherwise by the TERM environment variable.
@@ -542,6 +569,9 @@ by cursor movements.
 All other character strings are to be taken literally.
 .sh "Key functions"
 .PP
+It is better to look at the output of "help keyf" for the updated
+description of the key functions.
+.PP
 ALT                   - swap current file and alternate file.
 .PP
 BACKSPACE             - move cursor one position left.
@@ -856,6 +886,11 @@ ENTER UP              - move cursor to the top edge of the window.
 .SH "EDITOR COMMANDS"
 .SH
 .PP
+
+It is better to look at the output of "help cmd" command
+for the updated description of Editor Commands.
+.sp 2
+.br
 Commands are entered after the ENTER key is pressed
 and are executed when RETURN is pressed after the command
 has been typed in.
@@ -959,6 +994,10 @@ e         - edit the file filename.
 .RS 12
 Filename becomes the current file and the current file
 becomes the alternate file. The ALT key switches between them.
+.br
+.B \edit -
+remove the current file from the list of edited files if it was not modified,
+nor referenced.
 .RE
 .PP
 erase [ number ] [ linearea ]
@@ -1340,11 +1379,15 @@ line \fIn\fR\*tsets the <+line> and <\-line> keys to \fIn\fR lines
 page \fIn\fR\*tsets the <\-page> and <+page> keys to \fIn\fR screens
 ?\*tdisplays the values of several options (same as the "?set" command)
 bell\*tenable the bell
-nobell\*tdisable the bell
-hy\*tenables splitting of hyphenated words by fill/just
-nohy\*tdisables splitting of hyphenated words by fill/just (default)
+debuglevel \fIn\fR\*tchange the debugging level (within a debugging session),
+level 0 suspend debugging, level != 0 resume.
+nobell \*tdisable the bell
+hy \*tenables splitting of hyphenated words by fill/just
+nohy \*tdisables splitting of hyphenated words by fill/just (default)
 left \fIn\fR\*tsets the <window left> key to \fIn\fR cols
 lmar \fIn\fR\*tsets the left margin to \fIn\fR
+preferences \*tsave the current setting in the $HOME/.Rand/preferenes file.
+preferences \fI?\fR\*tdisplay preferences for the current terminal type.
 right \fIn\fR\*tsets the <window right> key to \fIn\fR cols
 rmar \fIn\fR\*tsets the right margin (linewidth) to \fIn\fR
 window \fIn\fR\*tsets the <window left> and <window right> keys to \fIn\fR cols
@@ -1547,86 +1590,6 @@ When the editor is called without a file name the state file is used
 to recreate the situation that existed at the previous termination.
 .SH SEE ALSO
 P.Villemoes, Introduction to the Rand Editor, PRIAM/VAX/3
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+.sp
+The on line "help" command. A good entry point is the bare "help".
+On Line "help" is more accurate and provide more complete information.

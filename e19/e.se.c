@@ -16,6 +16,8 @@ file e.se.c
 #include "e.cm.h"
 #include "e.se.h"
 
+extern Flag save_or_set_impl_tick (Flag test_flg);
+extern void reset_searchkey_ref ();
 
 Flag rplinteractive, rplshow;
 static char *rpls1;
@@ -27,14 +29,16 @@ Flag starthere;
 Nlines srchline;
 Ncols srchcol;
 
-extern void doreplace ();
-extern void replkey ();
-extern void rplit ();
-extern void dosearch ();
+       void doreplace ();
+       void replkey ();
+       void rplit ();
+       void dosearch ();
 extern void aborted ();
 extern char *re_comp (), *re_exec(), *re_replace();
 extern int DebugVal;
 Flag first_repl_line;
+
+static Small dsplsearch ();
 
 #ifdef COMMENT
 int
@@ -171,16 +175,18 @@ Small delta;
     if (tmpb[-1] == '\\')
 	tmpb[-1] = '$';
     *tmpb = '\0';
-/*  if (b[0] == '^' && b[1] == '\0'){
-	b[1] = '.';
-	b[2] = '\0';
-    }
-    else if (b[0] == '$' && b[1] == '\0'){
-	b[0] = '.';
-	b[1] = '$';
-	b[2] = '\0';
-    }
-*/  if (patmode && (s2 = re_comp(b)) != (char *) 0){
+#if 0
+|    if (b[0] == '^' && b[1] == '\0'){
+|        b[1] = '.';
+|        b[2] = '\0';
+|    }
+|    else if (b[0] == '$' && b[1] == '\0'){
+|        b[0] = '.';
+|        b[1] = '$';
+|        b[2] = '\0';
+|    }
+#endif
+    if (patmode && (s2 = re_comp(b)) != (char *) 0){
 	mesg (ERRALL + 3, b, ": ", s2);
 	return CROK;
     }
@@ -226,13 +232,14 @@ Small delta;
 
     if (curmark) {
 	moved = gtumark (YES);
-	unmark ();
+	(void) unmark ();
     }
     if (moved && rplshow || rplinteractive)
 	putupwin ();
     if (rplinteractive) {
 	if (searchkey)
 	    sfree (searchkey);
+	reset_searchkey_ref ();
 	searchkey = append (rpls1, "");
 	starthere = YES;
 	dosearch (delta);
@@ -497,16 +504,18 @@ void
 dosearch (delta)
 Small delta;
 {
-    dsplsearch (searchkey,
-		curwksp->wlin + cursorline,
-		curwksp->wcol + cursorcol,
-		delta > 0 ? la_lsize (curlas) - 1 : 0,
-		delta, YES, YES);
+    (void) save_or_set_impl_tick (NO);
+    (void) dsplsearch (searchkey,
+		       curwksp->wlin + cursorline,
+		       curwksp->wcol + cursorcol,
+		       delta > 0 ? la_lsize (curlas) - 1 : 0,
+		       delta, YES, YES);
+    (void) save_or_set_impl_tick (YES);
     return;
 }
 
 #ifdef COMMENT
-Small
+static Small
 dsplsearch (str, ln, stcol, limit, delta, delay, puflg)
     char   *str;
     Nlines  ln;
@@ -524,7 +533,7 @@ dsplsearch (str, ln, stcol, limit, delta, delay, puflg)
     window with key on top line.  Leaves cursor under key.
     If 'delay' is non-0 put up a bullet for one second.
 #endif
-Small
+static Small
 dsplsearch (str, ln, stcol, limit, delta, delay, puflg)
 char   *str;
 Nlines  ln;

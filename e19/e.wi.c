@@ -22,7 +22,7 @@ extern Flag entfstline;     /* says write out entire first line */
 extern void removewindow ();
 extern void chgwindow ();
 extern void drawborders ();
-extern void switchwindow ();
+       void switchwindow ();
 #ifdef LMCMARG
 extern void drawmarg ();
 #endif
@@ -388,9 +388,10 @@ Small winnum;
     curwksp->ccol = cursorcol;
     curwksp->clin = cursorline;
     newwin = winlist[winnum % nwinlist];    /* wrap back to window 0 */
-    if (newwin == oldwin)     /* ALWAYS rewrite first line */
-	entfstline = YES;       /* don't skip over blanks */
-    drawborders (oldwin, WIN_INACTIVE | WIN_DRAWSIDES);
+    if (newwin == oldwin)   /* ALWAYS rewrite first line */
+	entfstline = YES;   /* don't skip over blanks */
+    else
+	drawborders (oldwin, WIN_INACTIVE | WIN_DRAWSIDES);
     drawborders (newwin, WIN_ACTIVE | WIN_DRAWSIDES);
     infotrack (newwin->winflgs & TRACKSET);
     inforange (newwin->wksp->wkflags & RANGESET);
@@ -674,6 +675,6 @@ Reg1 Flag onoff;
     static Flag wason;
 
     if ((onoff = onoff ? YES : NO) ^ wason)
-	rand_info (inf_track, 5, (wason = onoff) ? "TRACK" : "");
+	rand_info (inf_track, 3, (wason = onoff) ? "TRK" : "");
     return;
 }

@@ -11,12 +11,13 @@ file e.wk.c
 #include "e.h"
 #include "e.inf.h"
 
-extern void switchfile ();
+       void switchfile ();
 extern void exchgwksp ();
-extern void savewksp ();
+       void savewksp ();
 extern void releasewk ();
 extern void inforange ();
 extern void infoprange ();
+extern Flag reset_impl_tick ();
 
 #ifdef COMMENT
 void
@@ -45,6 +46,7 @@ swfile ()
 {
     if (curwin->altwksp->wfile == NULLFILE)
 	return NO;
+    (void) reset_impl_tick ();
     exchgwksp (NO);
     putupwin ();
     if (curwin->winflgs & TRACKSET)
@@ -66,9 +68,10 @@ void
 exchgwksp (silent)
 Flag silent;
 {
-    register S_wksp *cwksp;
+    S_wksp *cwksp;
 
-    savewksp (cwksp = curwksp);
+    cwksp = curwksp;
+    savewksp (cwksp);
 
     cwksp->ccol = cursorcol;
     cwksp->clin = cursorline;
@@ -87,31 +90,32 @@ Flag silent;
 
 #ifdef COMMENT
 void
-savewksp (pwk)
-    register S_wksp *pwk
+savewksp (S_wksp *pwk)
 .
     Save workspace position in in lastlook[pwk->wfile].
 #endif
 void
-savewksp (pwk)
-register S_wksp *pwk;
+savewksp (S_wksp *pwk)
 {
-    register S_wksp *lwksp;
+    S_wksp *lwksp;
 
-    if (curwksp == pwk) {
+    if ( ! pwk ) return;
+    if ( curwksp == pwk ) {
 	pwk->ccol = cursorcol;
 	pwk->clin = cursorline;
     }
-    if (pwk->wfile == NULLFILE)
+    if ( pwk->wfile == NULLFILE )
 	return;
     lwksp = &lastlook[pwk->wfile];
 
-    /* save where we are in current worksp */
+    /* save cursor position of the current work space */
     (void) la_align (&pwk->las, &lwksp->las);
     lwksp->wcol = pwk->wcol;
     lwksp->wlin = pwk->wlin;
     lwksp->ccol = pwk->ccol;
     lwksp->clin = pwk->clin;
+    /* save also the previous cursor position */
+    lwksp->wkpos = pwk->wkpos;
 
     return;
 }
@@ -130,7 +134,8 @@ void
 releasewk (wk)
 register S_wksp *wk;
 {
-    if (wk->wfile != NULLFILE) {
+    if ( wk->wfile != NULLFILE ) {
+	savewksp (wk);
 	(void) la_close (&wk->las);
 	wk->wfile = NULLFILE;
     }
@@ -160,9 +165,9 @@ Reg1 Flag onoff;
 
     if ((onoff = onoff ? YES : NO) ^ wason) {
 	if (wason = onoff)
-	    rand_info (inf_range + 1, 5, "RANGE");
+	    rand_info (inf_range + 1, 2, "RG");
 	else {
-	    rand_info (inf_range, 6, "");
+	    rand_info (inf_range, 2, "");
 	    lastwhere = " ";
 	}
     }

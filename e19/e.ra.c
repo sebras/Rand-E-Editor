@@ -58,16 +58,17 @@ Cmdret
 rangecmd (type)
     Small type;
 .
-    Do the 'range', '-range', and '?range' commands.
+    Do the 'range', '-range', 'range ?' and '?range' commands.
 #endif
 Cmdret
 rangecmd (type)
 Small type;
 {
-    if (   type != CMDRANGE
-	&& opstr[0]
-       )
+    if ( type != CMDRANGE && opstr[0] ) {
 	return CRTOOMANYARGS;
+    }
+    if ( type == CMDRANGE && (opstr[0] == '?') ) type = CMDQRANGE;
+
     switch (type) {
     case CMDQRANGE:
 	if (curwksp->brnglas) {

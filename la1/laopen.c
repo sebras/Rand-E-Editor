@@ -124,6 +124,52 @@ int chan;
     return NULL;
 }
 
+
+static La_file *la_build_fsd ( Ff_stream *pffs, long pos, La_file *tlaf)
+{
+    La_fsd    *ffsd;
+    La_fsd    *lfsd;
+    long totlft;
+    char nonewl;    /* must be char */
+
+    if ( pffs ) {
+	totlft = pffs->f_file->fn_size - pos;
+	/* parse the file */
+	if ( (tlaf->la_nlines =
+	     la_parse (pffs, pos, &ffsd, &lfsd, tlaf, totlft, &nonewl))
+	     < 0 )
+	    return NULL;
+
+	tlaf->la_ffsd = ffsd;
+#ifdef LA_BP
+	tlaf->la_nbytes = totlft + nonewl;
+#endif
+	/* if there were any lines in the file, make an fsd */
+	/* with no lines in it and link it to the end of the chain */
+	if (tlaf->la_nlines > 0) {
+	    if (la_parse ((Ff_stream *) 0, (La_bytepos) 0, &ffsd, &ffsd,
+			  la_chglas->la_file, (La_bytepos) 0, "") < 0)
+		return NULL;
+
+	    lfsd->fsdforw = ffsd;
+	    ffsd->fsdback = lfsd;
+	}
+	la_chans++;
+    }
+    else {
+	if (la_parse ((Ff_stream *) 0, (La_bytepos) 0, &ffsd, &ffsd,
+		      la_chglas->la_file, (long) 0, "") < 0)
+	    return NULL;
+
+	tlaf->la_ffsd = ffsd;
+#ifdef LA_BP
+	tlaf->la_nbytes = 0;
+#endif
+    }
+    tlaf->la_lfsd = ffsd;
+    return tlaf;
+}
+
 La_stream *
 la_ffopen (pffs, plas, pos)
 La_stream *plas;
@@ -161,12 +207,20 @@ long pos;
     /* see if this is another stream into one we have already */
     if (pffs) {
 	if (pffs->f_file->fn_refs > 1) Block {
-	    Reg1 La_stream *tlas;
+	    La_stream *tlas;
 	    /* let's see if we have this file already */
-	    for (tlas = la_firststream; tlas; tlas = tlas->la_sforw)
-		if (ff_fd (tlas->la_file->la_ffs) == ff_fd (pffs))
+	    for (tlas = la_firststream; tlas; tlas = tlas->la_sforw) {
+		if (ff_fd (tlas->la_file->la_ffs) == ff_fd (pffs)) {
 		    /* yes, it is */
+		    if ( ! tlas->la_file->la_ffsd ) {
+			/* closed but referenced */
+			/* Not fully debuged, but currently not called */
+			if ( ! la_build_fsd (pffs, pos, tlas->la_file) )
+			    return NULL;
+		    }
 		    return la_clone (tlas, nlas);
+		}
+	    }
 	}
     }
 
@@ -186,6 +240,14 @@ long pos;
     tlaf->la_ffs = pffs ? pffs : la_chglas->la_file->la_ffs;
     tlaf->la_refs = 1;
 
+    if ( ! la_build_fsd (pffs, pos, tlaf) ) {
+	free ((char *) tlaf);
+ bad:   if (nlas->la_sflags & LA_ALLOCED)
+	    free ((char *) nlas);
+	return NULL;
+    }
+
+#if 0 /* ============================= */
     if (pffs) Block {
 	long totlft;
 	char nonewl;    /* must be char */
@@ -225,6 +287,7 @@ long pos;
     }
 
     tlaf->la_lfsd = ffsd;
+#endif /* ============================= */
 
     Block {
 	Reg1 char sflags;
@@ -588,4 +651,10 @@ Reg1 La_fsd *tfsd;
 	tfsd = nfsd;
     }
     return;
+}
+
+int la_stream_is_allocated (La_stream *plas)
+{
+    if ( !plas ) return NO;
+    return ((plas->la_sflags & LA_ALLOCED) != 0);
 }

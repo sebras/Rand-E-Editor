@@ -13,6 +13,13 @@ file e.it.c
 #ifdef  KBFILE
 #include "e.it.h"
 
+/* input char size is 7 bit */
+#ifdef CHAR7BITS
+Flag inputcharis7bits = YES;
+#else
+Flag inputcharis7bits = NO;
+#endif
+
 struct itable *ithead;
 
 /****************************************/
@@ -28,15 +35,18 @@ int *count;
     Uchar *inp, *outp, chr;
     int i;
 
-    for (inp = lexp, i = *count; i-- > 0;)
-	*inp++ &= 0177;           /* Mask off high bit of all chars */
+    if ( inputcharis7bits ) {
+	/* Mask off high bit of all chars */
+	for (inp = lexp, i = *count; i-- > 0;)
+	    *inp++ &= 0177;
+    }
 
     /* outp should be different so a string can be replaced by a longer one */
     inp = outp = lexp;  /* !!!! what append if output is longer than input ! */
     while (*count > 0) {
 	chr = *inp;
 	CtrlC_flg = (chr == ('C' & '\037'));
-	if (chr >= ' ' && chr <= '~') {
+	if ( ! ISCTRLCHAR(chr) ) {
 	    *outp++ = *inp++;
 	    --*count;
 	    continue;
@@ -146,9 +156,14 @@ char *valp;
 }
 
 
-/* itswapdeldchar : swap between de l and dchar for string fstrg */
-void itswapdeldchar (char * fstrg)
+/* itswapdeldchar : swap between del and dchar for string fstrg
+ *      if the new_val = 0 : flip the value
+ *      if new_val == CCBACKSPACE or valstr == CCDELCH : set this value
+ *      return the (new) value or 0 on error;
+ */
+int itswapdeldchar (char * fstrg, int new_val, int *init_val_pt)
 {
+    static int init_val = 0;
     int cc;
     char *cp, cmd;
     int count;
@@ -157,12 +172,22 @@ void itswapdeldchar (char * fstrg)
     cp = fstrg;
     count = strlen (cp);
     cc = itget_addr (&cp, &count, ithead, &its);
-    if ( !its || (cc < 0) ) return;
-    if ( its->it_len != 1 ) return;
+    if ( !its || (cc < 0) ) return 0;
+    if ( its->it_len != 1 ) return 0;
 
     cmd = *(its->it_val);
-    if ( cmd == CCBACKSPACE ) *(its->it_val) = CCDELCH;
-    else if ( cmd == CCDELCH ) *(its->it_val) = CCBACKSPACE;
+    if ( init_val == 0 ) init_val = cmd;    /* save the initial value */
+    if ( init_val_pt ) *init_val_pt = init_val;
+    if ( new_val == -1 )
+	return cmd;
+
+    if ( (new_val == CCBACKSPACE) || (new_val == CCDELCH) ) {
+	if ( new_val == cmd ) return cmd;
+    } else if ( new_val != 0 ) return cmd;
+
+    /* flip the value */
+    *(its->it_val) = ( cmd == CCBACKSPACE )  ? CCDELCH : CCBACKSPACE;
+    return cmd;
 }
 
 /* itoverwrite : overwrite the value of the leave define by dsetstrg

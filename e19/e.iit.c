@@ -26,10 +26,26 @@ int kbfile_wline = 0;   /* line number of a duplicated string */
  *   in kb file upper or lower case char can be used
  *   see check_directive routine
  */
-static char noX[] = "#!NOX11";  /* flag for noX11 usage for keyboard mapping */
-				/* must be in upper case (see check_noX11 routine) */
+
+/* kb file valid directives list */
+/*  must be in upper case (see check_noX11 routine).
+    A directive is a line staing with '#!' followed by one of the defined string
+    In the kb file upper and lower case char can be used.
+*/
+static char directive_prefix [] = "#!";
+/*      do not change the order in the kbf_directives array, used in "term/linux_pc.c" */
+static char *kbf_directives [] = {
+    "NOX11",      /* flag for noX11 usage for keyboard mapping */
+    "COMMENT",    /* begining of a comments section */
+    "-COMMENT",   /* end of the comments section */
+     NULL };
+#define directives_nb (sizeof (kbf_directives) / sizeof (kbf_directives[0]) -1)
+
+static comment_section_flg = NO;    /* in comment section */
 
 struct itable *ithead = NULLIT;
+
+/* itsyms table must be in alphabetic order */
 
 S_looktbl itsyms [] = {
     "+line",   CCPLLINE,
@@ -72,7 +88,10 @@ S_looktbl itsyms [] = {
     "cover",   CCCOVER,
 #endif
     "dchar",   CCDELCH,
+    "del",     CCBACKSPACE,
+/* -------------------------- strange marginal effect
     "del",     0177,
+   -------------------------- */
     "down",    CCMOVEDOWN,
 #ifdef LMCDWORD
     "dword",   CCDWORD,
@@ -137,7 +156,9 @@ S_looktbl itsyms [] = {
 #endif
     "wright",  CCRWINDOW,
     0,0,            /* end of key functions */
+ };
 
+S_looktbl ctrl_chr [] = {
     "esc",     033,
     "del",     0177,
     "space",   040,
@@ -145,15 +166,59 @@ S_looktbl itsyms [] = {
     0,0
  };
 
-char *kbinistr;
-char *kbendstr;
-int  kbinilen;
-int  kbendlen;
+#define ITSYMS_SZ (sizeof (itsyms) / sizeof (itsyms [0]))
+const int itsyms_sz = ITSYMS_SZ -1;
+
+/* storage for sorted itsyms (pointers to S_lookup records */
+static S_looktbl *keyf_storage [ITSYMS_SZ +1] = { NULL };
+
+#if 0
+/* space for sorted cmd table and aliases table */
+S_looktbl sorted_itsyms [ITSYMS_SZ +1] =
+    { 0,0 };
+int sorted_itsyms_sz = 0;   /* number of items in sorted table */
+#endif
+
+extern int one_help_keyf (S_looktbl *, char *);
+
+/* Editor key functions lookup table structure */
+S_lookstruct keyfstruct = {
+    itsyms, ITSYMS_SZ -1,   /* reference lookup table */
+    &keyf_storage, sizeof (keyf_storage), /* storage for tables */
+    NULL, 0,                /* sorted table */
+    NULL, 0,                /* aliases table */
+    one_help_keyf,          /* help routine */
+    NO,                     /* no alias */
+    2,                      /* type = key functions */
+    NULL, 0                 /* no alias, no major name table */
+};
+
+
+
+/* terminal initialization and exit escape sequences */
+char *kbinistr = NULL;
+char *kbendstr = NULL;
+int  kbinilen = 0;
+int  kbendlen = 0;
 
 static struct itable *it_leave_ctrlc = NULL;
 static struct itable  it_leave_ctrlc_ref;
 static int ctrlc_is_ret;
 static char ccreturn_val [2] = { CCRETURN, 0 };
+
+#if 0
+int build_sorted_itsyms ()
+{
+    extern int build_sorted_looktbl (S_looktbl *, int, S_looktbl *, int *,
+				     int, S_looktbl **, int *);
+    int cc;
+
+    cc = build_sorted_looktbl (itsyms, itsyms_sz, sorted_itsyms,
+			       &sorted_itsyms_sz, sizeof (sorted_itsyms),
+			       NULL, NULL);
+    return (cc);
+}
+#endif
 
 /* Get the <Ctrl C> value */
 int get_ctrlc_fkey ()
@@ -221,26 +286,76 @@ static void include_cccmd ()
     }
 }
 
+char * get_directive (unsigned int idx)
+{
+    static char str [80];
+    char *cmt;
+
+    memset (str, 0, sizeof (str));
+    strcpy (str, directive_prefix);
+    if ( idx >= directives_nb ) return str;
+
+    cmt = &str [strlen (str)];
+    strcpy (cmt, kbf_directives [idx]);
+    if ( idx == 0 ) {
+	cmt++; *cmt = tolower (*cmt);
+    } else {
+	if ( ! isalpha (*cmt) ) cmt++;
+	for ( cmt++ ; *cmt ; cmt++ ) *cmt = tolower (*cmt);
+    }
+    return str;
+}
+
 static Flag check_directive (char *line)
 {
     extern Flag noX11flg;
     extern void set_noX_msg (char *);
-    char chr, str[32], *strg;
+    char chr, str[32], *strg, *direc;
+    int i;
 
-    if ( strncmp (line, "#!", 2) != 0 ) return NO;
-
-    strncpy (str, line, sizeof (str));
-    str[sizeof (str) -1] = '\0';
-    for ( strg = str; chr = *strg; strg++) *strg = toupper(chr);
-    if ( isspace (str[strlen (noX)]) ) str[strlen (noX)] = '\0';
-    if ( strncmp (str, noX, sizeof (noX)) != 0 )
+    if ( strncmp (line, directive_prefix, sizeof (directive_prefix) -1) != 0 )
 	return NO;
 
-    if ( ! noX11flg ) {
-	noX11flg = YES;
-	set_noX_msg ("\'#!noX11\' directive in kb file");
+    memset (str, 0, sizeof (str));
+    strncpy (str, line +2, sizeof (str));
+    str[sizeof (str) -1] = '\0';
+    for ( strg = str ; chr = *strg ; strg++) *strg = toupper(chr);
+    for ( i = 0 ; ; i++ ) {
+	direc = kbf_directives [i];
+	if ( ! direc )
+	    return YES; /* not a defined directive */
+	if ( strncmp (str, direc, strlen (direc)) == 0 )
+	    break;
     }
-    if ( verbose_helpflg ) printf ("--- \'%s\' directive found ---\n", noX);
+
+    /* directive found */
+    switch (i) {
+	case 1 :    /* beginnig of comment section */
+	    comment_section_flg = YES;
+	    break;
+
+	case 2 :    /* end of comment section */
+	    comment_section_flg = NO;
+	    break;
+	}
+
+    if ( comment_section_flg ) return NO;
+
+    switch (i) {
+	case 0 :    /* NoX11 flag */
+	    if ( comment_section_flg ) break;
+	    if ( ! noX11flg ) {
+		noX11flg = YES;
+		set_noX_msg ("\'#!noX11\' directive in kb file");
+	    }
+	    break;
+
+	default :
+	    /* directive defined, but no processing */
+	    return YES;
+    }
+
+    if ( verbose_helpflg ) printf ("--- \'%s\' directive found ---\n", direc);
     return YES;
 }
 
@@ -278,12 +393,31 @@ char *line, *path;
     return fname;
 }
 
+static void val_kbini_kbend (int fcmd, char *str, int len, char **kb_str, int* kb_len)
+{
+    char * itsyms_by_val (short);
+    char *sp;
+
+    if ( *kb_str ) {
+	if ( verbose_helpflg ) {
+	    sp = itsyms_by_val ((short) fcmd);
+	    printf ("WARNING : kbfile overwrite previously defined value : <%s>\n",
+		    sp ? sp : "???");
+	}
+	free (*kb_str);
+	*kb_len = 0;
+    }
+    *kb_len = len;
+    *kb_str = salloc (len +1, YES);
+    strcpy (*kb_str, str);
+}
+
 
 static Flag process_kbfile (filename, level)
 char *filename;
 int level;
 {
-    extern void set_charset_val ();
+    extern void customize_xlate ();
     static Flag itparse ();
 
     char line[TMPSTRLEN], string[TMPSTRLEN], value[TMPSTRLEN];
@@ -318,6 +452,7 @@ int level;
 	if ( verbose_helpflg ) printf ("%3d  %s\n", lnb, line);
 	if ( line[0] == '#' ) {         /* FP 14 Jan 2000 */
 	    if ( check_directive (line) ) continue; /* FP 10 Jan 2001 */
+	    if ( comment_section_flg ) continue;
 	    incl_fname = line+1;
 	    for ( ; c = *incl_fname ; incl_fname++ ) if ( c != ' ') break;
 	    incl_fname = check_include (incl_fname, filename);
@@ -327,24 +462,31 @@ int level;
 	    }
 	    continue;
 	}
+	if ( comment_section_flg ) continue;
 	if ( line[0] == '!'             /* add FP 14 Jan 2000 */
 	     || line[0] == '\0' )       /* gww 21 Feb 82 */
 	    continue;                   /* gww 21 Feb 82 */
-	alt_flg = itparse (line, string, &str_len, value, &val_len);
+	alt_flg = itparse (line, string, &str_len, value, &val_len, filename);
 	if ( alt_flg ) {
-	    set_charset_val (string [0], value[0]);
+	    customize_xlate (string [0], value);
 	}
 	else {
 	    switch (string[0]) {
 	    case KBINIT:
+		val_kbini_kbend (KBINIT, value, val_len, &kbinistr, &kbinilen);
+/*
 		kbinilen = val_len;
-		kbinistr = salloc (kbinilen, YES);
-		move (value, kbinistr, kbinilen);
+		kbinistr = salloc (kbinilen +1, YES);
+		move (value, kbinistr, kbinilen +1);
+*/
 		break;
 	    case KBEND:
+		val_kbini_kbend (KBEND, value, val_len, &kbendstr, &kbendlen);
+/*
 		kbendlen = val_len;
-		kbendstr = salloc (kbinilen, YES);
-		move (value, kbendstr, kbendlen);
+		kbendstr = salloc (kbinilen +1, YES);
+		move (value, kbendstr, kbendlen +1);
+*/
 		break;
 	    default:
 		itadd (string, str_len, &ithead, value, val_len, line, lnb);
@@ -364,6 +506,8 @@ char *filename;
     Flag cc;
 
     cc = process_kbfile (filename, 1);
+    if ( !kbinistr ) kbinistr = "";
+    if ( !kbendstr ) kbinistr = "";
     include_cccmd ();
     overwrite_PF1PF4 ();
 #ifdef  DEBUG_KBFILE
@@ -373,29 +517,29 @@ char *filename;
     return (cc);
 }
 
-static void itadd (str, str_len, headp, val, val_len, line, line_nb)
+static void itadd (str, str_len, headp, val, val_len, line, line_nb, filename)
 char *str;              /* Character string */
 struct itable **headp;  /* Pointer to head (where to start) */
 char *val;              /* Value */
 int str_len, val_len;
 char *line;             /* For debugging */
 int line_nb;
+char * filename;
 {
     char * itsyms_by_val (short);
     struct itable *it;         /* Current input table entry */
     struct itable *pt;         /* Previous table entry */
+    char *sp;
 
     if (str_len == 0)
 	getout (YES, "kbfile invalid prefix in %s\n", line);
     for (it = *headp; it != NULLIT; pt = it, it = it->it_next) {
 	if (it->it_c == *str) {         /* Character match? */
 	    if (it->it_leaf) {          /* Can't add this */
-		/*
-		getout (YES, "kbfile duplicate string in %s\n", line);
-		*/
 		if ( verbose_helpflg ) {
+		    sp = itsyms_by_val ((short) *it->it_val);
 		    printf ("WARNING : kbfile overwrite previously defined value : <%s>\n",
-			    itsyms_by_val ((short) *it->it_val));
+			    sp ? sp : "???");
 		    kbfile_wline = line_nb;
 		}
 		/* overwrite the previously defined value */
@@ -432,10 +576,12 @@ int line_nb;
 
 /* itparse : parse a line of kb file */
 /*  strg is the 1st token : before ':', value is the 2nd token : after ':' */
-static Flag itparse (inp, strp, str_lenp, valp, val_lenp)
-register char *inp;
+
+static Flag itparse (inp, strp, str_lenp, valp, val_lenp, filename)
+char *inp;
 char *strp, *valp;      /* Pointers to string to match and value to return */
 int *str_lenp, *val_lenp; /* Where to put the respective lengths */
+char *filename;
 {
     extern S_looktbl bordersyms [];
     char c;
@@ -469,27 +615,27 @@ int *str_lenp, *val_lenp; /* Where to put the respective lengths */
 		if ((c = *inp) >= '0' && c <= '7') {
 		    for (n = 0; (c = *inp++) != '>'; ) {
 			if (c < '0' || c > '7')
-			    getout (YES, "kbfile bad digit in %s\n", line);
+			    getout (YES, "kbfile \"%s"\ bad digit in %s\n", filename, line);
 			n = n*8 + (c-'0');
 		    }
 		    if (n > 0377)
-			getout (YES, "Number %d too big in kbfile\n", n);
+			getout (YES, "Number %d too big in kbfile \"%s\"\n", n, filename);
 		    *outp++ = (char) n;
 #else
 		if ((c = *inp) >= '0' && c <= '9') {
 		    /* support decimal, octal (0...) and hexadecimal (0x..) number */
 		    ln = strtol (inp, &tp, 0);
 		    if ( *tp != '>' )
-			getout (YES, "kbfile bad digit '%c' in line %s\n", c, line);
+			getout (YES, "kbfile \"%s\" bad digit '%c' in line %s\n", filename, c, line);
 		    if ( (ln > 0377) || (ln < 0) )
-			getout (YES, "Number %d out of range (0...255) in kbfile in line %s\n", ln, line);
+			getout (YES, "Number %d out of range (0...255) in kbfile \"%s\" in line %s\n", ln, filename, line);
 		    inp = tp +1;
 		    *outp++ = (char) ln;
 #endif
 		} else {
 		    for (tp = tmpstr; (c = *inp++) != '>'; ) {
 			if (c == '\0')
-			    getout (YES, "kbfile mismatched < in line %s\n", line);
+			    getout (YES, "kbfile \"%s\" mismatched < in line %s\n", filename, line);
 			*tp++ = c;
 		    }
 		    *tp = '\0';
@@ -501,32 +647,32 @@ int *str_lenp, *val_lenp; /* Where to put the respective lengths */
 			i = lookup (tmpstr, bordersyms);
 			if ( i >= 0 ) *outp++ = (char) bordersyms[i].val;
 			else
-			    getout (YES, "Bad symbol <%s> in kbfile in line %s\n", tmpstr, line);
+			    getout (YES, "Bad symbol <%s> in kbfile \"%s\" in line %s\n", tmpstr, filename, line);
 		    }
 		}
 		break;
 	    case '^':
 		c = *inp++;
 		if (c != '?' && (c < '@' || c > '_'))
-		    getout (YES, "kbfile control char ^%c out of range (^?, ^@...^_)in line %s\n", c, line);
+		    getout (YES, "kbfile \"%s\" control char ^%c out of range (^?, ^@...^_)in line %s\n", filename, c, line);
 		*outp++ = c^0100;
 		break;
 	    case ':':
 		*str_lenp = outp - strp;
 		if (gotval++)
-		    getout (YES, "kbfile too many colons in line %s\n", line);
+		    getout (YES, "kbfile \"%s\" too many colons in line %s\n", filename, line);
 		if (*str_lenp > TMPSTRLEN)
-		    getout (YES, "kbfile line too long : %s\n", line);
+		    getout (YES, "kbfile \"%s\" line too long : %s\n", filename, line);
 		outp = valp;
 		break;
 	    default:
-		getout (YES, "kbfile bad char \'%c\' (0%o) in line %s\n", c, c, line);
+		getout (YES, "kbfile \"%s\" bad char \'%c\' (0%o) in line %s\n", filename, c, c, line);
 	}
 	if ( (c == '#') || (c == '!') ) break;  /* begining of comment */
     }
     *val_lenp = outp - valp;
     if (*str_lenp > TMPSTRLEN)
-	getout (YES, "kbfile line too long : %s\n", line);
+	getout (YES, "kbfile \"%s\" line too long : %s\n", filename, line);
     return alt_flg;
 }
 
@@ -536,6 +682,7 @@ char * escstrg (char *escst)
 {
     static char st[128];
     char *sp, ch;
+    int sz;
 
     memset (st, 0, sizeof (st));
     for ( sp = escst; (ch = *sp) ; sp++ ) {
@@ -543,8 +690,13 @@ char * escstrg (char *escst)
 	else if ( ch == '\177' ) strcat (st, "<Del>");
 	else if ( ch == '\t' ) strcat (st, "<Tab>");
 	else if ( ch < ' ' ) {
-	    st[strlen(st)] = '^';
-	    st[strlen(st)] = ch + '@';
+	    if ( !st[0] )
+		sprintf (st, "<Ctrl %c>", ch + '@');
+	    else {
+		sz = strlen (st);
+		st[sz] = '^';
+		st[sz+1] = ch + '@';
+	    }
 	}
 	else st[strlen(st)] = ch;
     }
@@ -552,12 +704,8 @@ char * escstrg (char *escst)
 }
 
 char * itsyms_by_val (short val)
+/* return NULL if not found */
 {
-typedef struct lookuptbl
-{   char *str;
-    short val;
-} S_looktbl;
-
     int i;
     char *sp;
 

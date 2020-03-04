@@ -12,7 +12,7 @@
 #       the curent directory name with ${SRCDIR}
 
 #+++ parameters which can be overwrite by the make call
-#       see Rand-editor-E19.57.spec
+#       see Rand-editor-E19.58.spec
 
 
 SHELL := /bin/sh
@@ -39,7 +39,7 @@ endif
 BUILDER=perrioll
 
 VERSION=E19
-RELEASE=57
+RELEASE=58
 
 # Default value for package directory
 PKGDIR=Rand
@@ -173,6 +173,7 @@ fill/fill::
 
 tar:
 	$(MAKE) clean
+	cd doc; $(MAKE)
 	rm -f ./${TARFILE}.old ../${TARFILE}
 	(if test ! -d ./${ARCHIVE}; then mkdir ./${ARCHIVE}; fi)
 #       -(mv -f ${TAREXCL} ./${ARCHIVE}; mv ./${ARCHIVE}/${TARFILE} .)
@@ -202,12 +203,12 @@ bintar:
 	rm -f ../${BINTARFILE}.old
 	(if test -f ../${BINTARFILE}; then mv -f ../${BINTARFILE} ../${BINTARFILE}.old; fi)
 	cd ${LIBDIR}; cd ../; $(TAR) \
-	--exclude './${PKGDIR}/.e?1' \
-	--exclude './${PKGDIR}/.e?1.*' \
+	--exclude './${PKGDIR}/.e?[1-9]' \
+	--exclude './${PKGDIR}/.e?[1-9].*' \
 	--exclude './${PKGDIR}/,*' \
 	--exclude './${PKGDIR}/.nfs*' \
-	--exclude './${PKGDIR}/kbfiles/.e?1.*' \
-	--exclude './${PKGDIR}/kbfiles/.e?1*' \
+	--exclude './${PKGDIR}/kbfiles/.e?[1-9].*' \
+	--exclude './${PKGDIR}/kbfiles/.e?[1-9]*' \
 	--exclude './${PKGDIR}/kbfiles/,*' \
 	--exclude './${PKGDIR}/kbfiles/*.[0-9]*' \
 	--exclude './${PKGDIR}/e19.*' \
@@ -228,15 +229,15 @@ bintar:
 	@echo -e "$(TAR) for ${BINTARFILE} \n into $(PWD)/.. \n from $(BINDIR1)"
 	rm -f ../${BINTARFILE}.old
 	(if test -f ../${BINTARFILE}; then mv -f ../${BINTARFILE} ../${BINTARFILE}.old; fi)
-	cd ${BINDIR1}; rm -f .e?1 .e?1.* ,*
-	cd ${BINDIR1}/kbfiles; rm -f .e?1 .e?1.* ,*
+	cd ${BINDIR1}; rm -f .e?[1-9] .e?[1-9].* ,*
+	cd ${BINDIR1}/kbfiles; rm -f .e?[1-9] .e?[1-9].* ,*
 	cd ${BINDIR1}; cd ../; $(TAR) \
-	    --exclude './${PKGDIR}/.e?1' \
-	    --exclude './${PKGDIR}/.e?1.*' \
+	    --exclude './${PKGDIR}/.e?[1-9]' \
+	    --exclude './${PKGDIR}/.e?[1-9].*' \
 	    --exclude './${PKGDIR}/,*' \
 	    --exclude './${PKGDIR}/.nfs*' \
-	    --exclude './${PKGDIR}/kbfiles/.e?1.*' \
-	    --exclude './${PKGDIR}/kbfiles/.e?1*' \
+	    --exclude './${PKGDIR}/kbfiles/.e?[1-9].*' \
+	    --exclude './${PKGDIR}/kbfiles/.e?[1-9]*' \
 	    --exclude './${PKGDIR}/kbfiles/,*' \
 	    --exclude './${PKGDIR}/kbfiles/*.[0-9]*' \
 	    -cvf $(PWD)/../${BINTARFILEPFX}.tar ./${PKGDIR}
@@ -258,12 +259,12 @@ endif
 
 
 clean:
-	rm -f ,* a.out core .e?1 .e?1.*
-	for f in fill la1 ff3 lib e19; do cd $$f; $(MAKE) clean; cd ..; done
-	for f in include help doc; do cd $$f; rm -f ,* .e?1 .e?1.*; cd ..; done
-	for f in help/kbfiles; do cd $$f; rm -f ,* .e?1 .e?1.*; cd ../..; done
-	for f in doc/man; do cd $$f; rm -f ,* .e?1 .e?1.*; cd ../..; done
-	for f in contributed; do cd $$f; rm -f ,* .e?1 .e?1.*; cd ../..; done
+	rm -f ,* a.out core .e?[1-9] .e?[1-9].*
+	for f in fill la1 ff3 lib e19; do cd $$f; rm -f ,* .e?[1-9] .e?[1-9].*; $(MAKE) clean; cd ..; done
+	for f in include help doc; do cd $$f; rm -f ,* .e?[1-9] .e?[1-9].*; cd ..; done
+	for f in help/kbfiles; do cd $$f; rm -f ,* .e?[1-9] .e?[1-9].*; cd ../..; done
+	for f in doc/man; do cd $$f; rm -f ,* .e?[1-9] .e?[1-9].*; cd ../..; done
+	for f in contributed; do cd $$f; rm -f ,* .e?[1-9] .e?[1-9].*; cd ../..; done
 
 preinstall:
 	-mkdir -p $(MANDIR) $(BINDIR) $(LIBDIR) $(KBFDIR)
@@ -310,6 +311,8 @@ test:
 	@echo "TARGETDIR is $(TARGETDIR)"
 	@echo "TARGETDIRFLG is $(TARGETDIRFLG)"
 	@echo -e "  bin tar file : $(BINTARFILE)\n\n"
+	@echo "/tmp/LINUXVERSION is /tmp/$(LINUXVERSION)"
+
 	cd e19; $(MAKE) TARG_OS=$(TARG_OS) test
 
 
@@ -330,5 +333,6 @@ truc:
 	@echo -e "PWD1 id $(PWD1) \nTARGETNAME is $(TARGETNAME)"
 	@echo "BINDIR1 is $(BINDIR1)"
 	@echo "BINTARFILE is $(BINTARFILE)"
-	rm -f /tmp/list; gcc -v />/& /tmp/list
+	rm -f /tmp/list; gcc -v &>/tmp/list
 	@cat /tmp/list
+	rm -f /tmp/list

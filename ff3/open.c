@@ -18,6 +18,7 @@ extern char    *append();
 
 Ff_stream      *ff_gfil();
 Ff_stream      *_doffopen();
+
 Ff_stream       ff_streams[NOFFFDS];
 Ff_file         ff_files[NOFILE];
 Ff_rbuf         ff_flist =
@@ -71,10 +72,12 @@ _doffopen(path, chan, mode, arena)
 
     memset (flpath, 0, sizeof (flpath));
     if (path) {
+	/* open by file name */
 	if (stat(path, &fstbf) < 0)
 	    return 0;
 	strncpy (flpath, path, sizeof (flpath) -1);
     } else {
+	/* duplicate : open by file descriptor nb */
 	Ff_file   *fp;
 	if ( fstat (chan, &fstbf) < 0 )
 	    return 0;
@@ -90,9 +93,11 @@ _doffopen(path, chan, mode, arena)
 
     fp1 = 0;
     Block {
+	/* look for an Ff_file */
 	Reg2 Ff_file   *fp;
 	for (fp = ff_files; fp < &ff_files[NOFILE]; fp++) {
 	    if (fp->fn_refs) {
+		/* in use Ff_file, look for same file : {dev, ino} */
 		if (
 #ifdef UNIXV7
 		    fp->fn_dev == fstbf.st_dev
@@ -104,8 +109,10 @@ _doffopen(path, chan, mode, arena)
 		    && fp->fn_ino == fstbf.st_inumber
 #endif
 		    ) {
+		    /* found */
 		    Reg1 Ff_stream *ffi;
-		    if (ffi = ff_gfil(fp, md)) {
+		    if (ffi = ff_gfil (fp, md)) {
+			/* Ff_file already connected to an Ff_stream */
 			fp->fn_refs++;
 			fp->fn_mode |= md;
 			return ffi;
@@ -113,30 +120,35 @@ _doffopen(path, chan, mode, arena)
 			return 0;
 		}
 	    } else if (!fp1)
+		/* not used, remember */
 		fp1 = fp;
 	}
     }
 
     if (!fp1) {
+	/* nothing available */
 	errno = EMFILE;
 	return 0;
     }
+
+    /* Ff_file found : fp1 */
     Block {
 	Reg1 Ff_stream *ffp;
 	Reg2 long       seekpos;
-	if (!(ffp = ff_gfil(fp1, md)))
-	    return 0;
+
+	if ( !(ffp = ff_gfil (fp1, md)) )
+	    return 0;   /* already attached to Ff_stream */
+
 	if (path) {
-	    if ((chan = open(path, mode)) < 0) {
-#ifdef EUNICE
-	bad:
-#endif
+	    /* open the file by name, get the filedesc */
+	    if ((chan = open (path, mode)) < 0) {
 		ffp->f_count = 0;
 		return 0;
 	    }
 	    seekpos = 0;
 	} else
-	    seekpos = lseek(chan, 0L, 1);
+	    /* duplication : goto begining of file */
+	    seekpos = lseek (chan, 0L, 1);
 #ifdef UNIXV7
 	fp1->fn_dev = fstbf.st_dev;
 	fp1->fn_ino = fstbf.st_ino;
@@ -151,10 +163,10 @@ _doffopen(path, chan, mode, arena)
 	 * (long) (unsigned) fstbf.st_size1; 
 	 */
 #endif
-	/* save the file name */
+	/* save the file name and size */
 	fp1->fl_path  = append (flpath, "");
+	fp1->fn_size = lseek (chan, (long) 0, 2);
 
-	fp1->fn_size = lseek(chan, (long) 0, 2);
 #ifdef  EUNICE
 	/* if (FD_FAB_Pointer[chan]->type == VAR_FILE) { */
 	if (1) {
@@ -165,7 +177,9 @@ _doffopen(path, chan, mode, arena)
 		    (void) close(chan);
 		else
 		    (void) lseek(chan, seekpos, 0);
-		goto bad;
+		/* something wrong */
+		ffp->f_count = 0;
+		return 0;
 	    }
 	    (void) lseek(chan, (long) 0, 0);
 	    if ((fp1->fn_size = read(chan, fp1->fn_memaddr, fp1->fn_size))
@@ -184,12 +198,15 @@ _doffopen(path, chan, mode, arena)
 	fp1->fn_realblk = 0;
 	fp1->fb_qf = (Ff_buf *) 0;
 	fp1->style = fp1->user_style = 0;
+
+	/* Done, return Ff_stream */
 	return ffp;
     }
 }
 
+/* Found an un-used Ff_stream for the given Ff_file */
 Ff_stream      *
-ff_gfil(fnp, mode)
+ff_gfil (fnp, mode)
     Ff_file        *fnp;
     int             mode;
 {
@@ -207,7 +224,7 @@ ff_gfil(fnp, mode)
     return fp;
 }
 
-ff_alloc(nbuf, arena)
+ff_alloc (nbuf, arena)
     Reg2 int        nbuf;
     int             arena;
 {
@@ -221,12 +238,12 @@ ff_alloc(nbuf, arena)
 	    free((char *) fb);
 	    break;
 	}
-	(void) ff_use((char *) fb, 0);
+	(void) ff_use ((char *) fb, 0);
     }
     return ff_flist.fr_count;
 }
 
-ff_use(cp, arena)
+ff_use (cp, arena)
     Reg1 char      *cp;
     int             arena;
 {
@@ -251,7 +268,7 @@ ff_use(cp, arena)
 }
 
 Ff_buf         *
-ff_getblk(afp, blk)
+ff_getblk (afp, blk)
     Ff_file        *afp;
     long            blk;
 {
@@ -259,7 +276,7 @@ ff_getblk(afp, blk)
 }
 
 Ff_buf         *
-ff_gblk(fp, blk, rdflg)
+ff_gblk (fp, blk, rdflg)
     Reg3 Ff_file   *fp;
     Reg5 long       blk;
     Reg4 int        rdflg;
@@ -359,7 +376,7 @@ ismem:
 }
 
 Ff_buf         *
-ff_haveblk(fp, blk)
+ff_haveblk (fp, blk)
     Reg2 Ff_file   *fp;
     Reg3 long       blk;
 {
@@ -372,7 +389,7 @@ ff_haveblk(fp, blk)
 }
 
 Ff_buf         *
-ff_putblk(fb, release)
+ff_putblk (fb, release)
     Reg3 Ff_buf    *fb;
     int             release;	/* if non-0, then release the block from the
 				 * active chain */

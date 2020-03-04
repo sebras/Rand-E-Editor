@@ -1397,7 +1397,7 @@
       CLOSE    # ^V                #UP       # ^K
       _____       _                 __          _
 
-      CMD      # ^A or NULL or ^@  #WIN LEFT # ^X-^H
+      # ^A or NULL or ^@  #WIN LEFT # ^X-^H
       ___         _ __ ____ __      ___ ____    _  _
 
       CTRLCHAR # ^X-^C             #WIN RIGHT# ^X-^L

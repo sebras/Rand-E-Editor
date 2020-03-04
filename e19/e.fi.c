@@ -101,7 +101,7 @@ dofill ()
 	    word[lastword].strleng = 0;
 	    o_nchars = o_nwords = o_fullflg = o_moreflg = 0;
 
-	    if ((c = getword ()) == EOF) {
+	    if ((c = fi_getword ()) == EOF) {
 		finish ();
 		return;
 	    }
@@ -111,7 +111,7 @@ dofill ()
 		break;
 	}
 	indent[0] = prespace;           /* set first line indent */
-	for (; c != EOF; c = getword ()) {  /* get remainder of first line */
+	for (; c != EOF; c = fi_getword ()) {  /* get remainder of first line */
 	    if (!isprint (c))
 		break;
 	}
@@ -119,12 +119,12 @@ dofill ()
 	    finish ();
 	    return;
 	}
-	if ((c = getword ()) == EOF) {    /* get line 2 indent           */
+	if ((c = fi_getword ()) == EOF) {    /* get line 2 indent           */
 	    finish ();
 	    return;
 	}
 	indent[1] = prespace;
-	for (; c != EOF; c = getword ()) {
+	for (; c != EOF; c = fi_getword ()) {
 	    if (!isprint (c)) {
 		putwords (!ENDPAR);
 		if (word[lastword].nchars == 0) { /* line was blank */
@@ -143,7 +143,7 @@ dofill ()
 }
 
 
-getword ()
+static int fi_getword ()
 {
     Reg4 struct wrd *wp;
     Reg3 char *cp;

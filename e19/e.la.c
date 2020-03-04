@@ -1,4 +1,4 @@
-#ifdef COMMENT
+ #ifdef COMMENT
 --------
 file e.la.c
     Stuff related to the LA Package.
@@ -35,6 +35,7 @@ file e.la.c
 	Copyright abandoned, 1983, The Rand Corporation
 #endif
 
+#define CHAR8BITS
 
 #include "e.h"
 
@@ -147,21 +148,30 @@ Nlines  ln;
 		clp = &cline[i1];
 		endcl = &cline[lcline - 9];
 	    }
+#ifdef CHAR7BITS
 	    ch = creturn ? '\r' : *cp++ & 0177;
+#else
+	    ch = creturn ? '\r' : *cp++;
+#endif
+
 	    if ( ch == '\r' ) {
 		if ( nleft <= 0 ) {
 		    creturn = YES;
 		    break;
 		    }
 		if ( (*cp & 0177) == '\n' ) {
+#ifdef CHAR7BITS
 		    ch =*cp++ & 0177;
+#else
+		    ch =*cp++ & 0377;
+#endif
 		    nleft--;
                     file_style = MS_FILE;
 		    }
 		}
 	    creturn = NO;
 
-	    if ((ch >= 040 && ch < 0177))
+	    if ( ! ISCTRLCHAR(ch) )
 		*clp++ = ch;
 	    else if (ch == '\t') Block {
 		Reg1 Ncols ri;
@@ -295,18 +305,23 @@ Ncols
 dechars (line)
 char   *line;
 {
-    Reg5 Ncols   cn;          /* col number                 */
-    Reg4 char  *fm;
-    Reg3 char  *to;           /* pointers for move          */
-    Reg2 Ncols  lnb;          /* 1 + last non-blank col     */
+    Ncols   cn;          /* col number                 */
+    char  *fm;
+    char  *to;           /* pointers for move          */
+    Ncols  lnb;          /* 1 + last non-blank col     */
 
     fm = to = line;
     cn = 0;
     lnb = 0;
     for (;;) Block {
-	Reg1 Char    cc;    /* current character          */
+	Char    cc;    /* current character          */
 	if ((cc = *fm++) == ESCCHAR && *fm != '\n')
 	    cc = (*fm == ESCCHAR) ? *fm++ : (*fm++ & 037);
+/*
+	if ( cc == ESCCHAR8 ) {
+	    cc = *fm++ | 0200;
+	}
+*/
 	if ( (cc == '\r') && (*fm == '\n') )
 	    break;
 	if (cc == '\n')

@@ -109,9 +109,11 @@ extern S_term term;
 extern S_looktbl itsyms[];
 extern struct itable *ithead;
 
+extern char *command_msg;
+
 char * get_keyboard_mode_strg ();
 static void terminal_type (char *);
-static char * escseqstrg (char *escst);
+char * escseqstrg (char *, Flag);
 
 static jmp_buf jmp_env;
 
@@ -835,6 +837,8 @@ typedef enum { unknow, xterm, gnome } Terminal_Class;
 
 static const char unknow_dpy_name [] = "--Unknown--";
 static const char undef_dpy_name [] = "--Undefined--";
+static const char unknow_emul_name []  = "unknown";
+static const char unknow_emul_class [] = "Unknown";
 
 char *emul_name = NULL, *emul_class = NULL;
 
@@ -1642,6 +1646,11 @@ static char *xterm_keysym2string (int keysym, char **tcap_strg)
     }
     */
 
+    if ( keysym == XK_BackSpace )
+	latin [0] = '\b';
+    if ( keysym == XK_Delete )
+	latin [0] = '\177';
+
     Xktdesc.ktfunc = keysym;
     Xktdesc_pt = &Xktdesc;
     Xktdesc_ptpt = (struct KTdesc **) bsearch (&Xktdesc_pt,
@@ -1655,6 +1664,19 @@ static char *xterm_keysym2string (int keysym, char **tcap_strg)
     return (Xktdesc_pt->strg);
 }
 
+Flag get_xterm_name (char **class_pt, char ** name_pt)
+/* if it is and xterm, return YES and class and emulator name
+ * else return NO
+ */
+{
+    if ( class_pt ) *class_pt = NULL;
+    if ( name_pt )  *name_pt  = NULL;
+#ifndef NOX11
+    if ( class_pt && emul_class && (strcmp (emul_class, unknow_emul_class) != 0) ) *class_pt = emul_class;
+    if ( name_pt  && emul_name &&  (strcmp (emul_name,  unknow_emul_name)  != 0) ) *name_pt  = emul_name;
+#endif
+    return (*class_pt || *name_pt);
+}
 /* ------------------------------------------------------------------------ */
 
 /* routine to get escape seq and key for user defined mapping */
@@ -1955,7 +1977,7 @@ static Flag parse_kbmapline (char *line)
 	str = kbmap_escp (str1);
 	if ( verbose_helpflg ) printf ("%s %-10s",
 				       klvl ? "," : "                  ",
-				       str ? escseqstrg (str) : ""
+				       str ? escseqstrg (str, NO) : ""
 				      );
 	if ( str && *str ) {
 	    sz = strlen (str) +1;
@@ -2144,7 +2166,6 @@ static void get_kb_map (char *terminal, char *init_strg,
 
 static void dump_usr_kbmap (FILE *kfile, Flag alt)
 {
-    static char * escseqstrg (char *escst);
     Key_Assign *kap;
     int iesc, i, j, k, j1, j2, nb_shf, keycode, ktcode;
     char *strg, *escst, *st, *sp;
@@ -2185,7 +2206,7 @@ static void dump_usr_kbmap (FILE *kfile, Flag alt)
 		iesc = alt_esc_idx [i][j];
 		if ( iesc >= 0 ) escst = &alt_escseq [iesc];
 	    }
-	    strg = escseqstrg (escst);
+	    strg = escseqstrg (escst, NO);
 	    if ( (st = strchr (strg, '(')) ) *st = '\0';
 	    fprintf (kfile, " %-10s,", strg);
 	    if ( escst ) {
@@ -2290,13 +2311,19 @@ static void write_kbmap_file (char * kfname, Kb_Mapping map_type,
 			      char * old_kfname, Flag alt)
 {
     extern char *kbfile;
+    static char cmd_msg [128];
     FILE * kfile, * old_kfile;
     char *asct;
-    time_t  sttime;
+    time_t sttime;
+    struct tm *tm_local;
     char ch, line [512], *str;
 
     kfile = fopen (kfname, "w");
-    if ( ! kfile ) return;
+    if ( ! kfile ) {
+	sprintf (cmd_msg, "File \"%s\" error : %s", kfile, strerror (errno));
+	command_msg = cmd_msg;
+	return;
+    }
 
     old_kfile = ( old_kfname ) ? fopen (old_kfname, "w") : NULL;
 
@@ -2870,8 +2897,8 @@ static void terminal_type (char *terminal)
     kbmap_type = no_map;
     use_XKB_flg = NO;
     x_terminal_class  == unknow;
-    emul_name  = "unknown";
-    emul_class = "Unknown";
+    emul_name  = (char *) unknow_emul_name;
+    emul_class = (char *) unknow_emul_class;
     max_shift_level = keysym_per_keycode = nb_kbmap;
     min_keycode = max_keycode = 0;
     dpy_name = Xvendor_name = (char *) unknow_dpy_name;
@@ -3026,7 +3053,7 @@ Flag get_keyboard_map (char *terminal, int strg_nb,
     strg [4] = strg5;
     strg [5] = strg6;
 
-    if ( init_msg ) return;     /* already done */
+    if ( init_msg ) return (Xterminal_flg);     /* already done */
 
     for ( sz = i = 0 ; i < strg_nb ; i++ )
 	if ( strg[i] ) sz += strlen (strg[i]);
@@ -3562,19 +3589,18 @@ static char * kcode2string (int kcode, unsigned int shift,
     return (strg);
 }
 
-/* checkkeyb : interactive check fo keyboard state */
-/* ----------------------------------------------- */
+/* checkkeyb : interactive check for keyboard state */
+/* ------------------------------------------------ */
 
 static void checkkeyb (Flag echo)
 {
-    static char * escseqstrg ();
     static void print_keys (char *escp, Flag *nl_pt);
     static Flag build_escape_seq (char ch, char *escp, int idx);
 
     static char msg[] = "type \"Ctrl C\" exit, \"Ctrl A\" switch App mode, \"Ctrl B\" switch cusor mode\n";
     static char int_msg[] = " Interrupted control sequence\n";
     Flag app_mode, alt_cursor_mode;
-    char ch, escp[32];
+    unsigned char ch, escp[32];
     int idx, sz, tmode, retval;
     char *st, *st1;
     Flag nl, esc_seq;
@@ -3617,7 +3643,7 @@ static void checkkeyb (Flag echo)
 	    if ( ch == '\033' ) {
 		/* interrupted sequence */
 		if (echo) {
-		    fputs (escseqstrg (escp), stdout);
+		    fputs (escseqstrg (escp, NO), stdout);
 		    fputs (int_msg, stdout); nl = YES;
 		}
 	    }
@@ -3646,7 +3672,7 @@ static void checkkeyb (Flag echo)
 	    get_kbmode_strgs (&st, &st1);
 	    printf ("%s = New terminal mode, send : \"%s\"\n--- new terminal mode : %s key pad, %s cursor ----\n",
 		    init_seq[tmode].ref,
-		    escseqstrg (init_seq[tmode].ref),
+		    escseqstrg (init_seq[tmode].ref, NO),
 		    st, st1);
 	    nl = YES;
 	    continue;
@@ -3657,6 +3683,7 @@ static void checkkeyb (Flag echo)
 		continue;
 	    }
 	    else if ( echo ) {
+		printf(" '\\%03o'", ch);
 		if ( ch < ' ' ) {
 		    putchar ('^'); putchar (ch+'@');
 		} else putchar (ch);
@@ -3723,7 +3750,7 @@ void set_noX_msg (char * msg) {
 /* check_keyboard : interactive check fo keyboard state */
 /* ---------------------------------------------------- */
 
-void check_keyboard ()
+void check_keyboard (Flag charset_flg, Flag gr_flg)
 {
 
 static char xmapping_warning [] = "\n\
@@ -3738,24 +3765,74 @@ static char nomapping_warning [] = "\n\
 ";
 
     extern char *TI, *KS, *VS;
-    static char * escseqstrg ();
-    char *st, *st1, buf [1024];
+    extern void put_graph_char ();
+    extern char * graph_char_txt ();
+
+    char *st, *st1, *st2, buf [1024];
     int applmod, cursmod;
+    int i, i0, i1;
+    Flag g_flg, utf_flg;
+
+#ifdef CHAR7BITS
+    st2 = "ANSII (7 bits)";
+    i1 = 0176;
+#else
+    st2 = "ISO 8859 (8 bits)";
+    i1 = 0377;
+#endif
 
     /* save the initial terminal mode */
     applmod = keypad_appl_mode;
     cursmod = cursor_alt_mode;
 
-    if ( kbmap_type == no_map ) fputs (nomapping_warning, stdout);
+    if ( (kbmap_type == no_map) && !charset_flg )
+	fputs (nomapping_warning, stdout);
     set_term_mode (applmod, cursmod, NO);
-    get_kbmode_strgs (&st, &st1);
-    printf ("\n--- terminal mode : %s key pad, %s cursor ----\n", st, st1);
-    printf ("    Initialisation string : %s\n", escseqstrg (init_msg));
-    printf ("    <kbinit> (from kbfile) : %s\n", escseqstrg (kbinistr));
-    if ( TI && *TI ) printf ("    <ti> (from terminfo) : %s\n\n", escseqstrg (TI));
-    if ( KS && *KS ) printf ("    <ks> (from terminfo) : %s\n\n", escseqstrg (KS));
-    if ( VS && *VS ) printf ("    <vs> (from terminfo) : %s\n\n", escseqstrg (VS));
+
+    g_flg = gr_flg;
+    if ( ! charset_flg ) {
+	g_flg = NO;
+	get_kbmode_strgs (&st, &st1);
+	printf ("\n--- terminal mode : %s key pad, %s cursor ----\n", st, st1);
+	printf ("    Initialisation string : %s\n", escseqstrg (init_msg, NO));
+	printf ("    <kbinit> (from kbfile) : %s\n", escseqstrg (kbinistr, NO));
+	if ( TI && *TI ) printf ("    <ti> (from terminfo) : %s\n\n", escseqstrg (TI, NO));
+	if ( KS && *KS ) printf ("    <ks> (from terminfo) : %s\n\n", escseqstrg (KS, NO));
+	if ( VS && *VS ) printf ("    <vs> (from terminfo) : %s\n\n", escseqstrg (VS, NO));
+    }
+    if ( g_flg ) {
+	st1 = graph_char_txt (&utf_flg);
+	printf ("\nGraphical character set used for window edges from  :\n%s\n", st1);
+    } else {
+	printf ("Character set to display text : %s\n", st2);
+    }
+    printf ("\n\
+    .    .   0...............1...............\n\
+    hexa .   0123456789ABCDEF0123456789ABCDEF\n\
+    .    .   0.......1.......2.......3.......\n\
+    .    oct 01234567012345670123456701234567\n\
+    .    .   ................................");
+
+    i0 = (g_flg && utf_flg) ? 0 : ' ';
+    for ( i = i0 ; i <= i1 ; i++ ) {
+	if ( (!g_flg || !utf_flg) && (i == 0200) ) i = 0237;
+	else {
+	    if ( (i & 0037) == 0 ) printf ("\n    0x%02X %03o ", i, i);
+	    put_graph_char (i, g_flg);
+	}
+    }
     putchar ('\n');
+    putchar ('\n');
+
+    if ( charset_flg ) {
+	set_term_mode (applmod, cursmod, YES);
+	/* clear any input char */
+	while ( getkey (PEEK_KEY) != NOCHAR ) {
+	    keyused = YES;
+	    (void) getkey (WAIT_KEY);
+	}
+	return;
+    }
 
     if ( Xterminal_flg ) {
 	xterm_msg (buf + strlen (buf));
@@ -3774,12 +3851,14 @@ static char nomapping_warning [] = "\n\
 }
 #endif /* - TEST_PROGRAM */
 
-static char * escseqstrg (char *escst)
+char * escseqstrg (char *escst, Flag kbfile_format)
 {
     static char st[128];
     char *sp, *str, ch;
     int i;
+    Flag quote;
 
+    quote = NO;
     memset (st, 0, sizeof (st));
     if ( !escst || !escst[0] ) return st;
 
@@ -3787,22 +3866,34 @@ static char * escseqstrg (char *escst)
     for ( sp = escst ; (ch = *sp) ; sp++ ) {
 	str = &st[strlen(st)];
 	if ( isprint (ch) ) {
+	    if ( kbfile_format && !quote ) *str++ = '"';
+	    quote = YES;
 	    *str++ = ch;
 	    continue;
 	}
-	for ( i = ch_symb_nb -1 ; i >= 0 ; i-- ) {
-	    if ( ch != ch_symb [i].ch ) continue;
-	    strcpy (str, ch_symb [i].symb);
-	    if ( ch_symb [i].symb1 ) strcat (str, ch_symb [i].symb1);
-	    str = &st[strlen(st)];
-	    break;
+	if ( ! kbfile_format ) {
+	    for ( i = ch_symb_nb -1 ; i >= 0 ; i-- ) {
+		if ( ch != ch_symb [i].ch ) continue;
+		strcpy (str, ch_symb [i].symb);
+		if ( ch_symb [i].symb1 ) strcat (str, ch_symb [i].symb1);
+		str = &st[strlen(st)];
+		break;
+	    }
+	    if ( i >= 0 ) continue;
+	} else if ( ch == '\177' ) {
+	    if ( quote ) *str++ = '"';
+	    quote = NO;
+	    strcpy (str, "<0177>");
+	    continue;
 	}
-	if ( i >= 0 ) continue;
 	if ( ch < ' ' ) {
+	    if ( kbfile_format && quote ) *str++ = '"';
+	    quote = NO;
 	    *str++ = '^';
 	    *str++ = '@' + ch;
 	}
     }
+    if ( kbfile_format && quote ) *str++ = '"';
     return (st);
 }
 
@@ -3815,7 +3906,7 @@ static void print_keys (char *escp, Flag *nl_pt)
     int labels_strgs_nb;
 
     if ( ! *nl_pt ) putchar ('\n');
-    printf ("\"%s\" by: ", escseqstrg (escp));
+    printf ("\"%s\" by: ", escseqstrg (escp, NO));
 
     labels_strgs_nb = sizeof (labels_strgs) / sizeof (labels_strgs [0]);
     memset (labels_strgs, 0, sizeof (labels_strgs));
@@ -3900,37 +3991,33 @@ static void looktbl_print (S_looktbl *tbl, char *line_pt, int idx)
     (void) sprintf (line_pt + 2, "%3d %-9s ", tbl[idx].val, tbl[idx].str);
 }
 
-static void ctrlkey_print (unsigned char *ctrl_asg, char *line_pt, int idx)
+static char * symbs_strg (unsigned char ch)
 {
     extern char * itsyms_by_val (short);
-    int i;
-    char ch, *ctl;
+    char *sp;
+    char str [2];
 
-    i = idx * 3;
-    ch = ctrl_asg [i];
-    ctl = "Ctrl";
-    if ( ch > 'Z' ) {
-	if ( ch == '\177' ) ctl = "Del";
-	else ctl = "???";
-	(void) sprintf (line_pt, "<%s>    ", ctl, ch);
-    } else (void) sprintf (line_pt, "<%s %c> ", ctl, ch);
-
-    strcat (line_pt, itsyms_by_val (ctrl_asg [i+1]));
-    if ( ctrl_asg [i+2] != CCUNAS1 ) {
-	strcat (line_pt, " ");
-	strcat (line_pt, itsyms_by_val (ctrl_asg [i+2]));
+    sp = itsyms_by_val (ch);
+    if ( ! sp ) {
+	if ( isprint (ch) ) {
+	    str [0] = ch;
+	    str [1] = '\0';
+	    sp = str;
+	} else sp = "???";
     }
+    return sp;
 }
 
 /* print_sorted : routine to print in columns a list of strings */
 
-static void print_sorted (tbl, print_func, item_nb, nb_clm, nb_chr, nb_spc)
+static void print_sorted (tbl, print_func, item_nb, nb_clm, nb_chr, nb_spc, my_out)
 void *tbl;
 void (*print_func)();
 int item_nb;    /* number of items in sorted array */
 int nb_clm;     /* number of columns */
 int nb_chr;     /* nb of charcaters printed for each item */
 int nb_spc;     /* number of spaces between each item */
+FILE *my_out;
 
 {
     char line[81];
@@ -3938,11 +4025,16 @@ int nb_spc;     /* number of spaces between each item */
     int itemidx[16];
     int i, j, k, l, idx;
     int psiz;
+    FILE *out;
 
+    out = (my_out) ? my_out : stdout;
+    if ( item_nb <= 0 ) return;
     psiz = nb_chr + nb_spc;
     if ( (nb_spc < 1) || (nb_clm > 16)
-	 || ((nb_clm * psiz) >= sizeof (line)) )
+	 || ((nb_clm * psiz) >= sizeof (line)) ) {
+	fputs ("\n--- Bad parameter to 'print_sorted' which results in a too long string ---\n", out);
 	return;
+    }
 
     lnb = item_nb / nb_clm;
     lastln = item_nb % nb_clm;
@@ -3964,52 +4056,235 @@ int nb_spc;     /* number of spaces between each item */
 	    }
 	if ( idx == 0 ) idx = sizeof (line) -2;
 	line[idx++] = '\n'; line[idx] = '\0';
-	fputs (line, stdout);
+	fputs (line, out);
 	}
     return;
 }
 
+static void print_comment (FILE *out, char *cmt, char cch, Flag nl_flg)
+{
+    char str [128], str1 [128];
+    int sz;
+
+    sprintf (str, "%c %s\n", cch, cmt);
+    memset (str1, '-', sizeof (str1));
+    if ( cch ) {
+	str1 [0] = cch;
+	str1 [1] = ' ';
+    }
+    sz = strlen (str) -1;
+    if ( sz >= sizeof (str1) -2) sz = sizeof (str1) -3;
+    str1 [sz] = '\n';
+    str1 [sz +1] = '\0';
+    if ( nl_flg ) fputc ('\n', out);
+    fputs (str, out);
+    if ( out != stdout ) fputs (str1, out);
+}
+
+/* ctrl_asg_array : array of control character key functions assigned */
+/*  The array is :
+ *      2 control char : if it is a single Ctrl key, the second is null
+ *      2 cmd char, the second one is CCUNAS1 if it is a single char command
+ */
+#define CTRL_asg_cel 4
+
+static void ctrlkey_print (unsigned char *ctrl_asg, char *line_pt, int idx)
+{
+    int i;
+    unsigned char ch, ch1;
+    char *ctl, *sp;
+
+    i = idx * CTRL_asg_cel;
+    ch = ctrl_asg [i];
+    ch1 = ctrl_asg [i+1];
+    ctl = "Ctrl";
+    if ( ch > 'Z' ) {
+	if ( ch == '\177' ) ctl = "Del";
+	else ctl = "???";
+	(void) sprintf (line_pt, "<%s>    ", ctl, ch);
+    } else {
+	if ( ch1 == '\0' ) (void) sprintf (line_pt, "<%s %c> ", ctl, ch);
+	else (void) sprintf (line_pt, "<%1$s %2$c><%1$s %3$c> ", ctl, ch, ch1);
+    }
+    strcat (line_pt, symbs_strg (ctrl_asg [i+2]));
+
+    if ( ctrl_asg [i+3] != CCUNAS1 ) {
+	strcat (line_pt, " ");
+	strcat (line_pt, symbs_strg (ctrl_asg [i+3]));
+    }
+}
+
+void output_ctrlkey (unsigned char *ctrl_asg, FILE * out)
+{
+    int i;
+    unsigned char ch, ch1;
+
+    for ( i = 0 ; (ch = ctrl_asg [i]) != '\0' ; i+= CTRL_asg_cel ) {
+	if ( ch == CCUNAS1 ) break;
+	ch1 = ctrl_asg [i+1];
+	if ( ch > 'Z' ) {
+	    if ( ch != '\177' ) continue;
+	    fputs ("<0177>", out);
+	} else {
+	    if ( ch1 == '\0' ) fprintf (out, "^%c", ch);
+	    else fprintf (out, "^%c^%c", ch, ch1);
+	}
+	fprintf(out, ":<%s>", symbs_strg (ctrl_asg [i+2]));
+	if ( ctrl_asg [i+3] != CCUNAS1 )
+	    fprintf(out, ":<%s>", symbs_strg (ctrl_asg [i+3]));
+	putc ('\n', out);
+    }
+}
+
+static int set_crtl_asg_cel (unsigned char *ctrl_asg_arr, int *idx_pt,
+			     unsigned char *cmd, int *lnb_pt)
+{
+    extern char * itgetvalue (char * strg);
+
+    int i, j, nb;
+    unsigned char ctrl[4], ch, *val_pt;
+
+    if ( ! idx_pt ) return 0;
+    if ( !lnb_pt || *lnb_pt > 2 ) return 0;
+
+    j = *lnb_pt;
+    ctrl [j--] = '\0';
+    for ( ; j >= 0 ; j-- ) {
+	ch = cmd [j];
+	ctrl [j] = (ch > '\037') ? ch : ch + '@';
+    }
+
+    val_pt = itgetvalue (cmd);
+    if ( ! val_pt) return 0;
+
+    i = *idx_pt * CTRL_asg_cel;
+    ctrl_asg_arr [i++] = ctrl[0];
+    ctrl_asg_arr [i++] = ctrl[1];
+    ctrl_asg_arr [i++] = *val_pt;
+    ctrl_asg_arr [i++] = CCUNAS1;
+    (*idx_pt)++;
+    return 1;
+}
+
+static int get_ctrl_asg (unsigned char ** ctrl_asg_pt, int *sz1,
+			 unsigned char ** ctrl_asg_ext_pt, int* sz2)
+{
+    /* maxi is 32 single and 32 extended control assigment */
+    static unsigned char ctrl_asg_arr [65*CTRL_asg_cel];
+    static int ctrl_asg_arr_sz = 0;     /* number of control char assigned */
+    static int ctrl_asg_simple_sz = 0;  /* number of simple control char */
+    static int ctrl_asg_extend_sz = 0;  /* number of extended control char */
+
+    unsigned char cmd[256];
+    Flag free_flgs [32];    /* max 32 control char (^A ... ^Z) */
+    int i, i0, i1, j, lnb, nb;
+
+    if ( ctrl_asg_pt ) *ctrl_asg_pt = ctrl_asg_arr;
+    if ( ctrl_asg_arr_sz <= 0 ) {
+	/* not yet initialized */
+
+	memset (cmd, 0, sizeof (cmd));
+	memset (free_flgs, 0, sizeof (free_flgs));
+	memset (ctrl_asg_arr, 0, sizeof (ctrl_asg_arr));
+	ctrl_asg_arr_sz = i = 0;
+	i0 = 'A' & '\037';
+	i1 = 'Z' & '\037';
+	for ( i = i0 ; i <= i1 ; i++ ) {
+	    cmd[0] = i; cmd[1] = '\0';
+	    lnb = 1;
+	    nb = set_crtl_asg_cel (ctrl_asg_arr, &ctrl_asg_arr_sz, cmd, &lnb);
+	    if ( nb <= 0 ) free_flgs [i] = YES;
+	}
+	/* add also delete char */
+	cmd[0] = '\177'; cmd [1] = '\0';
+	lnb = 1;
+	nb = set_crtl_asg_cel (ctrl_asg_arr, &ctrl_asg_arr_sz, cmd, &lnb);
+	ctrl_asg_simple_sz = ctrl_asg_arr_sz;
+
+	/* extended control case (2 control chars) */
+	for ( j = i1 ; j >= i0 ; j-- ) {
+	    if ( ! free_flgs [j] ) continue;
+	    for ( i = i0 ; i <= i1 ; i++ ) {
+		cmd[0] = j; cmd [1] = i; cmd[2] = '\0';
+		lnb = 2;
+		nb = set_crtl_asg_cel (ctrl_asg_arr, &ctrl_asg_arr_sz, cmd, &lnb);
+		if ( nb <= 0 ) continue;
+		if ( ctrl_asg_arr_sz >= ((sizeof (ctrl_asg_arr) / CTRL_asg_cel) -1) )
+		    break;
+	    }
+	}
+	ctrl_asg_extend_sz = ctrl_asg_arr_sz - ctrl_asg_simple_sz;
+    }
+
+    if ( sz1 ) *sz1 = ctrl_asg_simple_sz;
+    if ( ctrl_asg_ext_pt )
+	*ctrl_asg_ext_pt = ctrl_asg_arr + (ctrl_asg_simple_sz * CTRL_asg_cel);
+    if ( sz2 ) *sz2 = ctrl_asg_extend_sz;
+    return ctrl_asg_arr_sz;
+}
+
+void all_ctrl_key_by_func (char *msg, int msg_sz, int fcmd)
+{
+    unsigned char * ctrl_asg, ch, ch1;
+    int sz, i, i1, i2, sz1;
+
+    sz = get_ctrl_asg (&ctrl_asg, NULL, NULL, NULL);
+    i1 = sz * CTRL_asg_cel;
+    for ( i = 0 ; i < i1 ; i += CTRL_asg_cel ) {
+	if ( (ctrl_asg[i+2] == fcmd) || (ctrl_asg[i+3] == fcmd) ) {
+	    i2 = strlen (msg);
+	    sz1 = msg_sz - i2;
+	    if ( sz1 <= 10 ) break;
+	    ch = ctrl_asg[i];
+	    ch1 = ctrl_asg[i+1];
+	    if ( ch <= 'Z' )
+		if ( ch1 == '\0' ) sprintf (&msg[i2], "<Ctrl %c>; ", ch);
+		else sprintf (&msg[i2], "<Ctrl %c><Ctrl %c>; ", ch, ch1);
+	    else strcat (msg, "<Del>; ");
+	}
+    }
+}
+
 /* print the Control characters assignement */
 
-static void display_ctrl ()
+static void display_ctrl (FILE *kb_file, Flag cmt_format)
 {
-    extern char * itsyms_by_val (short);
-    unsigned char ctrl_asg [128];    /* maxi is 32 control assigment */
-    char ch, cmd[256];
-    int i, idx, lnb, nb;
+    unsigned char *ctrl_asg, *ctrl_asg_ext;
+    char *comt;
+    int sz, sz1, sz2;
+    FILE *out;
+    Flag format_flg;
+
+    out = (kb_file) ? kb_file : stdout;
+    format_flg = (kb_file) ? cmt_format : YES;
 
     /* get the assignement of control characters */
-    memset (ctrl_asg, CCUNAS1, sizeof (ctrl_asg));
-    idx = i = 0;
-    for ( ch = 'A' ; ; ch++ ) {
-	cmd[0] = (ch & '\037'); cmd[1] = '\0';
-	if ( ch > 'Z' ) {
-	    ch = '\177';    /* del char */
-	    cmd[0] = ch;
-	}
-	lnb = 1;
-	nb = (*kbd.kb_inlex) (cmd, &lnb);
-	if ( nb <= 0 ) continue;
-	ctrl_asg [i++] = ch;
-	ctrl_asg [i++] = cmd[0];
-	if ( nb > 1 ) ctrl_asg [i] = cmd[1];
-	i++;
-	idx++;
-	if ( ch > 'Z' ) break;
-    }
-    printf ("\nControl Key assignement \n");
-    print_sorted ((void *) ctrl_asg, ctrlkey_print, idx, 4, 19, 1);
-    putchar ('\n');
+    sz = get_ctrl_asg (&ctrl_asg, &sz1, &ctrl_asg_ext, &sz2);
+    comt = (format_flg) ? "" : "! ";
+    print_comment (out, "Control Key assignement", comt[0], YES);
+    if ( sz > 0 )
+	if ( format_flg ) {
+	    print_sorted ((void *) ctrl_asg, ctrlkey_print, sz1, 4, 19, 1, out);
+	    if ( sz2 > 0 ) {
+		fputc ('\n', out);
+		print_sorted ((void *) ctrl_asg_ext, ctrlkey_print, sz2, 3, 25, 1, out);
+	    }
+	} else
+	    output_ctrlkey (ctrl_asg, out);
+    else
+	fprintf (out, "\n%s    No Control key is assigned to key function", comt);
+    fputc ('\n', out);
 }
 
 /* linux_keymap : display the current key map */
 /* ------------------------------------------ */
 
 
-static int new_page (int *nbnl, int min_size)
+static int new_page (int *nbnl, int min_size, FILE *out)
 {
     int ctrlc;
 
+    if ( out != stdout ) return NO;
     if ( verbose || ((*nbnl + min_size +2) <= term.tt_height) ) return NO;
 
     ctrlc = wait_keyboard ("\nPush a key to continue, <Ctrl C> to exit", NULL);
@@ -4020,12 +4295,16 @@ static int new_page (int *nbnl, int min_size)
 
 
 static char * print1key_func (int *nbnl, int ktcode, int kcode, int shift,
-			      char *klabel, char *strg, Flag skip, int *ctrlc_pt)
+			      char *klabel, char *strg, Flag skip,
+			      int *ctrlc_pt, FILE *out, char *esc_strg)
 {
     static char cmdstrg [64];
     int i, k, nb, cc, cmd, ctrlc;
-    char strg1 [256], *sp;
+    char strg1 [256], *sp, *esc, *tstr;
+    Flag esc_flg;
 
+    esc_flg = esc_strg && (out != stdout) && !verbose;
+    esc = ( esc_flg ) ? esc_strg + strlen (esc_strg) : NULL;
     if ( ctrlc_pt ) *ctrlc_pt = NO;
     memset (cmdstrg, 0, sizeof (cmdstrg));
     if ( strg && (keyboard_map [shift] >= 0) ) {
@@ -4045,20 +4324,26 @@ static char * print1key_func (int *nbnl, int ktcode, int kcode, int shift,
     }
     if ( !*cmdstrg && skip ) return NULL;
 
+    if ( !strg ) strg = "";
     if ( shift == 0 ) {
-	ctrlc = new_page (nbnl, 1);
+	ctrlc = new_page (nbnl, 1, out);
 	if ( ctrlc && !verbose && ctrlc_pt ) {
 	    *ctrlc_pt = ctrlc;
 	    return NULL;
 	}
 
+	tstr = escseqstrg (strg, YES);
 	if ( Xterminal_flg ) {
 	    if ( kcode != NoSymbol )
-		printf ("\n%+13s %3d :", klabel, kcode);
+		fprintf (out, "\n%+13s %3d :", klabel, kcode);
 	    else
-		printf ("\n%+13s     :", klabel);
+		fprintf (out, "\n%+13s     :", klabel);
+	    if ( esc ) sprintf (esc, "%+13s      ", tstr);
 	}
-	else printf ("\n%+14s :", klabel);
+	else {
+	    fprintf (out, "\n%+14s :", klabel);
+	    if ( esc ) sprintf (esc, "%+14s  ", tstr);
+	}
 	(*nbnl)++;
     }
     if ( verbose ) {
@@ -4066,19 +4351,23 @@ static char * print1key_func (int *nbnl, int ktcode, int kcode, int shift,
 	    char strg1[24];
 	    (void) get_ktcode2strg (ktcode, &sp, 0);
 	    sprintf (strg1, "0x%4X %s", ktcode, (sp) ? sp : "");
-	    printf (" ((%-19s) -> %-9s)", strg1, (strg) ? escseqstrg (strg) : "null");
+	    fprintf (out, " ((%-19s) -> %-9s)", strg1, (strg) ? escseqstrg (strg, NO) : "null");
 	} else
-	    printf (" ((%d,%3d) -> %-9s)", (ktcode/256), (ktcode%256), (strg) ? escseqstrg (strg) : "null");
+	    fprintf (out, " ((%d,%3d) -> %-9s)", (ktcode/256), (ktcode%256), (strg) ? escseqstrg (strg, NO) : "null");
     }
-    if ( verbose ) printf ( " %-9s, ", cmdstrg);
-    else printf ( "%+10s, ", cmdstrg);
+    if ( verbose ) fprintf (out, " %-9s, ", cmdstrg);
+    else {
+	fprintf (out, "%+10s, ", cmdstrg);
+	if ( esc ) sprintf (esc, "%+10s  ", escseqstrg (strg, YES));
+    }
     return *cmdstrg ? cmdstrg : NULL;
 }
 
 
 /* Display 1 key mapping (all level) */
 
-static void display1Xkey (int keycode, char *keylabel, Flag skip, int *nbnl)
+static void display1Xkey (int keycode, char *keylabel, Flag skip,
+			  int *nbnl, FILE *out, char *esc_strg)
 {
     int j, ctrlc;
     char *strg, *cmdstrg;
@@ -4094,7 +4383,7 @@ static void display1Xkey (int keycode, char *keylabel, Flag skip, int *nbnl)
 	else if ( keysym == NoSymbol ) keysym = keysym_sh0;
 	strg = get_ktcode2strg (keysym, NULL, 0);
 	cmdstrg = print1key_func (nbnl, keysym, keycode, j, keylabel,
-				  strg, skip, &ctrlc);
+				  strg, skip, &ctrlc, out, esc_strg);
 	if ( ctrlc ) return;
 	if ( !cmdstrg && (j == 0) && skip )
 	    return;      /* do not print all Alpha section keys */
@@ -4106,25 +4395,27 @@ static void display1Xkey (int keycode, char *keylabel, Flag skip, int *nbnl)
  *  or for X terminal emulator if X Keyboard Extension (or geometry)
  *  is not available.
  */
-static void display_keyboard_map (int *nbnl)
+static void display_keyboard_map (int *nbnl, FILE *out)
 {
     Key_Assign *kap;
     int i, j, k, nb, keycode, ktcode, ctrlc;
     char *strg, *shift_strg, *klabel, *cmdstrg;
+    char esc_strg [512];
 
     for ( i = 0 ; i < nb_key ; i++ ) {
+	memset (esc_strg, 0, sizeof (esc_strg));
 	for ( k = 0 ; k < pc101_keyboard_struct_nb ; k++ ) {
 	    if ( pc101_keyboard_struct [k].idx != i ) continue;
-	    ctrlc = new_page (nbnl, pc101_keyboard_struct [k].nb +4);
+	    ctrlc = new_page (nbnl, pc101_keyboard_struct [k].nb +4, out);
 	    if ( ctrlc && !verbose ) return;
 
-	    printf ("\n\n%-15s", pc101_keyboard_struct [k].label);
+	    fprintf (out, "\n\n%-15s", pc101_keyboard_struct [k].label);
 	    (*nbnl)++;
 	    nb = Xterminal_flg ? max_shift_level : nb_kbmap;
 	    for ( j = 0 ; j < nb ; j++ ) {
 		if ( !Xterminal_flg && keyboard_map [j] < 0 ) continue;
-		if ( verbose ) printf ("                %-7s         ", key_shift_msg [j]);
-		else printf ("     %+7s", key_shift_msg [j]);
+		if ( verbose ) fprintf (out, "                %-7s         ", key_shift_msg [j]);
+		else fprintf (out, "     %+7s", key_shift_msg [j]);
 	    }
 	    break;
 	}
@@ -4136,23 +4427,25 @@ static void display_keyboard_map (int *nbnl)
 		strg = kcode2string (keycode, j,
 				     keypad_appl_mode, cursor_alt_mode,
 				     &ktcode, &shift_strg, &klabel);
-		cmdstrg = print1key_func (nbnl, ktcode, keycode, j,
-					  klabel, strg, NO, &ctrlc);
+		cmdstrg = print1key_func (nbnl, ktcode, keycode, j, klabel,
+					  strg, NO, &ctrlc, out, esc_strg);
 		if ( ctrlc ) return;
 	    }
 	} else {
 	    klabel = pc_keyboard_desc [i].klabel;
-	    display1Xkey (keycode, klabel, NO, nbnl);
+	    display1Xkey (keycode, klabel, NO, nbnl, out, esc_strg);
 	}
+	if ( (out != stdout) && *esc_strg )
+	    fprintf (out, "\n%-15s %s\n", "", esc_strg);
     }
-    putchar ('\n');
+    fputc ('\n', out);
 }
 
 #ifndef NOXKB
 /* Display the X11 current terminal emulator keyboard mapping
  *   using XKB Extension (need geometry description)
  */
-static void display_xkb_map (int *nbnl)
+static void display_xkb_map (int *nbnl, FILE *out)
 {
     Flag something;
     XkbGeometryPtr geom;
@@ -4160,6 +4453,7 @@ static void display_xkb_map (int *nbnl)
     XkbRowPtr xrow;
     XkbKeyRec *xkey;
     KeySym keysym, keysym_l0;
+    char esc_strg [512];
 
     char *strg, *cmdstrg;
     int i, j, si, ri, ki, kk, ctrlc;
@@ -4174,16 +4468,16 @@ static void display_xkb_map (int *nbnl)
 	si = section_idx [i];
 	if ( si < 0 ) continue;
 
-	putchar ('\n');
+	fputc ('\n', out);
 	(*nbnl)++;
-	ctrlc = new_page (nbnl, 1);
+	ctrlc = new_page (nbnl, 1, out);
 	if ( ctrlc && !verbose ) return;
 
-	printf ("\n%-23s", section_names [i]);
+	fprintf (out, "\n%-23s", section_names [i]);
 	(*nbnl)++;
 	for ( j = 0 ; j < max_shift_level ; j++ ) {
-	    if ( verbose ) printf ("                %-7s         ", key_shift_msg [j]);
-	    else printf ("%-7s      ", key_shift_msg [j]);
+	    if ( verbose ) fprintf (out, "                %-7s         ", key_shift_msg [j]);
+	    else fprintf (out, "%-7s      ", key_shift_msg [j]);
 	}
 
 	something = YES;
@@ -4197,11 +4491,15 @@ static void display_xkb_map (int *nbnl)
 		if ( kk == NoSymbol ) continue;
 
 		klabel = pretty_key_label (kname);
-		display1Xkey (kk, klabel, (i == (num_section_names -1)), nbnl);
+		memset (esc_strg, 0, sizeof (esc_strg));
+		display1Xkey (kk, klabel, (i == (num_section_names -1)),
+			      nbnl, out, esc_strg);
+		if ( (out != stdout) && *esc_strg )
+		    fprintf (out, "\n%-15s    %s\n", "", esc_strg);
 	    }
 	}
     }
-    putchar ('\n');
+    fputc ('\n', out);
 }
 #endif /* - NOXKB */
 
@@ -4214,7 +4512,7 @@ char * mapping_strg (char ** str)
 
 
 
-static int print_keymap (Flag prg_verbose, int lnb)
+static void print_keymap (Flag prg_verbose, int lnb, FILE *kb_file)
 {
     static const char nomap_strg [] = "\
 No keyboard map is available in this configuration.\
@@ -4233,6 +4531,9 @@ No keyboard map is available in this configuration.\
     char buf [1024];
     int sz;
     char *str, *str1, *str2;
+    FILE *out;
+
+    out = (kb_file) ? kb_file : stdout;
 
     ctrlc = 0;
     nbnl = lnb;
@@ -4241,25 +4542,20 @@ No keyboard map is available in this configuration.\
     memset (buf, 0, sizeof (buf));
 
     if ( kbmap_type == no_map ) {
-	printf ("Terminal \"%s\" (value of TERM environment variable)\n", terminal_name);
-	fputs (get_kbmap_strg ? get_kbmap_strg : nomap_strg, stdout);
-	fputs (nomap_strg1, stdout);
+	fprintf (out, "Terminal \"%s\" (value of TERM environment variable)\n", terminal_name);
+	fputs (get_kbmap_strg ? get_kbmap_strg : nomap_strg, out);
+	fputs (nomap_strg1, out);
 	str = get_kbmap_file_name (NO, NULL);
 	if ( !str || !*str ) str = "??? not defined !!!";
-	printf ("\"%s\"\n  is the expected keyboard map file\n", str);
-	if ( ! verbose ) {
-	    fputs ("\n\n\n", stdout);
-	    ctrlc = wait_keyboard ("Push a key to continue with Control keys, <Ctrl C> to exit", NULL);
-	    fputs (              "\r                                                          ", stdout);
-	    nbnl = 0;
-	}
-	return ctrlc;
+	fprintf (out, "\"%s\"\n  is the expected keyboard map file\n", str);
+	if ( ! verbose ) fputs ("\n\n\n", out);
+	return;
     }
 
     /* a keyboard mapping is available */
     switch ( kbmap_type ) {
 	case user_mapfile :
-	    printf ("\n-- \"%s\" terminal is assumed to have a PC-101 style keyboard --\n    In mode : %s\n", terminal_name, get_keyboard_mode_strg ());
+	    fprintf (out, "\n-- \"%s\" terminal is assumed to have a PC-101 style keyboard --\n    In mode : %s\n", terminal_name, get_keyboard_mode_strg ());
 	    nbnl +=2;
 	    sprintf (&buf[strlen(buf)], "  %s\n", str1);
 	    nbnl++;
@@ -4270,7 +4566,7 @@ No keyboard map is available in this configuration.\
 	    break;
 
 	case linux_console :
-	    printf ("\n-- \"%s\" PC-101 style keyboard map, (%s) --\n", terminal_name, get_keyboard_mode_strg ());
+	    fprintf (out, "\n-- \"%s\" PC-101 style keyboard map, (%s) --\n", terminal_name, get_keyboard_mode_strg ());
 	    nbnl++;
 	    sprintf (&buf[strlen(buf)], "  %s\n", str1);
 	    nbnl++;
@@ -4322,31 +4618,31 @@ No keyboard map is available in this configuration.\
 	default :
 	    ;
     }
-    if ( buf[0] ) fputs (buf, stdout);
+    if ( buf[0] ) fputs (buf, out);
 
     if ( verbose ) {
 	/* complementary info for verbose output */
-	printf ("\n  %s", str1);
+	fprintf (out, "\n  %s", str1);
 	switch ( kbmap_type ) {
 	    case user_mapfile :
-		printf (" \"%s\"\n", get_kbmap_strg, str2);
+		fprintf (out, " \"%s\"\n", get_kbmap_strg, str2);
 		nbnl += 1;
 		break;
 
 	    case linux_console :
-		fputs ("\n  Keyboard mapping is normaly defined by a call to \"loadkeys\" during startup.", stdout);
+		fputs ("\n  Keyboard mapping is normaly defined by a call to \"loadkeys\" during startup.", out);
 		nbnl += 1;
-		fputs ("\n  Ref \"The Linux Keyboard and Console HOWTO\" for more info.", stdout);
+		fputs ("\n  Ref \"The Linux Keyboard and Console HOWTO\" for more info.", out);
 		nbnl += 1;
 		break;
 
 	    default :
-		fputc ('\n', stdout);
+		fputc ('\n', out);
 		nbnl += 1;
 	}
 
-	printf ("\n    Initialisation string : %s", escseqstrg (init_msg));
-	printf ("\n    For each key : key code (ref /usr/include/linux/keyboard.h),\n                  Escape Sequence, Rand key function");
+	fprintf (out, "\n    Initialisation string : %s", escseqstrg (init_msg, NO));
+	fprintf (out, "\n    For each key : key code (ref /usr/include/linux/keyboard.h),\n                  Escape Sequence, Rand key function");
 	nbnl += 2;
     }
 
@@ -4354,73 +4650,240 @@ No keyboard map is available in this configuration.\
     switch ( kbmap_type ) {
 	case user_mapfile :
 	case linux_console :
-	    display_keyboard_map (&nbnl);
+	    display_keyboard_map (&nbnl, out);
 	    break;
 
 #ifndef NOX11
 #ifndef NOXKB
 	case X11_KBExt :
 	    if ( xkb_rec->geom ) {
-		display_xkb_map (&nbnl);
+		display_xkb_map (&nbnl, out);
 		break;
 	    }
 #endif /* - NOXKB */
 	case X11_default :
 	case X11_xmodmap :
-	    display_keyboard_map (&nbnl);
+	    display_keyboard_map (&nbnl, out);
 	    break;
 #endif /* - NOX11 */
 
 	default :
-	    return 0;   /* nothing can be done */
+	    return;     /* nothing can be done */
+    }
+}
+
+/* Generate a template kb file for the current terminal */
+
+static int sort_stbl (S_looktbl **stbl1, S_looktbl **stbl2)
+{
+    char *st1, *st2;
+    char c1, c2;
+    int v;
+
+    c1 = c2 = '\0';
+    st1 = (*stbl1)->str;
+    st2 = (*stbl2)->str;
+    c1 = st1[0];
+    c2 = st2[0];
+    if ( ! isalpha (c1) ) st1++;
+    if ( ! isalpha (c2) ) st2++;
+    v = strcmp (st1, st2);
+    if ( v == 0 ) v = c1 - c2;
+    return v;
+}
+
+static void print_it_str (int fcmd, FILE *out)
+{
+    extern char * itsyms_by_val (short);
+    extern int it_value_to_string (int, Flag, char *, int);
+    int nb;
+    char *str, *str1;
+    char buf [128];
+
+    memset (buf, 0, sizeof (buf));
+    str = itsyms_by_val (fcmd);
+    nb = 1;
+    if ( fcmd == KBINIT ) strcpy (buf, kbinistr);
+    else if ( fcmd == KBEND ) strcpy (buf, kbendstr);
+    else nb = it_value_to_string (fcmd, NO, buf, sizeof (buf));
+    if ( nb ) {
+	str1 = strchr (buf, ' ');
+	if ( str1 ) *str1 = '\0';
+	fprintf (out, "<%s>:%s\n", str, escseqstrg (buf, YES));
+    } else fprintf (out, "! <%s>: Not defined\n", str);
+}
+
+
+static void generate_kbfile (Flag prg_verbose, char *my_kbf_name)
+{
+    extern time_t time ();
+    extern void display_xlate (char *, FILE *);
+    extern void display_miscsymbs (FILE *);
+    extern int key_by_func (int, char *, int, char **, char **, int,
+		 char *, int, Flag, Flag);
+    extern char * get_directive (unsigned int);
+    extern char * itsyms_by_val (short);
+    extern char * get_new_kbfile_name (Flag, Flag *);
+    void display_keymap (Flag);
+    extern char *myHost;
+    extern Flag noX11flg;
+    extern char *kbfile;
+
+    static char default_new_kbfile [] = "/tmp/mykb";
+
+    static char intro [] = "! File generated by \"build-kbfile\" command\n";
+    static char separ [] = "! ================================================================\n";
+    static char cmd_msg [128];
+
+    FILE * termkb_file;
+    int i, i0, j, nb, escp_nb, fcmd;
+    char *str, *kbf_name;
+    S_looktbl **stbl;
+    char ch, buf [256];
+    char *escp_str [16], *escp_labels [16];
+    char labels [128];
+    time_t strttime;
+    Flag kbf_exist;
+
+    memset (cmd_msg, 0, sizeof (cmd_msg));
+
+    if ( my_kbf_name && *my_kbf_name ) {
+	kbf_name = my_kbf_name;
+    } else {
+	kbf_name = get_new_kbfile_name (YES, &kbf_exist);
+	if ( !kbf_name ) kbf_name = default_new_kbfile;
+    }
+    termkb_file = fopen (kbf_name, "w");
+    if ( ! termkb_file ) {
+	sprintf (cmd_msg, "File \"%s\" error : %s", kbf_name, strerror (errno));
+	command_msg = cmd_msg;
+	return;
     }
 
-    if ( ! verbose ) {
-	ctrlc = wait_keyboard ("Push a key to continue with Control keys, <Ctrl C> to exit", NULL);
-	fputs (              "\r                                                          ", stdout);
-	nbnl = 0;
+    (void) time (&strttime);
+    str = asctime (localtime (&strttime));
+    str [strlen(str) -1] = '\0';
+    str [11] = '\0';
+    fputs (separ, termkb_file);
+    fputs (intro, termkb_file);
+    fprintf (termkb_file, "! Session by \"%s\" at %s%s on \"%s\"\n!\n",
+	     myname, str, &str[20], myHost);
+    if ( kbfile ) {
+	fprintf (termkb_file, "! Initial keyboard definition file :\n!    %s\n!\n", kbfile);
     }
-    return ctrlc;
+    if ( Xterminal_flg )
+	fputs ("!   look at vt200kbn file for recomanded X terminal setting\n", termkb_file);
+    fputs (separ, termkb_file);
+
+    fputc ('\n', termkb_file);
+    fputs (get_directive (1), termkb_file);
+    fputs (  " --- Keyboard mapping overview -----------\n\n", termkb_file);
+    print_keymap (prg_verbose, 0, termkb_file);
+    display_ctrl (termkb_file, YES);
+    fputc ('\n', termkb_file);
+    fputs (get_directive (2), termkb_file);
+    fputs (" ----------------------------------------\n\n", termkb_file);
+
+    /* #include directive */
+    print_comment (termkb_file, "Major kb file directives", '!', YES);
+    fputs ("\n! #include <vt200kbn>\n", termkb_file);
+
+    /* NoX11 directive */
+    if ( ! noX11flg ) fputs ("! ", termkb_file);
+    fputs (get_directive (0), termkb_file);
+    fputc ('\n', termkb_file);
+
+    /* terminal initialisation and end escape sequence */
+    print_comment (termkb_file, "Terminal initialisation and exit escape sequences", '!', YES);
+    print_it_str (KBINIT, termkb_file);
+    print_it_str (KBEND, termkb_file);
+
+    /* sort the list of key functions */
+    for ( i0 = 0 ; (str = itsyms[i0].str) != NULL ; i0++ ) ;
+    stbl = (S_looktbl **) calloc (i0, sizeof (S_looktbl));
+    if ( ! stbl ) return;
+    for ( i = 0 ; i < i0 ; i++ ) stbl [i] = &(itsyms[i]);
+    qsort (stbl, i0, sizeof (S_looktbl **),
+	   (int (*)(const void *,const void *)) sort_stbl);
+
+    print_comment (termkb_file, "Keyboard keys function assignement", '!', YES);
+    escp_nb = sizeof (escp_str) / sizeof (escp_str [0]);
+    for ( i = 0 ; i < i0 ; i++ ) {
+	fcmd = stbl[i]->val;
+	if ( (fcmd == KBINIT) || (fcmd == KBEND) ) continue;
+	nb = key_by_func (fcmd, buf, sizeof (buf),
+			  escp_str, escp_labels, escp_nb,
+			  labels, sizeof (labels), NO, YES);
+	if ( nb ) {
+	    fputc ('\n', termkb_file);
+	    for ( j = 0 ; j < nb ; j++ ) {
+		ch = *(escp_str [j]);
+		if ( (ch >= ('A' & '\037')) && (ch <= ('Z' & '\037')) || (ch == '\177') ) continue;
+		fprintf (termkb_file, "! %s\n", escp_labels[j] ? escp_labels[j] : "???");
+		fprintf (termkb_file, "%s:<%s>\n",
+			 escseqstrg (escp_str [j], YES), stbl[i]->str);
+	    }
+	}
+	else fprintf (termkb_file, "\n! :<%s> Not assigned\n", stbl[i]->str);
+    }
+
+    display_ctrl (termkb_file, NO);
+    display_miscsymbs (termkb_file);
+    display_xlate (tname, termkb_file);
+    fputs (separ, termkb_file);
+
+    fclose (termkb_file);
+    sprintf (cmd_msg, "Kb file \"%s\" build", kbf_name);
+    command_msg = cmd_msg;
 }
 
 /* Display the current keyboard mapping
  *   verbose flag must be used only for "-help -verbose" option case
  */
+
 void display_keymap (Flag prg_verbose)
 {
-    extern void display_xlate (char *);
+    extern void display_xlate (char *, FILE *);
 
-    int ctrlc;
+    int ctrlc, gk;
     char *str1, *str2;
     int sz, nbnl;
     S_looktbl *keyftable;
 
+    ctrlc = 0;
     str1 = mapping_strg (&str2);
     verbose = prg_verbose;
 
     /* display the header */
-    if ( verbose ) putc ('\n', stdout);
+    if ( verbose ) fputc ('\n', stdout);
     else fputs ("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n", stdout);
     nbnl = 1;
 
-    ctrlc = print_keymap (prg_verbose, nbnl);
-    if ( ctrlc ) return;
+    print_keymap (prg_verbose, nbnl, NULL);
+    if ( ! verbose ) {
+	ctrlc = wait_keyboard ("Push a key to continue with Control keys, <Ctrl C> to exit", NULL);
+	fputs (              "\r                                                          ", stdout);
+	nbnl = 0;
+	if ( ctrlc ) return;
+    }
 
     /* display control key mapping */
-    display_ctrl ();
+    display_ctrl (NULL, YES);
 
-#ifdef __linux__
     /* display the border char set */
     if ( ! verbose ) {
 	ctrlc = wait_keyboard ("Push a key to continue with Border character set, <Ctrl C> to exit", NULL);
 	fputs (              "\r                                                                  ", stdout);
 	if ( ctrlc ) return;
     }
-    display_xlate (tname);
-#endif /* __linux__ */
+    display_xlate (tname, NULL);
 
     if ( ! verbose ) {
-	ctrlc = wait_keyboard ("Push a key to return to edition session", NULL);
+	ctrlc = wait_keyboard ("Push 'Y' to generate a kb file template, else return to edition session", &gk);
+	if ( ctrlc || !((gk == 'y') || (gk == 'Y')) )
+	    return;
+
+	generate_kbfile (prg_verbose, NULL);
 	return;
     }
 
@@ -4432,7 +4895,7 @@ void display_keymap (Flag prg_verbose)
 	qsort (keyftable, sz, sizeof (keyftable[0]),
 	       (int (*)(const void *,const void *)) sort_looktb);
 	printf ("Defined (%d) Rand Key Functions\n", sz);
-	print_sorted (keyftable, looktbl_print, sz, 5, 14, 1);
+	print_sorted (keyftable, looktbl_print, sz, 5, 14, 1, NULL);
 	putchar ('\n');
 	free (keyftable);
     }
@@ -4551,7 +5014,7 @@ static char * print_escp (short *esc, char *alt_escseq, int lv)
 
     for ( j = 0 ; j <= lv ; j++ ) {
 	i = esc [j];
-	str = ( i >= 0 ) ? escseqstrg (&alt_escseq [i]) : "";
+	str = ( i >= 0 ) ? escseqstrg (&alt_escseq [i], NO) : "";
 	printf ("%-10s , ", str);
     }
 }
@@ -4602,7 +5065,7 @@ static void display_key_value (int idx, int idx1, int lv, Flag inv_video)
 	str1 = empty_kstrg;
 	str2 = "";
     } else {
-	escp = escseqstrg (&alt_escseq [i]);
+	escp = escseqstrg (&alt_escseq [i], NO);
 	px = inc_x - strlen (escp) -2;
 	if ( px < 0 ) px = 0;
 	strg [px] = '\0';
@@ -4663,8 +5126,8 @@ static void display_section (int sec, int max_lv,
 static Flag get_kbmap ()
 {
 static char sec_msg [] = "\
-<Ctrl C> : abort capture, <Ctrl A> : skip to next keys section,\n\
-<Ctrl B> previous key, <Return> : next key, <Space> erase current value\
+<Ctrl C> abort capture, <Ctrl A> skip to next section, <Ctrl D> end capture\n\
+<Ctrl B> previous key, <Return> next key, <Space> erase current value\
 ";
     int i, sz, sz1, iesc, sec, lv, max_lv, max_nb;
     int idx, idx0, idx1, idx2;
@@ -4753,12 +5216,13 @@ static int dummy_video (Flag inverted)
     return 0;
 }
 
-static Cmdret process_buildkbfile ()
+static Cmdret process_buildkbmap ()
 {
     extern char * tparm ();
     extern char *MR, *ME;
     extern char *myHost, *fromHost, *fromDisplay;
 
+    static char cmd_msg [128];
     Flag cc, result;
     int idx, lv, sz, sz1, ctrlc;
     char * kfname, * old_kfname;
@@ -4767,6 +5231,7 @@ static Cmdret process_buildkbfile ()
     Flag kbf_exist;
     Kb_Mapping file_kbmap_type;  /* existing keyboard mapping file type */
 
+    memset (cmd_msg, 0, sizeof (cmd_msg));
     if ( ! term.tt_video ) term.tt_video = dummy_video;
 
     for ( sz = 0, idx = 0 ; idx < pc_keyboard_desc_nb ; idx++ ) {
@@ -4832,15 +5297,23 @@ static Cmdret process_buildkbfile ()
 	    }
 	}
     }
+    sprintf (cmd_msg, "Keymap file \"%s\" build", kfname);
+    command_msg = cmd_msg;
     return CROK;
 }
 
-Cmdret buildkbfile ()
+Cmdret buildkbfile (char *my_kbf_name)
+{
+    generate_kbfile (NO, my_kbf_name);
+    return CROK;
+}
+
+Cmdret buildkbmap ()
 {
     extern Cmdret do_fullscreen (Cmdret (*) (), void *, void *, void *);
     Cmdret cc;
 
-    cc = do_fullscreen (process_buildkbfile, NULL, NULL, NULL);
+    cc = do_fullscreen (process_buildkbmap, NULL, NULL, NULL);
     return cc;
 }
 
@@ -4863,7 +5336,7 @@ Cmdret buildkbfile ()
     Flag noinit_flg, mode_flg;
 
     static char def_init [] = "\033c";  /* reset */
-    /* ------- for debuging of the init string parsing -----
+    /* ------- for debugging of the init string parsing -----
     static char def_init [] = "\033c\033=\033[?1hTrikTrak\033c\033>\033[?1l";
     static char def_init [] = "\033=\033[2l";
     */
@@ -4894,7 +5367,7 @@ Synopsis : %s [option ...]\n\
 
     for ( i = 0 ; i < init_seq_nb ; i++ )
 	printf ("\
-		%s : %s\n", init_seq[i].info, escseqstrg (init_seq[i].ref));
+		%s : %s\n", init_seq[i].info, escseqstrg (init_seq[i].ref, NO));
     printf ("\
 \n\
 Program to assess the keyboard mapping of Function and Key Pad keys\n\
@@ -5062,7 +5535,7 @@ main (int argc , char *argv[])
 	alt_cursor_mode = acursor_flg;
     }
     if ( strg ) {
-	printf ("%s\nInit string: %s\n", strg, escseqstrg (strg));
+	printf ("%s\nInit string: %s\n", strg, escseqstrg (strg, NO));
 	}
     terminal = getenv ("TERM");
     get_kb_map (terminal, strg, &app_mode, &alt_cursor_mode);
@@ -5102,7 +5575,7 @@ main (int argc , char *argv[])
 		ktpt = *(inuse_ktdesc [i].ktdesc_array) + j;
 		if ( ktpt->ktfunc == 0 ) continue;
 		if ( !ktpt->strg ) continue;
-		st = escseqstrg (ktpt->strg);
+		st = escseqstrg (ktpt->strg, NO);
 		st1 = get_key_bycode (ktpt->ktfunc);
 		printf ("%#05x %+10s = %-10s : %s\n",
 			ktpt->ktfunc, (ktpt->tcap) ? ktpt->tcap : "", st, st1);

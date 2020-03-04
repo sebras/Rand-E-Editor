@@ -92,11 +92,12 @@ static void d_init ();
        void dbmove ();
        void putscr ();
        void fresh ();
+/* these flag are defined in e.x.c
        Flag NoBell;
 #ifdef LMCVBELL
        Flag VBell;
 #endif
-
+*/
 
 static void d_new_image (Flag clearmem, Flag clearscr)
 {
@@ -115,6 +116,7 @@ static void d_new_image (Flag clearmem, Flag clearscr)
 	MHOME ();
     }
     fflush (stdout);
+    state = 0;
     if (redraw) return;
 
     winl = 0;
@@ -127,7 +129,6 @@ static void d_new_image (Flag clearmem, Flag clearscr)
     argcol = argline = 0;
 
     arg = 1;
-    state = 0;
     rollmode = 1;
     wrapmode = 1;
     cwrapmode = 1;
@@ -159,7 +160,7 @@ void new_image ()
 
 
 #ifdef COMMENT
-void
+static void
 d_init (clearmem, clearscr)
     Flag clearmem;
     Flag clearscr;
@@ -1309,8 +1310,22 @@ Flag wrtflg;
     return;
 }
 
+/* ----------------------------------------------------
+    Old version, MPRTOK seem to be not any more usefull for
+	new class of terminal
 #define putx(c) if ((c) < FIRSTSPCL && MPRTOK ()) \
 		putchar (c); else MXLATE (c)
+------------------------------------------------------- */
+static void putx (int chr)
+{
+#ifdef CHAR7BITS
+    if ( chr >= FIRSTSPCL )
+#else
+    if ( chr >= FIRSTSPCL && chr <= 0237 )
+#endif
+	MXLATE (chr);
+    else putchar (chr);
+}
 
 #ifdef COMMENT
 void

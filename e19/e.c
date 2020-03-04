@@ -32,8 +32,21 @@ file e.c
 #endif /* SYSIII */
 #include <unistd.h>
 #include <time.h>
+/*
+ * #include <assert.h>
+ */
 
 extern char *getenv ();
+extern char *getmypath ();
+extern int mypid;
+extern void msg_mark (struct markenv *, char *, char *, Flag, Flag);
+extern void clean_glb_storages ();
+extern void set_noX_msg (char *);
+extern char default_tmppath [];
+
+static Flag build_wkfiles (Flag bld_flg);
+char * get_debug_file_name (Flag create_dir, Flag *exist);
+static void parse_debug_option (char *opt_str, Flag malloc_flg);
 
 #include SIG_INCL
 #ifdef TTYNAME
@@ -41,6 +54,130 @@ extern char *ttyname ();
 #endif
 
 #define DEFAULT_TABS 4      /* default tabs setting to 4 */
+#define DEFAULT_DebugVal 1
+
+
+/* Flags and various data in use by Rand editing session */
+/* ===================================================== */
+
+/* Flag to remember if the state file was used to setup the session */
+static Flag state_reused_flg = NO;
+
+Flag optnocmd = NO;          /* YES = -nocmdcmd; <cmd><cmd> functions disabled */
+
+/* Names of the host running Rand,
+ *   from which computer, and display on from_host
+ *   from_host and from_display are NULL if running on the local computer
+ */
+char *myHost, *fromHost, *fromDisplay, *fromHost_alias;
+char *ssh_ip, *sshHost, *sshHost_alias; /* host of a ssh session */
+
+/* Assumed Rand editor directory tree structure :
+ * ==============================================
+ * The following structure is assumed in order to found automaticaly
+ *      the various pathes to services files (help, keyboard definition ...)
+ *
+ * The Rand pacakge directory is the directory which include :
+ *       - the Rand Editor installed executable file (which cannot be called a.out)
+ *       - the service programs (center, fill, run) executable files
+ *       - the help files : errmsg, helpkey, recovermsg, Crashdoc
+ *       - the kbfiles directory (directory of keyboard definition files)
+ *   Special case : building a new version (compiling and linking)
+ *       - the new executable file name must be : a.out
+ *      - the help files and kbfiles directory must be at the relative
+ *          position defined by helpdir constant string : ../help
+ */
+
+static char *dirpackg = NULL;   /* Rand editor package directory */
+static Flag buildflg = NO;      /* newly build executable (a.out) */
+
+static const char loopback [] = "127.0.0.1";
+
+/* Rand package directory tree structure related names */
+/* --------------------------------------------------- */
+    /* default default package dir (used to extract the package sub dir) */
+#ifdef DEF_XDIR
+extern char def_xdir_dir [];    /* build by NewVersion script (e.r.c) */
+#else
+static char def_xdir_dir [] = XDIR_DIR;     /* defined in ../include/linux_localenv.h */
+#endif
+    /* system wide configuration directory */
+static char syst_cnfg []  = "/etc";     /* computer configuration directory */
+static char alt_local_cnfg []  = "/../etc";  /* local relative to pacakage */
+static char local_cnfg [] = "/usr/local/etc";   /* cluster configuration dir */
+    /* all-purpose keyboard definition file name */
+static char universal_kbf_name [] = "universalkb";
+    /* kbfiles directory relative to rand package and configurations directory */
+static char kbfilesdir [] = "/kbfiles";
+    /* help directory relative to the directory including a.out (just build editor) */
+static char helpdir [] = "/../help";
+static char execdir [] = "/../fill";
+static char buildexec [] = "a.out";
+    /* postfix added to the keyboard name (or terminal name) to generate the kbfile name */
+static char kbfile_postfix [] = "kb";
+static char kbmap_postfix [] = ".kbmap";
+static char preference [] = "preferences";
+static char debug [] = "debug_output.txt";
+static char tmpdir [] = "/tmp";
+
+static char *full_prgname = NULL;   /* full Rand program name */
+static char *prog_fname;        /* actual Rand editor file name */
+static char *pwdname = NULL;    /* current working directory */
+
+static char *optdirpackg = NULL;    /* option dir package */
+static Flag optusedflg = NO;        /* some program options in use */
+
+char default_workingdirectory [PATH_MAX+1] = "./";
+
+#ifdef VBSTDIO
+extern unsigned char _sobuf[];
+#endif
+
+Small numargs;
+Small curarg;
+char *curargchar;
+char **argarray;
+
+static char *dbgname = NULL;    /* argument to -debug=xxx option */
+static char *replfname = NULL;  /* argument to -replay=xxx option */
+
+#ifdef LMCSTATE
+Flag state=NO;      /* -state option */
+char *statefile;    /* argument to -state=xxx option */
+#endif
+
+char stdk[] = "standard";   /* standard comipled keyboard name */
+Flag stdkbdflg;     /* use the standard compiled keyboard definition */
+Flag Xterm_global_flg = NO; /* YES for xterm terminal familly */
+
+Flag helpflg,
+     verbose_helpflg,
+     dbgflg;
+
+static Flag crashed = NO;       /* prev session crashed (or dumped) */
+static Flag chosereplay = NO;   /* user chose replay or recovery of a crashed or aborted session */
+
+char *opttname;
+char *optkname;     /* Keyboard name */
+
+char *kbfcase;          /* who define kbfile */
+char *kbfile = NULL;    /* name of input (keyboard) table file */
+char *optkbfile;        /* Keyboard translation file name option */
+
+Flag optbullets = -1;   /* YES = -bullets, NO = -nobullets */
+#ifdef TERMCAP
+Flag optdtermcap;       /* YES = force use of termcap */
+#endif
+static char *tcap_name = NULL; /* name of termcap entry used */
+static char tcap_name_default[] = "vt100";
+
+Flag dump_state_file = NO;  /* YES = dump the state file defined with -state=<fname> option */
+Flag noX11flg = NO;         /* YES = do not use X11 to get the keyboard mapping */
+static Flag noX11opt = NO;  /* YES = noX11flg defined by -noX11 option */
+
+
+/* Rand option table and description */
+/* ================================= */
 
 /*  After the two-byte revision number in the keystroke file
  *  comes a character telling what to use from the state file.
@@ -90,6 +227,75 @@ extern char *ttyname ();
 #define OPTDUMPESF     24
 #define OPTNOX11       25
 
+#define MAX_opt        32
+
+/* Comments for the Rand call options */
+char comt_replay []    = "replay session from this keys file";
+char comt_recover []   = "";
+char comt_debug []     = " default level = 1\n\
+	   debug level 0 : debugging suspended";
+char comt_silent []    = "replaying silently";
+char comt_help []      = "short help and some checks";
+char comt_notracks []  = "do not disturbe the previous session work files";
+char comt_inplace []   = "do in-place file updates";
+char comt_norecover [] = "do not recover previous aborted session";
+char comt_terminal []  = "(terminal type, default : linux, cf TERM)";
+char comt_keyboard []  = "(use compiled internal kbd definition, cf EKBD)";
+char comt_kbfile []    = "(keyboard file, cf EKBFILE)";
+char comt_bullets []   = "turn border bullets on (default on workstation)";
+char comt_nobullets [] = "turn border bullets off (only for slow terminal)";
+char comt_dtermcap []  = "force use of termcap";
+
+char comt_pattern []   = "set regular expression mode";
+char comt_state []     = "state file to be used";
+char comt_stdkbd []    = "force the mini keyboard definition (only control charaters)";
+char comt_stick []     = "no auto scroll past window right edge";
+char comt_nostick []   = "auto scroll past window right edge";
+char comt_nocmdcmd []  = "do not allow the 'cmd cmd' command";
+char comt_dirpackg []  = "(package directory, cf RAND_PACKG)";
+char comt_vhelp []     = "verbose help and kbfiles debugging";
+char comt_version []   = "display the Rand version and revision";
+char comt_dumpesf []   = "display the content of the state file defined by -state\n\
+	   or by the currently used state file";
+char comt_nox11 []     = "do not use X11 to get the keyboard mapping";
+
+static struct _opt_desc {
+    short type;     /* indic is : -1 = negative logic,
+				   0 = flag, 1 = file name, 2 = directory name
+				 -99 = default inverted logic, 99 = default */
+    void *indic;    /* if NULL, not in use or no indicator */
+    char *comment;
+    } opt_desc [MAX_opt] = {
+	1, &replfname      ,comt_replay   ,  /* OPTREPLAY       0 */
+	0, NULL            ,comt_recover  ,  /* OPTRECOVER      1 */
+	1, &dbgname        ,comt_debug    ,  /* OPTDEBUG        2 */
+	0, &silent         ,comt_silent   ,  /* OPTSILENT       3 */
+	0, &helpflg        ,comt_help     ,  /* OPTHELP         4 */
+	0, &notracks       ,comt_notracks ,  /* OPTNOTRACKS     5 */
+	0, &inplace        ,comt_inplace  ,  /* OPTINPLACE      6 */
+	0, &norecover      ,comt_norecover,  /* OPTNORECOVER    7 */
+	1, &opttname       ,comt_terminal ,  /* OPTTERMINAL     8 */
+	1, &optkname       ,comt_keyboard ,  /* OPTKEYBOARD     9 */
+	1, &optkbfile      ,comt_kbfile   ,  /* OPTKBFILE      10 */
+	0, &optbullets     ,comt_bullets  ,  /* OPTBULLETS     11 */
+       -1, &optbullets     ,comt_nobullets,  /* OPTNOBULLETS   12 */
+	0, &optdtermcap    ,comt_dtermcap ,  /* OPTDTERMCAP    13 */
+	0, NULL            ,NULL          ,  /*                14 */
+	0, &patmode        ,comt_pattern  ,  /* OPTPATTERN     15 */
+	1, &statefile      ,comt_state    ,  /* OPTSTATE       16 */
+	0, &stdkbdflg      ,comt_stdkbd   ,  /* OPTSTDKBD      17 */
+	0, &optstick       ,comt_stick    ,  /* OPTSTICK       18 */
+      -99, &optstick       ,comt_nostick  ,  /* OPTNOSTICK     19 */
+	0, &optnocmd       ,comt_nocmdcmd ,  /* OPTNOCMDCMD    20 */
+	2, &optdirpackg    ,comt_dirpackg ,  /* OPTDIRPACKG    21 */
+	0, &verbose_helpflg,comt_vhelp    ,  /* OPTVHELP       22 */
+	0, NULL            ,comt_version  ,  /* OPTVERSION     23 */
+	0, &dump_state_file,comt_dumpesf  ,  /* OPTDUMPESF     24 */
+	0, &noX11opt       ,comt_nox11    ,  /* OPTNOX11       25 */
+	0, NULL            , NULL
+    };
+
+
 /* Entries must be alphabetized. */
 /* Entries of which there are two in this table must be spelled out. */
 S_looktbl opttable[] = {
@@ -101,6 +307,7 @@ S_looktbl opttable[] = {
 #ifdef TERMCAP
     "dtermcap" , OPTDTERMCAP ,
 #endif
+    "dump-state-file", OPTDUMPESF,
     "dump_state_file", OPTDUMPESF,
     "help"     , OPTHELP     ,
     "inplace"  , OPTINPLACE  ,
@@ -117,7 +324,6 @@ S_looktbl opttable[] = {
     "nostick"  , OPTNOSTICK  ,
 #endif
     "notracks" , OPTNOTRACKS ,
-    /* XXXXXXXXXXXXXXXXXXXXXXXXXXXX */
     "nox11"    , OPTNOX11    ,
     "package"  , OPTDIRPACKG ,
     "regexp"   , OPTPATTERN  ,  /* Added Purdue CS 2/8/83 */
@@ -134,10 +340,11 @@ S_looktbl opttable[] = {
     "version"  , OPTVERSION  ,
     0          , 0
 };
+static int opttable_maxidx = ((sizeof (opttable) / sizeof (opttable[0])) -1);
 
-#ifdef  NOCMDCMD
-Flag optnocmd;          /* YES = -nocmdcmd; <cmd><cmd> functions disabled */
-#endif
+#if 0 /*========================= */
+
+Flag optnocmd = NO;          /* YES = -nocmdcmd; <cmd><cmd> functions disabled */
 
 /* XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX */
 
@@ -145,8 +352,8 @@ Flag optnocmd;          /* YES = -nocmdcmd; <cmd><cmd> functions disabled */
  *   from which computer, and display on from_host
  *   from_host and from_display are NULL if running on the local computer
  */
-char *myHost, *fromHost, *fromDisplay;
-
+char *myHost, *fromHost, *fromDisplay, *fromHost_alias;
+char *ssh_ip, *sshHost, *sshHost_alias; /* host of a ssh session */
 
 /* Assumed Rand editor directory tree structure :
  * ==============================================
@@ -192,6 +399,8 @@ static char buildexec [] = "a.out";
     /* postfix added to the keyboard name (or terminal name) to generate the kbfile name */
 static char kbfile_postfix [] = "kb";
 static char kbmap_postfix [] = ".kbmap";
+static char preference [] = "preferences";
+static char debug [] = "debug_output.txt";
 
 static char *full_prgname = NULL;   /* full Rand program name */
 static char *prog_fname;        /* actual Rand editor file name */
@@ -200,7 +409,7 @@ static char *pwdname = NULL;    /* current working directory */
 static char *optdirpackg = NULL;    /* option dir package */
 static Flag optusedflg = NO;        /* some program options in use */
 
-char default_workingdirectory [PATH_MAX] = "./";
+char default_workingdirectory [PATH_MAX+1] = "./";
 
 #ifdef VBSTDIO
 extern unsigned char _sobuf[];
@@ -210,22 +419,26 @@ Small numargs;
 Small curarg;
 char *curargchar;
 char **argarray;
-char *dbgname;      /* argument to -debug=xxx option */
-char *replfname;    /* argument to -replay=xxx option */
+
+static char *dbgname = NULL;    /* argument to -debug=xxx option */
+static char *replfname = NULL;  /* argument to -replay=xxx option */
+
 #ifdef LMCSTATE
-Flag state=NO;
+Flag state=NO;      /* -state option */
 char *statefile;    /* argument to -state=xxx option */
 #endif
 
 char stdk[] = "standard";   /* standard comipled keyboard name */
 Flag stdkbdflg;     /* use the standard compiled keyboard definition */
-static Flag Xterm_flg;  /* YES for xterm terminal familly */
+Flag Xterm_global_flg = NO; /* YES for xterm terminal familly */
 
 Flag helpflg,
      verbose_helpflg,
      dbgflg;
-Flag crashed;       /* prev session crashed */
-Flag chosereplay;   /* user chose replay or recovery */
+
+static Flag crashed = NO;       /* prev session crashed (or dumped) */
+static Flag chosereplay = NO;   /* user chose replay or recovery of a crashed or aborted session */
+
 char *opttname;
 char *optkname;     /* Keyboard name */
 
@@ -233,7 +446,7 @@ char *kbfcase;          /* who define kbfile */
 char *kbfile = NULL;    /* name of input (keyboard) table file */
 char *optkbfile;        /* Keyboard translation file name option */
 
-Flag optbullets = -1;   /* YES = -bullets, NO = -nobullets */
+Flag optbullets = -1;   /* -1 = not set, YES = -bullets, NO = -nobullets */
 #ifdef TERMCAP
 Flag optdtermcap;       /* YES = force use of termcap */
 #endif
@@ -243,6 +456,8 @@ static char tcap_name_default[] = "vt100";
 Flag dump_state_file=NO; /* YES = dump the state file defined with -state=<fname> option */
 Flag noX11flg=NO;        /* YES = do not use X11 to get the keyboard mapping */
 static Flag noX11opt=NO; /* YES = noX11flg defined by -noX11 option */
+
+#endif
 
 
 /* ++XXXXXXXXXXXXXXXXXXXXXXXXX */
@@ -255,8 +470,14 @@ struct cnfg_dir_rec {
 	Flag existing;      /* existing and read access */
     };
 
+static Flag set_dir_rec (struct cnfg_dir_rec *dir_rec, char *strg);
+
 static struct cnfg_dir_rec user_packg_dir  =    { NULL, NO }; /* $HOME/.Rand */
+static struct cnfg_dir_rec user_tmp_dir    =    { NULL, NO }; /* $HOME/tmp */
 static struct cnfg_dir_rec user_kbmap_file =    { NULL, NO }; /* keyboard map file name */
+static struct cnfg_dir_rec new_kbfile_file =    { NULL, NO }; /* build kb file name */
+static struct cnfg_dir_rec user_pref_file  =    { NULL, NO }; /* user preference file name */
+static struct cnfg_dir_rec user_debug_file =    { NULL, NO }; /* debug output file name */
 
 static struct cnfg_dir_rec user_cnfg_dir =      { NULL, NO }; /* $HOME/.Rand/kbfiles */
 static struct cnfg_dir_rec local_cnfg_dir =     { NULL, NO }; /* /usr/local/etc/Rand/kbfiles */
@@ -299,31 +520,142 @@ char * filterpaths[4];
 */
 /* --XXXXXXXXXXXXXXXXXXXXXXXXX */
 
-extern void main1 ();
+       void main1 ();
        void getprogname ();
 extern void checkargs ();
-       void startup ();
+static void startup ();
        void showhelp ();
-extern void dorecov ();
+static void dorecov ();
        void gettermtype ();
        void setitty ();
        void setotty ();
 extern void makescrfile ();
-extern void getstate ();
+static Flag getstate ();
 extern void getskip ();
-extern void makestate ();
-extern void infoinit ();
+static void makestate ();
+static void infoinit ();
 #ifdef LMCAUTO
-extern void infoint0 ();
+static void infoint0 ();
 #endif
 #ifdef  KBFILE
 extern Flag getkbfile ();
 #endif
 
+void debug_info (char *func, char *file, int line)
+/* must be call like : debug_info (__FUNCTION__, __FILE__, __LINE__); */
+{
+    if ( dbgflg ) {
+	fprintf (dbgfile, "  >>Form function \"%s\" in \"%s\" at line %d<<\n", func, file, line);
+    }
+}
+
 void getout ();
 
 /* XXXXXXXXXXXXXXXXXXXXXXX */
 static void keyedit ();
+
+static void strip_path (char * path)
+{
+    int sz;
+
+    if ( !path || !*path ) return;
+    sz = strlen (path) -1;
+    if ( path [sz] == '/' ) path [sz] = '\0';
+}
+
+char * get_debug_name ()
+{
+    return dbgname;
+}
+
+static get_id ()
+{
+    int sz;
+
+    strip_path (default_tmppath);
+    userid = getuid ();
+    groupid = getgid ();
+    mypid = (int) getpid ();
+    myname = mypath = NULL;
+    (void) getmypath ();    /* gets myname & mypath */
+    if ( !myname || !*myname ) myname = "???";
+    if ( !mypath || !*mypath ) mypath = &default_tmppath [0];
+    strip_path (mypath);
+}
+
+static void dbg_general_info ()
+{
+#ifdef __GNU__
+#define TypeSize(t) fprintf (dbgfile, #t " %d, ", sizeof (t));
+
+    fputs ("Main Rand data type size :\n  ", dbgfile);
+    TypeSize (Char);
+    TypeSize (Short);
+    TypeSize (Small);
+    TypeSize (ASmall);
+    TypeSize (Flag);
+    TypeSize (AFlag);
+    fputs ("\n  ", dbgfile);
+    TypeSize (Cmdret);
+    TypeSize (Nlines);
+    TypeSize (ANlines);
+    TypeSize (Ncols);
+    TypeSize (ANcols);
+    fputs ("\n---------------------------------------------\n", dbgfile);
+#undef TypeSize
+#endif /* __GNU__ */
+    return;
+}
+
+void close_dbgfile (char *str)
+{
+    if ( dbgflg ) {
+	if ( str ) fprintf (dbgfile, "\n=== Exit %s command ====\n", str);
+	else fputs ("\n=== Exit ====\n", dbgfile);
+    }
+    if ( dbgfile ) {
+	(void) fflush (dbgfile);
+	if ( dbgfile != stdout ) fclose (dbgfile);
+	dbgfile = NULL;
+    }
+    dbgflg = NO;
+}
+
+int open_dbgfile (Flag append_flg)
+/* append_flg : open the file for write append, else only write
+ * return : 1 = not in debug mode
+ *          0 = OK
+ *         -1 = open file error
+ *         -2 = debug output file name not defined
+ */
+{
+    if ( ! dbgflg ) return 1;   /* not in debug mode */
+    if ( dbgfile ) return 0;    /* already opened */
+
+    if ( !dbgname || !*dbgname )
+	dbgname = get_debug_file_name (!append_flg, NULL);
+    if ( !dbgname ) dbgname = "";
+    if ( !*dbgname ) return -2;
+    dbgfile = fopen (dbgname, append_flg ? "a" : "w");
+    if ( dbgfile == NULL ) {
+	dbgflg = NO;
+	return -1;  /* file error */
+    }
+    if ( append_flg ) fputc ('\n', dbgfile);
+    fprintf (dbgfile, "======= %s Rand debugging session level %d =======\n",
+	     append_flg ? "Continue" : "Start", DebugVal);
+    if ( DebugVal >= 0 )
+	dbg_general_info ();
+
+    if ( DebugVal == 0 ) {
+	/* just empty debug file, and wait for 'set debuglevel xx' */
+	dbgflg = NO;
+	fclose (dbgfile);
+	dbgfile = NULL;
+    }
+    return 0;
+}
+
 
 
 #ifdef COMMENT
@@ -340,10 +672,42 @@ main1 (argc, argv)
 int argc;
 char *argv[];
 {
-    extern void save_kbmap (Flag force);
+    extern Flag get_graph_flg ();
+    extern Flag set_reset_graph (Flag);
+    extern void save_kbmap (Flag);
     extern void key_resize ();
     extern void history_init ();
+    extern int build_lookup_struct (S_lookstruct *);
+    extern int build_sorted_cmdtable ();
+    extern int build_sorted_itsyms ();
+    extern S_lookstruct cmdstruct;
+    extern S_lookstruct keyfstruct;
+    extern void init_all_lookup_tables ();
+    extern void get_preferences (Flag all_flg, Flag show_flg);
+
     char    ichar;      /* must be a char and can't be a register */
+    int cc, infolv;
+    Flag grph_flg, new_grph_flg;
+    char strg [PATH_MAX+1];
+
+    /* clean various global storage */
+    clean_glb_storages ();
+
+    get_id ();  /* get mypath ... */
+    fromHost = myHost = fromDisplay = NULL;
+
+    /* user tmp directory */
+    sprintf (strg, "%s%s", mypath, tmpdir);
+    (void) set_dir_rec (&user_tmp_dir, strg);
+
+    init_all_lookup_tables ();
+
+#if 0
+|    cc = build_lookup_struct (&cmdstruct);
+|    if ( cc ) getout (YES, "Fatal Error in size of array \"cmd_storage\"");
+|    cc = build_lookup_struct (&keyfstruct);
+|    if ( cc ) getout (YES, "Fatal Error in size of array \"keyf_storage\"");
+#endif
 
     history_init ();
 #ifdef VBSTDIO
@@ -359,37 +723,50 @@ char *argv[];
     checkargs ();
 
     if ( dump_state_file ) {
-	if ( state ) {
-	    getstate (ALL_WINDOWS, YES);
+	Flag st_flg;
+	/* do not create the working file, just get status file */
+	if ( ! state ) st_flg = build_wkfiles (NO);
+	if ( st_flg || state ) {
+	    (void) getstate (ALL_WINDOWS, YES, NULL, NULL);
 	    getout (YES, "");
 	} else {
 	    getout (YES, "You must use -state=<state_file_name> to dump it");
 	}
     }
 
-    if (dbgflg && (dbgfile = fopen (dbgname, "w")) == NULL)
-	getout (YES, "Can't open debug file: %s", dbgname);
-
 #ifdef LMCAUTO
     infoint0 ();
 #endif
     startup ();
+
+    if ( dbgflg ) {
+	int cc;
+	cc = open_dbgfile (NO);
+	if ( cc < 0 )
+	    getout (YES, "Can't open debug file: \"%s\"", dbgname);
+    }
 
     if (helpflg) {
 	static void clean_all ();
 	static void exit_now ();
 	showhelp ();
 	helpflg = NO;
-	clean_all (NO);
+	clean_all (NO); /* do not delete change and key stroke files */
 	exit_now (-1);
     }
 
-    if (replaying) {
+    if ( replaying ) {
+	/* Start a replay session : by the -replay=<file name> option
+	 * or as a result of handling of previous aborted or crashed session
+	 */
 	short tmp;      /* must be a short, can't be a register */
 	short replterm; /* must be a short, can't be a register */
 	struct stat statbuf;
+
+	if ( ! inpfname )
+	    getout (YES, "A replay file name must be provided.");
 	if ((inputfile = open (inpfname, 0)) < 0)
-	    getout (YES, "Can't open replay file %s.", inpfname);
+	    getout (YES, "File error : %s\nCan't open replay file %s.", strerror (errno), inpfname);
 	if (read (inputfile, (char *) &tmp, 2) == 0)
 	    getout (YES, "Replay file is empty.");
 	if (tmp != revision)
@@ -400,15 +777,27 @@ char *argv[];
 	   )
 	    getout (YES, "Replay file is too short.");
 	if (replterm != termtype)
-	    getout (YES, "\
-Replay file \"%s\" was made by a different type of terminal.", inpfname);
+	    getout (YES, " Replay file \"%s\" was made by a different type of terminal.", inpfname);
     }
-    else if (curarg < argc)
-	ichar = NO_WINDOWS;         /* file args follow */
-    else
-	ichar = ALL_WINDOWS;        /* put up all old windows and files */
+    else {
+	/* The session will be resumed from the previous session
+	 *  as defined by the state file (.es1) if there is no
+	 *  file parameter or if the 1st file parameter is empty.
+	 *  (this case can be used within a gdb or dbx code debugging
+	 *  to force a run form the state file : ex 'run ""'
+	 * If there is 1 or more file parameters, and the first one
+	 *  is not empty, the edited files list is defined by the
+	 *  parameter list.
+	 * If -notracks option is in use, a completely fresh session is
+	 *  started, and nothing is comming from any previous session.
+	 */
+	if ( (curarg < argc) && (*argv[curarg] != '\0') )
+	    ichar = NO_WINDOWS;         /* file args follow */
+	else
+	    ichar = ALL_WINDOWS;        /* put up all old windows and files */
+    }
 
-    if (recovering)
+    if ( recovering )
 	printf ("\r\n\r\rRecovering from crash...");
     fflush (stdout);
 
@@ -426,39 +815,80 @@ Replay file \"%s\" was made by a different type of terminal.", inpfname);
 	}
 #endif
 
-    getstate (ichar, NO);
-    infoinit ();
+#ifndef __linux__
+    if ( strcasecmp (tname, "linux") == 0 ) {
+	/* we do not know realy what to do automaticaly */
+	(void) set_reset_graph (NO);
+    }
+#endif
+
+    new_grph_flg = grph_flg = get_graph_flg ();
+    state_reused_flg = getstate (ichar, NO, &infolv, &new_grph_flg);
+    infoinit (infolv);
+    if ( new_grph_flg != grph_flg )
+	(void) set_reset_graph (new_grph_flg);
 
     putshort (revision, keyfile);
     putc (ichar, keyfile);          /* for next time */
     putshort ((short) termtype, keyfile);
     key_resize ();  /* dump current screen size in keyfile */
 
-    if (!replaying && curarg < argc && *argv[curarg] != '\0') {
+    if ( !replaying && curarg < argc && (*argv[curarg] != '\0') ) {
 	char *cp;
-	if (   (cp = getenv ("editalt"))
-	    || (   curarg + 1 < argc
-		&& *(cp = argv[curarg + 1]) != '\0'
-	       )
-	   ) {
-	    editfile (cp, (Ncols) 0, 0, 0, NO);
+	Small cc;
+	int i;
+	/* The edit file list is in the order :
+	 *  Normal, Alt, Next1, Next2 .... (up to the maxi)
+	 *  if 'editalt' is defined, it define the alt file.
+	 *  The Normal file name must not be an empty string,
+	 *  else the session defined by status file (.es1) is restarted.
+	 */
+	i = argc -1;
+	if ( (i - curarg) >= (MAXOPENS - NTMPFILES) )
+	    i = (MAXOPENS - NTMPFILES) + curarg -1;
+	for ( ; i > curarg ; i-- ) {
+	    cp = argv[i];
+	    if ( !cp || !*cp ) continue;
+	    cc = editfile (cp, (Ncols) 0, 0, 0, NO);
 	    keyedit (cp);
-	    /* do this so that editfile won't be cute about suppressing
-	     * a putup on a file that is the same as the altfile
-	     */
-	    curfile = NULLFILE;
 	}
-	if (editfile (argv[curarg], (Ncols) 0, 0, 1, YES) <= 0)
-	    eddeffile (YES);
+
+	/* the alt file name can be define by environment var 'editalt' */
+	cp = getenv ("editalt");
+	if ( cp && *cp ) {
+	    /* alternate file if any */
+	    cc = editfile (cp, (Ncols) 0, 0, 0, NO);
+	    keyedit (cp);
+	}
+
+	/* do this so that editfile won't be cute about suppressing
+	 * a putup on a file that is the same as the altfile
+	 */
+	curfile = NULLFILE;
+
+	/* normal file, if error error message file */
+	cp = argv[curarg];
+	cc = editfile (argv[curarg], (Ncols) 0, 0, 1, YES);
 	keyedit (argv[curarg]);
+	if ( cc <= 0 ) eddeffile (YES);
     }
     else if (!replaying || ichar != NO_WINDOWS) {
 	extern void resize_screen ();
+	if ( ! curfile ) eddeffile (YES);   /* prevent crash if nothing is up */
 	resize_screen ();   /* set up the actual size */
 	putupwin ();
     }
+
+    /* get all user preferences if no state file was read */
+    get_preferences (!state_reused_flg, NO);
     save_kbmap (NO);
     return;
+}
+
+static void set_noX11opt ()
+{
+    noX11flg = noX11opt = YES;
+    set_noX_msg ("\'-noX11\' option in use");
 }
 
 #ifdef COMMENT
@@ -518,19 +948,24 @@ checkargs ()
 void
 checkargs ()
 {
-    extern void set_noX_msg (char *);
+    char *cp, *fname;
+    Flag opteqflg;
+    Short tmp;
+    char *opterr;
 
     optusedflg = dbgflg = NO;
     for (curarg = 1; curarg < numargs; curarg++) {
-	char *cp;
-	Flag opteqflg;
-	Short tmp;
-	char *opterr;
-
 	curargchar = argarray[curarg];
-	if (*curargchar != '-')
+	if ( *curargchar != '-' )
 	    break;
+
 	curargchar++;
+	if ( *curargchar == '\0' ){
+	    /* no more option : a '-' can be used before a file name with a '-' as 1st char */
+	    curarg++;
+	    break;
+	}
+
 	if (*curargchar == '-') curargchar++;   /* allow --help ... */
 	optusedflg = YES;
 	opteqflg = NO;
@@ -588,21 +1023,19 @@ checkargs ()
 	case OPTSTATE:
 	    if (opteqflg && *cp) {
 		statefile = cp;
-		state = YES;
+		/* a state file must be given */
+		state = (statefile && *statefile);
 	    }
 	    break;
 #endif
 
 	case OPTDEBUG:
-	    /* file for debug info */
-	    if (!opteqflg || *cp == 0)
-		getout (YES, "Must give debug file name");
-	    if (dbgflg) {
+	    /* file (and level) for debugging */
+	    if ( dbgflg ) {
 		opterr = "repeated";
 		goto error;
 	    }
-	    dbgflg = YES;
-	    dbgname = cp;
+	    parse_debug_option (opteqflg ? cp : NULL, NO);
 	    break;
 
 	case OPTINPLACE:
@@ -673,8 +1106,7 @@ checkargs ()
 	    break;
 
 	case OPTNOX11:
-	    noX11flg = noX11opt = YES;
-	    set_noX_msg ("\'-noX11\' option in use");
+	    set_noX11opt ();
 	    break;
 
 	default:
@@ -880,13 +1312,12 @@ static Flag set_dir_rec (struct cnfg_dir_rec *dir_rec, char *strg)
 
 static void get_dirpackage ()
 {
-    char *fnm, *dir, *cp, *home;
+    char *fnm, *dir, *cp;
     int i, sz;
-    char strg [PATH_MAX];
+    char strg [PATH_MAX+1];
     struct stat stat_local, stat_alt_local;
 
-    sz = strlen (def_xdir_dir);
-    if ( (sz > 1) && (def_xdir_dir[sz-1] == '/') ) def_xdir_dir[sz-1] = '\0';
+    strip_path (def_xdir_dir);
 
     /* get the Rand program directory */
     fnm = get_exec_name (argarray[0]);
@@ -927,8 +1358,6 @@ static void get_dirpackage ()
     packg_subdir = ( cp ) ? cp : def_xdir_dir;
 
     /* build the configuration directory pathes */
-    home = mypath;
-    if ( ! home ) home = getenv ("HOME");
 
     (void) memset (&stat_local, 0, sizeof(struct stat));
     (void) memset (&stat_alt_local, 0, sizeof(struct stat));
@@ -959,13 +1388,13 @@ static void get_dirpackage ()
 	}
     }
 
-    if ( home ) {
-	/* The user home directory is known */
+    if ( mypath ) {
+	/* The user HOME directory is known */
 	/* build user kbfiles directory and file name */
 	char tstrg [128], *tst, *mHost;
 
 	/* user package directory */
-	sprintf (strg, "%s/.%s", home, packg_subdir+1);
+	sprintf (strg, "%s/.%s", mypath, packg_subdir+1);
 	(void) set_dir_rec (&user_packg_dir, strg);
 	if ( ! user_packg_dir.path ) {
 	    /* must never append, just to protect again NULL pointer */
@@ -973,7 +1402,7 @@ static void get_dirpackage ()
 	    user_packg_dir.existing = YES;
 	}
 
-	/* user kbfiles directory */
+	/* user kbfiles directory and new build kbfile */
 	sprintf (strg, "%s%s", user_packg_dir.path, kbfilesdir);
 	(void) set_dir_rec (&user_cnfg_dir, strg);
 
@@ -989,8 +1418,14 @@ static void get_dirpackage ()
 		*tst = '-';
 	    }
 	}
-	sprintf (strg, "%s/%s%s%s", user_packg_dir.path, tname, tstrg, kbmap_postfix);
+	snprintf (strg, sizeof (strg),"%s/%s%s%s", user_packg_dir.path, tname, tstrg, kbmap_postfix);
 	(void) set_dir_rec (&user_kbmap_file, strg);
+	snprintf (strg, sizeof (strg), "%s/%s_%s%s", user_packg_dir.path, &tstrg[1], tname, kbfile_postfix);
+	(void) set_dir_rec (&new_kbfile_file, strg);
+	snprintf (strg, sizeof (strg), "%s/%s", user_packg_dir.path, preference);
+	(void) set_dir_rec (&user_pref_file, strg);
+	snprintf (strg, sizeof (strg), "%s/%s", user_packg_dir.path, debug);
+	(void) set_dir_rec (&user_debug_file, strg);
     }
 
     /* get the max lenth of the config dir path name */
@@ -1002,21 +1437,54 @@ static void get_dirpackage ()
     }
 }
 
-/* get the expected user defined keyboard map file */
-char * get_kbmap_file_name (Flag create_dir, Flag *exist)
+static Flag mk_user_dir (struct cnfg_dir_rec *user_dir_pt)
 {
     int cc;
 
+    if ( ! user_dir_pt->path ) return NO;
+    if ( ! user_dir_pt->existing ) {
+	cc = mkdir (user_dir_pt->path, 0744);
+	user_dir_pt->existing = ( access (user_dir_pt->path, R_OK) == 0 );
+    }
+    return user_dir_pt->existing;
+}
+
+/* get the expected user defined file (keyboard map or new_kbfile) */
+static char * get_user_file_name (struct cnfg_dir_rec *user_file,
+				  Flag create_dir, Flag *exist)
+{
+    Flag flg;
+    int cc;
+
     if ( create_dir && user_packg_dir.path && !user_packg_dir.existing ) {
-	cc = mkdir (user_packg_dir.path, 0744);
-	user_packg_dir.existing = ( access (user_packg_dir.path, R_OK) == 0 );
+	flg = mk_user_dir (&user_packg_dir);
     }
 
-    user_kbmap_file.existing = user_kbmap_file.path
-			     ? ( access (user_kbmap_file.path, R_OK) == 0 )
-			     : NO;
-    if ( exist ) *exist = user_kbmap_file.existing;
-    return ( user_kbmap_file.path );
+    user_file->existing = user_file->path
+			? ( access (user_file->path, R_OK) == 0 )
+			: NO;
+    if ( exist ) *exist = user_file->existing;
+    return ( user_file->path );
+}
+
+char * get_new_kbfile_name (Flag create_dir, Flag *exist)
+{
+    return (get_user_file_name (&new_kbfile_file, create_dir, exist));
+}
+
+char * get_kbmap_file_name (Flag create_dir, Flag *exist)
+{
+    return (get_user_file_name (&user_kbmap_file, create_dir, exist));
+}
+
+char * get_pref_file_name (Flag create_dir, Flag *exist)
+{
+    return (get_user_file_name (&user_pref_file, create_dir, exist));
+}
+
+char * get_debug_file_name (Flag create_dir, Flag *exist)
+{
+    return (get_user_file_name (&user_debug_file, create_dir, exist));
 }
 
 /* Set up utility windows.
@@ -1052,21 +1520,171 @@ AFlag flgs;     /* value of winflgs */
 		 term.tt_width - 1, term.tt_height - 1 - NPARAMLINES, flgs, 1);
 }
 
+
+/* Build the names of the working files */
+/*  If bld_flg is False, do not create any file, just get state file
+ *      and return False if no state file is found
+ */
+static Flag build_wkfiles (Flag bld_flg)
+{
+    extern const char workfileprefix[];
+    extern const char tmpnstr[];
+    extern const char keystr[];
+    extern const char bkeystr[];
+    extern const char rstr[];
+    extern const int vrschar;
+    extern char evrsn;
+
+    struct stat statbuf;
+    int indv, fi, cc, cc1, cc2, sz;
+    char *str, *str1;
+    char * errmsg;  /* for debugging */
+    char *name, *sp;
+    char pwdname[PATH_MAX];
+    Flag flg, mytmp_flg;
+
+    name = NULL;
+    memset (pwdname, 0, sizeof (pwdname));
+    sp = getcwd (pwdname, sizeof (pwdname));
+
+    if ( sp ) {
+	strip_path (sp);
+	/* when default_tmppath == tmpdir, this way does only 1 strcmp */
+	if ( (strcmp (sp, default_tmppath) == 0) || (strcmp (sp, tmpdir) == 0) ) ;
+	else {
+	    /* probably not in '/tmp' directory,
+	     * check current directory, and build working file prefix and postfix
+	     * #define PRIV (S_IREAD | S_IWRITE | S_IEXEC) *
+	     */
+	    if (   stat (".", &statbuf) != -1
+		&& access (".", (R_OK|W_OK|X_OK)) >= 0  /* read, write, exec acces mode */
+		&& (   userid != 0
+		    || ( (statbuf.st_uid == 0) || (statbuf.st_gid == 0) )
+		   )
+	       ) {
+		/* for "root" user, user or group of the dir must be "root" */
+		tmppath = (char *) workfileprefix;  /* use current directory for work files */
+		if ( statbuf.st_uid == userid )
+		    name = append ("", "");     /* so that name is allocated */
+		else
+		    name = append (".", myname); /* we will append user name */
+	    }
+	}
+    }
+    if ( ! name ) {
+	/* no write acces into the current directory or in /tmp
+	 * use either the $HOME/tmp or /tmp directory
+	 */
+	/* build the user tmp directory */
+	flg = mk_user_dir (&user_tmp_dir);
+	mytmp_flg = YES;
+	if ( flg && (access (user_tmp_dir.path, R_OK|W_OK) == 0) ) {
+	    tmppath = user_tmp_dir.path;
+	} else if ( !tmppath || !*tmppath ) {
+	    tmppath = tmpdir;
+	    mytmp_flg = NO;
+	}
+	str1 = (char *) (workfileprefix +1);
+	if ( (tmppath [strlen (tmppath) -1] == '/') ) str1++;
+	str = append (tmppath, str1);
+	tmppath = str;
+	str = myname;
+	if ( mytmp_flg && pwdname [0] ) {
+	    str = strrchr (pwdname, '/');
+	    if ( str ) str++;
+	    else str = pwdname;
+	}
+	/* we will append user name or the directory name */
+	name = append (".", str);
+    }
+
+    /* working file names */
+    /* change file : .ec1 */
+    str = append (tmpnstr, name);
+    la_cfile = append (tmppath, str);
+    sfree (str);
+    /* state file : .es1 */
+    str = append ((char *) rstr, name);
+    rfile = append (tmppath, str);
+    sfree (str);
+    /* keystroke file : .ek1 */
+    str = append ((char *) keystr, name);
+    keytmp  = append (tmppath, str);
+    sfree (str);
+    /* alternate key stroke file : .ek1b */
+    str = append (bkeystr, name);
+    bkeytmp = append (tmppath, str);
+    sfree (str);
+
+    sfree (name);
+
+    /* found a free session ('1', ... '9') or clean up aborted one */
+    indv = strlen (tmppath) + vrschar;  /* index of the session number char */
+    for ( evrsn = '1' ; ; evrsn++ ) {
+	if (evrsn > '9') {
+	    if ( ! bld_flg ) return NO;
+	    la_cfile[indv] = rfile[indv] = keytmp[indv] = bkeytmp[indv] = '1';
+	    getout (NO, "\n%s: No free session names left,\n    please delete unsed %s, %s, %s ... files \n",
+		    progname, rfile, keytmp, bkeytmp);
+	}
+
+	la_cfile[indv] = rfile[indv] = keytmp[indv] = bkeytmp[indv] = evrsn;
+
+	/* test if working files already exist  */
+	/* look into the exit help to know what file exit in which condition */
+	cc = access (la_cfile, F_OK);   /* change file exit ? */
+	errmsg = strerror (errno);  /* for debugging */
+	cc1 = access (keytmp, F_OK);    /* key stroke file exist ? */
+	errmsg = strerror (errno);  /* for debugging */
+
+	if ( cc1 >= 0 ) {
+	    if ( notracks ) continue;
+	    /* key stroke file exit, session in use or aborted or dumped */
+	    /* check for locked : in use by another session */
+	    fi = open (keytmp, O_RDWR);
+	    if ( fi < 0 ) continue; /* strange case ! */
+	    cc = lockf (fi, F_TLOCK, 0);
+	    errmsg = strerror (errno);  /* for debugging */
+	    close (fi);
+	    if ( cc < 0 ) continue; /* locked : in use, check next one */
+
+	    /* at this point the previous session was aborted or crashed */
+	    if ( bld_flg ) {
+		crashed = (cc >= 0);    /* crashed if change file exit */
+		dorecov (crashed ? 0 : 1);      /* recover, do not clean files */
+	    }
+	    break;
+	}
+
+	/* test state file */
+	cc = access (rfile, F_OK);
+	errmsg = strerror (errno);  /* for debugging */
+	if ( !bld_flg && cc >= 0 )
+	    break;  /* state file found, ignore the notracks option */
+	if ( !((cc >= 0) && notracks) )
+	    break;  /* use this session number */
+    }
+    return YES;
+}
+
+
 #ifdef COMMENT
-void
+static void
 startup ()
 .
     Various initializations.
 #endif
-void
+static void
 startup ()
 {
     extern void marktickfile ();
-    extern char * from_host (char **hostname_pt, char **display_pt, const char *loopback_IP);
+    extern char * from_host (char **hostname_pt, char **display_pt, const char *loopback_IP, char *** aliases_pt);
+    extern char * canon_host (char *host, char *loopback, char ***aliases_pt);
     extern Flag get_keyboard_map ();
     extern char *TI, *KS, *VS;
-    char *name;
+    char *name, *str;
     char *helpd, *execd;
+    char **aliases;
 
     /* ++XXXXXXXXXXXXXXXXXXXXXXXXXXXXX */
 
@@ -1084,18 +1702,62 @@ startup ()
     extern char def_xdir_print  [];
 #endif
 
-#ifdef  SHORTUID
-    userid = getuid ();
-    groupid = getgid ();
-#else   /* uid is a char (old unix version) */
-    userid  = getuid () & 0377;
-    groupid = getgid () & 0377;
+#if 0   /* old fation, version < 19.58 */
+| #ifdef  SHORTUID
+|     userid = getuid ();
+|     groupid = getgid ();
+| #else   /* uid is a char (old unix version) */
+|     userid  = getuid () & 0377;
+|     groupid = getgid () & 0377;
+| #endif
 #endif
-    myname = mypath = NULL;
-    fromHost = myHost = fromDisplay = NULL;
-    (void) getmypath ();    /* gets myname & mypath */
-    fromHost = from_host (&myHost, &fromDisplay, loopback);
-    if ( fromHost && !fromHost[0] ) fromHost = NULL;
+
+#if 0   /* see get_id () */
+|     userid = getuid ();
+|     groupid = getgid ();
+|     mypid = (int) getpid ();
+|     myname = mypath = NULL;
+|     (void) getmypath ();    /* gets myname & mypath */
+#endif
+
+    fromHost = myHost = fromDisplay = fromHost_alias = NULL;
+    ssh_ip = sshHost = sshHost_alias = NULL;
+    str = from_host (&myHost, &fromDisplay, loopback, &aliases);
+    if ( str && str[0] ) {
+	int i;
+	fromHost = append (str, "");
+	if ( aliases ) {
+	    for ( i = 0 ; aliases [i] ; i++ ) ;
+	    if ( i > 0 ) {
+		fromHost_alias = append (aliases [i-1], "");
+		if ( strcmp (fromHost_alias, fromHost) == 0 ) fromHost_alias = NULL;
+	    }
+	}
+    } else fromHost = NULL;
+
+    /* if running in a ssh session, get client info (ref : man ssh) */
+    str = getenv ("SSH_CLIENT");
+    if ( str ) {
+	char *str1, **aliases;
+	int sz, i;
+	str1 = strchr (str, ' ');
+	if ( str1 ) {
+	    sz = str1 - str;
+	    ssh_ip = salloc (sz +1, YES);
+	    memcpy (ssh_ip, str, sz);
+	    ssh_ip [sz] = '\0';
+	    str = canon_host (ssh_ip, NULL, &aliases);
+	    if ( str && *str ) {
+		sshHost = ( fromHost && strcmp (str, fromHost) == 0 )
+			  ? sshHost = fromHost
+			  : append (str, "");
+	    }
+	    if ( str && aliases ) {
+		for ( i = 0 ; aliases [i] ; i++ ) ;
+		if ( i > 0 )  sshHost_alias = append (aliases [i-1], "");
+	    }
+	}
+    }
 
     /* Get the selected terminal type */
     if (    !(tname = opttname)
@@ -1103,7 +1765,7 @@ startup ()
        )
 	getout (YES, "No TERM environment variable or -terminal argument");
 
-    keytmp = bkeytmp = rfile = inpfname = NULL;
+    la_cfile = keytmp = bkeytmp = rfile = inpfname = NULL;
     get_dirpackage ();
 
     helpd = ( buildflg ) ? helpdir : NULL;
@@ -1218,7 +1880,7 @@ startup ()
 
     /* XXXXXXXXXXXXXX : do not open files in -help option */
     if (helpflg) {
-	Xterm_flg = get_keyboard_map (tname, 4, TI, KS, VS, kbinistr);
+	Xterm_global_flg = get_keyboard_map (tname, 4, TI, KS, VS, kbinistr);
 	return;
     }
 
@@ -1231,7 +1893,7 @@ startup ()
 	d_put (VCCICL);
 	windowsup = YES;
     }
-    Xterm_flg = get_keyboard_map (tname, 4, TI, KS, VS, kbinistr);
+    Xterm_global_flg = get_keyboard_map (tname, 4, TI, KS, VS, kbinistr);
     if (loginflg)
 	printf ("%s is starting...", progname);
 #ifdef  DEBUGDEF
@@ -1273,109 +1935,48 @@ startup ()
      **/
     cline = salloc ((lcline = icline) + 1, YES);
 
-    /* build the names of the working files */
-    {
-	struct stat statbuf;
-
-	/* check current directory */
-	/* #define PRIV (S_IREAD | S_IWRITE | S_IEXEC) */
-	if (   stat (".", &statbuf) != -1
-	    && access (".", 7) >= 0
-	    && (   userid != 0
-		|| statbuf.st_uid == 0
-	       )
-	   ) {
-	    tmppath = "./.e"; /* use current directory for e files */
-			      /* and make them invisible */
-	    if (statbuf.st_uid != userid)
-		name = append ("", "");     /* so that name is allocated */
-	    else
-		name = append (".", myname); /* we will append user name */
-	}
-	else {
-	    /* maybe we should make tmppath "logindir/etmp/" here */
-	    name = append (".", myname); /* we will append user name */
-	}
-    }
-
 #ifdef BIGADDR
     la_nbufs = 20;
 #else
     la_nbufs = 10;
 #endif
-    {
-	char *c;
-	c = append (tmpnstr, name);
-	la_cfile = append (tmppath, c);
-	sfree (c);
-	c = append (rstr, name);
-	rfile = append (tmppath, c);
-	sfree (c);
-    }
-    {
-	Short indv;
-	indv = strlen (tmppath) + VRSCHAR;
-	for (evrsn = '1'; ; evrsn++) {
-	    if (evrsn > '9')
-		getout (NO, "\n%s: No free temp file names left\n", progname);
-	    la_cfile[indv] = evrsn;
-	    rfile[indv] = evrsn;
-	    {
-		int i;
-		if ((i = open (la_cfile, 0)) >= 0) {
-		    /* Should use exclusive open here, but we don't have it */
-		    /* exclusive => exists and no one has it exclusively open */
-		    close (i);
-		    dorecov (0);
-		    crashed = YES;
-		    break;
-		}
-	    }
-	    /* if we get here, it's because either
-	     *  (la_cfile exists and someone is using it)
-	     *  or (it doesn't exist)
-	     **/
-	    if (access (la_cfile, 0) >= 0)
-		/* exists and someone is using it */
-		continue;
-	    if (notracks && access (rfile, 0) >= 0)
-		continue;
-	    break;
-	}
-    }
 
-    names[CHGFILE] = la_cfile;
-    fileflags[CHGFILE] = INUSE;
-    fileflags[NULLFILE] = INUSE;
+    (void) build_wkfiles (YES);
+
+    names [CHGFILE] = la_cfile;
+    fileflags [CHGFILE] = INUSE;
+    fileflags [NULLFILE] = INUSE;
     marktickfile (CHGFILE, NO);
     marktickfile (NULLFILE, NO);
 
-    /* make the rest of the file names */
-    bkeystr[VRSCHAR] = keystr[VRSCHAR] = evrsn;
-    {
-	char *c;
-	c = append (keystr, name);
-	keytmp  = append (tmppath, c);
-	sfree (c);
-	c = append (bkeystr, name);
-	inpfname = bkeytmp = append (tmppath, c);
-	sfree (c);
-    }
-    sfree (name);
-
-    {
-	struct stat statbuf;
-	if (!crashed && stat (keytmp, &statbuf) != -1)
-	    dorecov (1);
-    }
-    if (!chosereplay)
-	inpfname = replfname;
-
+    /* rename existing key stroke file to backup name */
     mv (keytmp, bkeytmp);
     keysmoved = YES;
-    if ((keyfile = fopen (keytmp, "w")) == NULL)
-	getout (YES, "Can't create keystroke file (%s).", keytmp);
-    chmod (keytmp, 0600);
+
+    /* inpfname : file name to replay a session :
+     *  if replay or recover from previous version
+     *       replay from the previous key stroke file
+     *  else replay file can be defined by command option : -replay=<filename>
+     *  else it will be NUUL
+     */
+    inpfname = ( chosereplay ) ? bkeytmp : replfname;
+
+    /* open and lock the new key stroke file */
+    {
+	int fi, cc;
+	char * errmsg;
+
+	keyfile = fopen (keytmp, "w");
+	if ( keyfile == NULL ) {
+	    printf ( "file error : %s\n", strerror (errno));
+	    getout (YES, "Can't create keystroke file (%s).", keytmp);
+	}
+	fi = fileno (keyfile);
+	fchmod (fi, 0600);
+	cc = lockf (fi, F_TLOCK, 0);
+	if ( cc < 0 )
+	    errmsg = strerror (errno);  /* for debugging */
+    }
 
     memset (&wholescreen, 0, sizeof (S_window));
     memset (&enterwin, 0, sizeof (S_window));
@@ -1416,9 +2017,92 @@ static int wait_cont ()
 static void display_fn (char *buf, char *msg, char *fnm)
 {
     if ( (strlen (msg) + strlen (fnm)) >= term.tt_width )
-	sprintf (buf + strlen (buf), "%s\n  %s\n", msg, fnm);
+	sprintf (buf + strlen (buf), "%s\n  \"%s\"\n", msg, fnm);
     else
-	sprintf (buf + strlen (buf), "%s %s\n", msg, fnm);
+	sprintf (buf + strlen (buf), "%s \"%s\"\n", msg, fnm);
+}
+
+/* show_one_option : display the info about the option */
+static void show_one_option (int idx, Flag full_flg, char *bigbuf, int bigbuf_sz,
+			 Flag *opt_flgs)
+{
+    short val;
+    int cc, type;
+    char *fname, *cmt, *opt, tmpstrg [256];
+    void *indic;
+    Flag flag, file_flg;
+    char chr, chr1;
+
+    if ( (idx < 0) || (idx >= opttable_maxidx) ) return;
+    val = opttable [idx].val;
+
+    if ( (val < 0) || (val >= MAX_opt) ) return;
+    if ( opt_flgs[val] ) return;
+    opt_flgs[val] = YES;
+
+    type = opt_desc [val].type;
+    indic = opt_desc [val].indic;
+    file_flg = NO;
+    switch (type) {
+	case -99 :  /* default, inverted logic */
+	case  99 :  /* default, normal logic */
+	case  -1 :  /* inverted logic */
+	case   0 :
+	    flag = NO;
+	    if ( indic ) flag = *((Flag *) indic);
+	    if ( flag < 0 ) flag = NO;  /* flag not set */
+	    else if ( type < 0 ) flag = !flag;
+	    if ( !full_flg && !flag ) return;
+	    if ( flag && (abs(type) == 99) ) return;    /* default value */
+	    chr = flag ? '*' : ' ';
+	    break;
+
+	case 1:     /* file name */
+	case 2:     /* directory name */
+	    fname = NULL;
+	    if ( indic ) fname = *((char **) indic);
+	    if ( !full_flg && !fname ) return;
+	    chr = fname ? '*' : ' ';
+	    file_flg = YES;
+	    if ( !fname )
+		fname = (type == 1) ? "<filename>" : "<directory>";
+	    break;
+
+	default:
+	    return;
+    }
+
+    cmt = opt_desc [val].comment;
+    chr1 = 0;
+
+    /* special cases */
+    switch (val) {
+	case OPTDEBUG :
+	    memset (tmpstrg, 0, sizeof (tmpstrg));
+	    if ( dbgname ) {
+		sprintf (tmpstrg, "%s:%d : level %2$d", dbgname, DebugVal);
+		cmt = dbgflg ? "debugging actif" : "debugging suspended";
+		chr1 = '=';
+	    } else
+		strcpy (tmpstrg, "[debug output file name]:[debug level]");
+	    fname = tmpstrg;
+	    break;
+    }
+
+    if ( ! cmt ) cmt = "";
+    opt = opttable [idx].str;
+
+    if ( full_flg )
+	sprintf (bigbuf + strlen (bigbuf), "%c -%s", chr, opt);
+    else
+	sprintf (bigbuf + strlen (bigbuf), " -%s", opt);
+    if ( file_flg ) {
+	sprintf (bigbuf + strlen (bigbuf), "=%s", fname);
+    }
+    if ( cmt && *cmt )
+	sprintf (bigbuf + strlen (bigbuf), " %c %s\n", chr1 ? chr1 : ':', cmt);
+    else strcat (bigbuf, "\n");
+    return;
 }
 
 /* Show Help processing */
@@ -1430,16 +2114,25 @@ Flag full_flg;    /* ful dispaly */
     extern char verstr[];
     extern char * la_max_size ();
     extern char * mapping_strg ();
+    extern char * get_session_pref (char **stname_pt, Flag *use_flg_pt);
 
+    static char char_str [] =
+#ifdef CHAR7BITS
+		 "  Built for ASCII (7 bits) characters only\n\n";
+#else
+		 "  Built for ISO 8859 (8 bits) characters\n\n";
+#endif
+
+    char *pref_name, *stname;
+    Flag use_flg;
     void getConsoleSize (int *width, int *height);
     static int display_bigbuf ();
-    char *tmpstrg;
-    int i, nbli, ctrlc, nb;
-    char bigbuf [4096]; /* must be large enough for the message */
+    int i, nbli, ctrlc, nb, idx;
+    char bigbuf [8192]; /* must be large enough for the message */
     char strg [256];
-    char *str, *str1, *str2;
+    char *tmpstrg, *str, *str1, *str2;
     int width, height;
-
+    Flag opt_flgs [MAX_opt];
     nbli = 0;
     memset (bigbuf, 0, sizeof (bigbuf));
 
@@ -1459,135 +2152,89 @@ Overall status of the editor parameters\n\
 =======================================\
 \n");
 	tmpstrg = asctime (localtime (&strttime));
-	tmpstrg [strlen(tmpstrg) -5] = '\0';
+	str = strrchr (tmpstrg, ' ');
+	if ( str ) *str = '\0'; /* remove the year */
+	str = strrchr (tmpstrg, ' ');
+	str = (str) ? str +1 : tmpstrg; /* only the time */
 	nb = sprintf (bigbuf + strlen (bigbuf),
 		      "Session by \"%s\" at %s on \"%s\"",
-		      myname, &tmpstrg[12], myHost);
+		      myname, str, myHost);
 	memset (strg, 0, sizeof (strg));
+	if ( ssh_ip ) {
+	    nb += sprintf (strg, " ssh session from \"%s\"\n",
+			   sshHost_alias ? sshHost_alias
+					 : sshHost ? sshHost : ssh_ip);
+	    if ( nb < width ) {
+		strcat (bigbuf, strg);
+		memset (strg, 0, sizeof (strg));
+		nb = 0;
+	    }
+	}
 	if ( fromHost ) {
-	    nb += sprintf (strg, " from \"%s\" %s%s\n",
-			   fromHost,
-			   fromDisplay ? "On display " : "",
-			   fromDisplay ? fromDisplay : "");
+	    if ( fromHost != sshHost ) {
+		nb += sprintf (&strg[strlen (strg)], " from \"%s\"", fromHost);
+		if ( fromHost_alias )
+		    nb += sprintf (&strg[strlen (strg)], " (%s)", fromHost_alias);
+	    }
+	    if ( fromDisplay )
+		nb += sprintf (&strg[strlen (strg)], " On display %s", fromDisplay);
+	    strg[strlen (strg)] = '\n';
 	    if ( nb >= width ) strg[0] = '\n';
 	} else strg[0] = '\n';
 	strcat (bigbuf, strg);
+
+	pref_name = get_session_pref (&stname, &use_flg);
+	if ( state_reused_flg ) {
+	    sprintf (bigbuf + strlen (bigbuf),
+		     "  Session setup by previous session status file : \"%s\"\n", rfile);
+	    if ( pref_name && use_flg )
+		sprintf (bigbuf + strlen (bigbuf),
+			 "  and by \"[%s]\" section from \"%s\"\n",
+			 stname, pref_name);
+	} else {
+	    if ( pref_name ) {
+		if ( use_flg ) {
+		    sprintf (bigbuf + strlen (bigbuf),
+			     "  Session setup by \"[%s]\" terminal section from user preferences file :\n    \"%s\"\n",
+			     stname, pref_name);
+		} else {
+		    sprintf (bigbuf + strlen (bigbuf),
+			     "  No section for \"[%s]\" terminal in user preferences file :\n    \"%s\"\n",
+			     stname, pref_name);
+		    strcat (bigbuf, "    Use \"set preferences\" command to generate the section\n");
+		}
+	    }
+	}
+
 	strcat (bigbuf, verstr); bigbuf[strlen (bigbuf)] = '\n';
 	sprintf (bigbuf + strlen (bigbuf),
-		 "  Built for files with %s\n    and max number of edited files : %d\n\n",
+		 "  Built for files with %s\n    and max number of edited files : %d, max opened files : %d\n",
 		 la_max_size (),
-		 (MAXFILES - (FIRSTFILE + NTMPFILES)));
+		 (MAXFILES - (FIRSTFILE + NTMPFILES)),
+		 (MAXOPENS - NTMPFILES));
+	strcat (bigbuf, char_str);
 	if ( optusedflg ) sprintf (bigbuf + strlen (bigbuf),
 			"In use command line program options :\n");
 	else sprintf (bigbuf + strlen (bigbuf),
 			"No in use command line program option\n");
     }
 
-    if ( full_flg || (optbullets >= 0) )
+    if ( full_flg )
     sprintf (bigbuf + strlen (bigbuf), "\
-%c -bullets\n", optbullets == YES ? '*' : ' ');
+  - : end the list of option (to be used before a file name starting with '-')\n");
 
-    if (dbgflg)
-	sprintf (bigbuf + strlen (bigbuf), "\
-* -debug=%s\n", dbgname);
-
-#ifdef LMCOPT
-    if ( full_flg || stdkbdflg )
-    sprintf (bigbuf + strlen (bigbuf), "\
-%c -dkeyboard : force the mini keyboard definition (only control charaters)\n", stdkbdflg ? '*' : ' ');
-#endif
-
-    if ( full_flg || helpflg )
-	sprintf (bigbuf + strlen (bigbuf), "\
-%c -help : short help and some checks\n", helpflg ? '*' : ' ');
-
-    if ( full_flg || inplace )
-	sprintf (bigbuf + strlen (bigbuf), "\
-%c -inplace\n", inplace ? '*' : ' ');
-
-#ifdef  KBFILE
-    if ( full_flg || optkbfile ) {
-	if ( ! optkbfile ) tmpstrg = "<file name>";
-	else tmpstrg = optkbfile;
-	sprintf (bigbuf + strlen (bigbuf), "\
-%c -kbfile=%s : (keyboard file, cf EKBFILE)\n", optkbfile ? '*' : ' ', tmpstrg);
+    if ( full_flg || optusedflg ) {
+	memset (opt_flgs, 0, sizeof (opt_flgs));
+	for ( idx = 0 ; idx < opttable_maxidx ; idx++ ) {
+	    show_one_option (idx, full_flg, bigbuf, sizeof (bigbuf), &opt_flgs[0]);
+	}
     }
-#endif
 
-    if ( full_flg || optkname )
-	sprintf (bigbuf + strlen (bigbuf), "\
-%c -keyboard=%s : (use compiled internal kbd definition, cf EKBD)\n", optkname ? '*' : ' ',
-	    optkname ? optkname : "<keyboard type>");
-
-    if ( full_flg || (optbullets >= 0) )
-	sprintf (bigbuf + strlen (bigbuf), "\
-%c -nobullets\n", optbullets == NO ? '*' : ' ');
-
-#ifdef  NOCMDCMD
-    if ( full_flg || optnocmd )
-	sprintf (bigbuf + strlen (bigbuf), "\
-%c -nocmdcmd\n", optnocmd ? '*' : ' ');
-#endif
-
-    if ( full_flg || norecover )
-	sprintf (bigbuf + strlen (bigbuf), "\
-%c -norecover\n", norecover ? '*' : ' ');
-
-    if ( full_flg || notracks )
-	sprintf (bigbuf + strlen (bigbuf), "\
-%c -notracks\n", notracks ? '*' : ' ');
-
-    if ( full_flg || patmode )
-	sprintf (bigbuf + strlen (bigbuf), "\
-%c -package=%s : (package directory, cf RAND_PACKG)\n", optdirpackg ? '*' : ' ',
-	    optdirpackg ? optdirpackg : "<directory>");
-
-    if ( full_flg || patmode )
-	sprintf (bigbuf + strlen (bigbuf), "\
-%c -regexp\n", patmode ? '*' : ' ');
-
-    if ( full_flg || replaying )
-	sprintf (bigbuf + strlen (bigbuf), "\
-%c -replay=%s\n", replaying ? '*' : ' ', replaying ? inpfname : "<filename>");
-
-    if ( full_flg || silent )
-	sprintf (bigbuf + strlen (bigbuf), "\
-%c -silent\n", silent ? '*' : ' ');
-
-#ifdef LMCSTATE
-    if ( full_flg )
-	sprintf (bigbuf + strlen (bigbuf), "\
-%c -state=%s\n", state ? '*' : ' ', state ? statefile : "<filename>");
-#endif
-
-    if ( full_flg || opttname )
-	sprintf (bigbuf + strlen (bigbuf), "\
-%c -terminal=%s : (terminal type, default : %s, cf TERM)\n",
-	opttname ? '*' : ' ', opttname ? opttname : "<terminal type>", tname);
-
-    if ( full_flg || verbose_helpflg )
-	sprintf (bigbuf + strlen (bigbuf), "\
-%c -verbose : verbose help for kbfiles debugging\n",
-	verbose_helpflg ? '*' : ' ');
-
-    if ( full_flg )
-	sprintf (bigbuf + strlen (bigbuf), "\
-  -version : display the version and revision info\n");
-
-    if ( full_flg )
-	sprintf (bigbuf + strlen (bigbuf), "\
-  -dump_state_file : display the content of the state file defined by -state\n");
-
-    if ( full_flg )
-	sprintf (bigbuf + strlen (bigbuf), "\
-%c -noX11 : do not use X11 to get the keyboard mapping\n",
-	noX11opt ? '*' : ' ');
-
-    if ( optusedflg )
+    if ( full_flg && optusedflg )
 	sprintf (bigbuf + strlen (bigbuf),
 		 "\"*\" means this option is in effect.\n");
 
-    if ( dbgflg )
+    if ( full_flg && dbgflg )
 	sprintf (bigbuf + strlen (bigbuf), "\
 NB : -debug=debug_file_name option cannot be use by an indirect call\n\
      using a batch file. Only the default debug output can be used !\n");
@@ -1601,14 +2248,14 @@ Environment variables known by Rand editor:\n\
     display_env_var (bigbuf, "SHELL", NULL);
     display_env_var (bigbuf, "TERM", "(mandatory if \"-terminal\" not used)");
     display_env_var (bigbuf, "VBELL", NULL);
-    display_env_var (bigbuf, "editalt", NULL);
+    display_env_var (bigbuf, "editalt", helpflg ? "Alternate edited file name" : NULL);
     bigbuf [strlen (bigbuf)] = '\n';
 
     ctrlc = display_bigbuf (bigbuf, &nbli, sizeof (bigbuf));
     if ( ctrlc ) return;
 
     str1 = mapping_strg (&str2);
-    if ( Xterm_flg ) {
+    if ( Xterm_global_flg ) {
 	extern char *emul_name, *emul_class, *wm_name;
 	extern void xterm_msg ();
 
@@ -1749,8 +2396,8 @@ Environment variables known by Rand editor:\n\
 
     /* working files */
     if ( keytmp && rfile && names[CHGFILE] ) {
-	sprintf (bigbuf + strlen (bigbuf), "Current Editor status, keystroke, changes files :\n  %s\n  %s\n  %s\n",
-		rfile, keytmp, names[CHGFILE]);
+	sprintf (bigbuf + strlen (bigbuf), "Current Editor status, key stroke, changes files :\n  %s\n  %s %s\n  %s\n",
+		rfile, keytmp, bkeytmp, names[CHGFILE]);
     }
     strcat (bigbuf + strlen (bigbuf), "Edited files (use 'help ?file' for details on status value) :\n");
     for ( i = FIRSTFILE + NTMPFILES ; i < MAXFILES ; i++) {
@@ -1774,11 +2421,23 @@ Environment variables known by Rand editor:\n\
     }
     else {
 	extern void setoption_msg ();
-	char buf[128];
+	char *fname, buf[128];
 
 	sprintf (bigbuf + strlen (bigbuf), "\nCurrent screen size %d lines of %d columns\n", height, width);
 	setoption_msg (buf);
-	sprintf (bigbuf + strlen (bigbuf), "Current value of SET command paramters (use 'help set' command for details) \n%s\n\n", buf);
+	sprintf (bigbuf + strlen (bigbuf), "Current value of SET command paramters (use 'help set' command for details) \n%s\n", buf);
+
+	fname = get_debug_name ();
+	if ( fname && *fname ) {
+	    /* debugging session */
+	    sprintf (bigbuf + strlen (bigbuf), "Debuging output file : \"%s\"\n",
+		     fname);
+	    sprintf (bigbuf + strlen (bigbuf), "   Debug %s", dbgflg ? "ON" : "OFF");
+	    if ( dbgflg )
+		sprintf (bigbuf + strlen (bigbuf), " at level %d", DebugVal);
+	    strcat (bigbuf, "\n");
+	}
+	strcat (bigbuf, "\n");
     }
 
     ctrlc = display_bigbuf (bigbuf, &nbli, sizeof (bigbuf));
@@ -1806,9 +2465,11 @@ static int display_bigbuf (char *buf, int *nbli, int bufsz)
     ctrlc = NO;
     dispsz = term.tt_height;
     if ( verbose_helpflg ) dispsz = 100000;     /* very very large : do not hold the screen */
+    nb = 0;
     for ( sp0 = sp1 = buf ; (ch = *sp1) ; sp1++ ) {
 	if ( ch != '\n' ) continue;
 	(*nbli)++;
+	nb++;
 	if ( *nbli < (dispsz -2) ) continue;
 	*sp1 = '\0';
 	fputs (sp0, stdout);
@@ -1825,8 +2486,12 @@ static int display_bigbuf (char *buf, int *nbli, int bufsz)
 	}
     }
     if ( *sp0 ) fputs (sp0, stdout);
-    if ( dbgflg )
-	printf ("-- debug -- message size %d, nb of lines %d\n", strlen (buf), *nbli);
+    if ( dbgflg ) {
+	fprintf (dbgfile, "-- debug -- message size %d, nb of lines %d\n", strlen (buf), nb);
+#ifdef __GNUC__
+	debug_info (__FUNCTION__, __FILE__, __LINE__);
+#endif
+    }
     memset (buf, 0, bufsz);
     if ( verbose_helpflg ) ctrlc = NO;
     return ctrlc;
@@ -1877,7 +2542,7 @@ void showstatus ()
 
 
 #ifdef COMMENT
-void
+static void
 dorecov (type)
     int type;
 .
@@ -1886,22 +2551,21 @@ dorecov (type)
     If the user opts for a recovery or replay, anything which was set by
     checkargs() must be set here to the way we want it for the replay.
 #endif
-void
+static void
 dorecov (type)
 int type;
 {
-    /* XXXXXXXXXXXXXXXXXXXXXXX */
-    if (helpflg)
+    if ( helpflg || norecover )
 	return;
-    if (norecover)
-	return;
+
     fixtty ();
     printf("\n"); fflush(stdout);
-    for (;;) {
-	char line[132];
+
+    for ( ;; ) {
+	char line [132];
 	{
 	    int tmp;
-	    /* XXXXXXXXXXXXXXXXX */
+
 	    tmp = dup (1);      /* so that filecopy can close it */
 	    if (   (tmp = filecopy (recovermsg, 0, (char *) 0, tmp, NO)) == -1
 		|| tmp == -3
@@ -1912,15 +2576,24 @@ that the editor couldn't read file \"%s\".\n", recovermsg);
 	printf("\n\
 Type the number of the option you want then hit <RETURN>: ");
 	fflush (stdout);
+
+	memset (line, 0, sizeof (line));
 	fgets (line, sizeof (line), stdin);
-	if (feof (stdin))
+	if ( feof (stdin) ) {
+	    /* do nothing, return to shell, equivalent to case '4' */
 	    getout (type, "");
+	    break;
+	}
+
 	switch (*line) {
 	case '1':
-	    recovering = YES;
-	    silent = YES;
-	    if (0) {
 	case '2':
+	    if ( *line == '1' ) {
+		/* '1' = silently recover */
+		recovering = YES;
+		silent = YES;
+	    } else {
+		/* '2' = replay (emergency recover) */
 		recovering = NO;
 		silent = NO;
 	    }
@@ -1929,23 +2602,33 @@ Type the number of the option you want then hit <RETURN>: ");
 	    notracks = NO;
 	    chosereplay = YES;
 	    break;
+
 	case '3':
+	    /* ignore the previous session */
 	    break;
+
 	case '4':
+	    /* silently return to the shell */
 	    getout (type, "");
+
 	default:
+	    /* any other answer : re ask what to do */
 	    continue;
 	}
-	break;
+	break;  /* the for loop */
     }
     setitty ();
     setotty ();
     return;
 }
 
-/* set, reset the terminal character set */
-/* ------------------------------------- */
-void (*reset_term_proc) () = NULL;
+/* set, reset the terminal text character set */
+/* ------------------------------------------ */
+/* customisation of the character set used to display text is
+   not implemented. The default terminal char set is in use
+*/
+
+static void (*reset_term_proc) () = NULL;
 
 void reset_term ()
 {
@@ -1953,20 +2636,15 @@ void reset_term ()
     reset_term_proc = NULL;
 }
 
-void alt_set_term (char *ternm, Flag force)
-{
-    extern void (*alt_specialchar ()) ();
-
-    reset_term_proc = alt_specialchar (ternm, force);
-}
-
 void set_term ()
 {
-    alt_set_term (tname, NO);
+    extern void (*set_charset (char *)) ();
+    reset_term_proc = set_charset (tname);
 }
 
-/* build_kbfile : build the default keyboard definition file name */
-/* -------------------------------------------------------------- */
+
+/* build_kbfile_name : build the default keyboard definition file name */
+/* ------------------------------------------------------------------- */
 
 static char * get_kbfile_buf (char *term_family, int *buf_sz)
 {
@@ -2029,7 +2707,7 @@ static char * find_kbfile (int buf_sz, char * tname, char * cnfg_dir, char ** cn
 }
 
 
-static void build_kbfile ()
+static void build_kbfile_name ()
 {
     int i, buf_sz, sz;
     char *cnfg;
@@ -2075,7 +2753,7 @@ static void get_kbfile_name () {
 		  : "EKBFILE";
     else {
 	/* build the default keyboard definition file name */
-	build_kbfile ();
+	build_kbfile_name ();
     }
 }
 
@@ -2174,7 +2852,7 @@ gettermtype ()
 	extern int in_file();
 	extern int nop ();
 
-	set_term ();    /* userxlate must be filled before processing kbfile */
+	set_term ();    /* xlate tables must be filled before processing kbfile */
 	if ( getkbfile (kbfile) ) kbd.kb_inlex = in_file;
 	else kname = stdk;
 	/* -------
@@ -2236,13 +2914,25 @@ setitty ()
     temp_termio = in_termio;
     temp_termio.c_cc[VMIN]=1;
     temp_termio.c_cc[VTIME]=0;
+
+#ifdef CHAR7BITS
     BITS (temp_termio.c_iflag,
 	  IGNPAR|ISTRIP,
 	  IGNBRK|BRKINT|PARMRK|INPCK|INLCR|IGNCR|ICRNL|IUCLC|IXOFF
 	);
+#else
+    BITS (temp_termio.c_iflag,
+	  IGNPAR,
+	  IGNBRK|BRKINT|PARMRK|INPCK|INLCR|IGNCR|ICRNL|IUCLC|IXOFF|ISTRIP
+	);
+    BITS (temp_termio.c_cflag, CS8, PARENB);
+#endif
+
     if ( ixon ) temp_termio.c_iflag  |= IXON;
     else        temp_termio.c_iflag  &= ~IXON;
+
     BITS (temp_termio.c_lflag,NOFLSH,ISIG|ICANON|ECHO);
+
     if ( ioctl (STDIN, TCSETAW, &temp_termio) >= 0 ) istyflg=YES;
     fcntlsave = fcntl (STDIN, F_GETFL, 0);
     return;
@@ -2455,7 +3145,7 @@ makescrfile ()
 	 *  is cloned for the lastlook wksp so that seeks on it won't disturb
 	 *  the seek position of firstlas[j]
 	 **/
-	cwdfiledir [curfile] = NULL;
+	cwdfiledir [j] = NULL;
 	if (!la_open ("", "nt", &fnlas[j]))
 	    getout (YES, "can't open %s", names[j]);
 	(void) la_clone (&fnlas[j], &lastlook[j].las);
@@ -2478,20 +3168,132 @@ static void badstart (FILE * gbuf)
 	    state_file_name);
 }
 
+static Small get_strg (char * strg, int strg_sz, Flag reset, FILE * gbuf)
+/* If not reset : do not clean the strg storage space if nothing to get.
+ * The storage must be large enought for the string to read,
+ *  if not, the remaining part is skipped.
+ * If no strorage is provided, the string is just skipped.
+ */
+{
+    int sz;
+
+    sz = (int) getshort (gbuf);
+    if ( strg ) {
+	if ( !reset && (sz <= 0) )
+	    return sz;
+	memset (strg, 0, strg_sz);
+    }
+    if ( sz > 0 ) {
+	if ( strg ) {
+	    if ( sz <= strg_sz ) {
+		fread (strg, 1, sz, gbuf);
+	    } else {
+		fread (strg, 1, strg_sz, gbuf);
+		getskip ((Small) (sz - strg_sz), gbuf);
+	    }
+	    strg [strg_sz -1] = '\0';
+	} else getskip ((Small) sz, gbuf);
+    }
+    return (Small) sz;
+}
+
+
+static int file_in_names (Flag dump_state, char *fname, Flag sav_flg)
+/* return 0 : no file */
+{
+    int fi;
+
+    if ( !fname || ! *fname ) return 0;
+
+    for ( fi = 1 ; fi < MAXFILES ; fi++ ) {
+	if ( ! names[fi] ) {
+	    if ( !sav_flg || !dump_state )
+		return 0;  /* not found */
+	    names [fi] = salloc (strlen (fname) +1, YES);
+	    strcpy (names [fi], fname);
+	    break;
+	} else {
+	    if ( strcmp (names [fi], fname) == 0 ) break;
+	}
+    }
+    return ( fi >= MAXFILES ) ? 0 : fi;
+}
+
+static int one_window_file (Char ichar, Flag dump_state, FILE *gbuf, Flag curwin_flg,
+			    int *fn, Flag build_flg, Flag alt_flg)
+{
+    char strg [PATH_MAX+1];
+    long lnb;
+    Small nletters;
+    char *fname;
+    Nlines  lin;
+    Ncols   col;
+    Slines tmplin;
+    Scols tmpcol;
+    Small cc;
+    char *alt_strg;
+    int fi;
+
+    cc = 0;
+    if ( fn ) *fn = 0;
+    alt_strg = alt_flg ? "alternate " : "";
+
+    lnb = ftell (gbuf);
+    nletters = get_strg (strg, sizeof (strg), YES, gbuf);
+    if ( dump_state ) {
+	printf ("  size of %sfile name %d at file pos %07o\n",
+		alt_strg, nletters, lnb + sizeof (short));
+	if ( nletters <= 0 ) printf ("    NO %sfile\n", alt_strg);
+    }
+
+    if ( nletters <= 0 ) return cc;
+
+    /* there is a file */
+    if ( feoferr (gbuf) ) badstart (gbuf);
+
+    fname = strg;
+    if ( dump_state ) {
+	fi = file_in_names (dump_state, fname, YES);
+	if ( fn && (fi > 0) ) *fn = fi;
+	if ( ! fname [0] ) printf ("    NO %sfile\n", alt_strg);
+	else printf ("    %sfile %d \"%s\"\n", alt_strg, fi, fname);
+    }
+
+    lin = getlong  (gbuf);
+    col = getshort (gbuf);
+    tmplin = getc (gbuf);
+    tmpcol = getshort (gbuf);
+
+    if ( dump_state ) {
+	/* if dummp_state, build_flg cannot be True */
+	printf ("    lin %d, col %d, tmplin %d, tmpcol %d\n",
+		lin, col, tmplin, tmpcol);
+    }
+    if ( build_flg ) {
+	if ( ichar != ONE_FILE ) {
+	    cc = editfile (fname, col, lin, 0, (!alt_flg && !curwin_flg));
+	    if ( cc == 1 ) if ( fn ) *fn = curfile;
+	    /* this sets them up to get copied into curwksp->ccol & clin */
+	    poscursor (curwksp->ccol = tmpcol, curwksp->clin = tmplin);
+	}
+	else poscursor (0, 0);
+    }
+    return cc;
+}
 
 /* Extract the specification for one window from the state file and act.
  *    It is called with only ALL_WINDOWS, or NO_WINDOWS
  *    If dump_state (display the content of the state file) nothing is build
  */
-static void one_window_state (Char ichar, Flag dump_state,
-			      FILE *gbuf, Small win_idx, Small curwin_idx)
+static void one_window_state (Char ichar, Flag dump_state, FILE *gbuf,
+			      Small win_idx, Small curwin_idx,
+			      int *nfn, int *afn)
 {
     Flag build_flg;
     char chr;
     Small sml;
-    char strg [PATH_MAX];
-    fpos_t lnb;
     Small gf;
+    long lnb;
     S_window *window;
     Scols   lmarg;
     Scols   rmarg;
@@ -2500,25 +3302,22 @@ static void one_window_state (Char ichar, Flag dump_state,
 #ifdef LMCV19
     AFlag   winflgs;
 #endif
-    Small nletters;
-    char *fname;
-    Nlines  lin;
-    Ncols   col;
-    Slines tmplin;
-    Scols tmpcol;
     Small cc;
+    Flag curwin_flg;
 
+    curwin_flg = ( win_idx == curwin_idx );
     build_flg = NO;     /* default : do not build the window */
+
     if ( ! dump_state ) {
 	build_flg = (ichar == ALL_WINDOWS)
-		    || ((ichar == ONE_WINDOW) && (win_idx == curwin_idx))
-		    || ((ichar == ONE_FILE) && (win_idx == curwin_idx));
+		    || ((ichar == ONE_WINDOW) && curwin_flg)
+		    || ((ichar == ONE_FILE) && curwin_flg);
     }
 
     if ( dump_state ) {
-	(void) fgetpos (gbuf, &lnb);
-	printf ("Window idx %d (at state file position %06o) :%s\n", win_idx, lnb,
-		(win_idx == curwin_idx) ? " (current active window)" : "");
+	lnb = ftell (gbuf);
+	printf ("Window idx %d (at state file position %07o) : %s\n", win_idx, lnb,
+		curwin_flg ? " (current active window)" : "");
     }
 
     chr = getc (gbuf);
@@ -2551,113 +3350,137 @@ static void one_window_state (Char ichar, Flag dump_state,
     defmiline = getshort (gbuf);
     defplpage = getshort (gbuf);
     defmipage = getshort (gbuf);
-    deflwin = getshort (gbuf);
-    defrwin = getshort (gbuf);
+    deflwin   = getshort (gbuf);
+    defrwin   = getshort (gbuf);
 
     if ( build_flg ) {
 	setupwindow (window, lmarg, tmarg, rmarg, bmarg, winflgs, 1);
-	if ( win_idx != curwin_idx ) drawborders (window, WIN_INACTIVE);
+	if ( ! curwin_flg )
+	    drawborders (window, curwin_flg ? WIN_ACTIVE : WIN_INACTIVE);
 	switchwindow (window);
+	poscursor (curwksp->ccol, curwksp->clin);
     }
-    gf = 0;
 
+    gf = 0;     /* file = 0 : nothing, 1 : alternate , 2 : normal */
     /* alternated edited file */
-    nletters = getshort (gbuf);
-    (void) fgetpos (gbuf, &lnb);
-    if ( dump_state )
-	printf ("  size of alternate file name %d at file pos %06o\n",
-		nletters, lnb);
-    if ( nletters ) {
-	/* there is an alternate file */
-	if ( feoferr (gbuf) ) badstart (gbuf);
-
-	fname = ( build_flg ) ? salloc (nletters, YES) : strg;
-	fread (fname, 1, nletters, gbuf);
-	if ( dump_state ) {
-	    fname [nletters -1] = '\0';
-	    if ( !nletters || !fname [0] ) printf ("    no alternate file\n");
-	    else printf ("    alternate file \"%s\"\n", fname);
-	}
-
-	lin = getlong  (gbuf);
-	col = getshort (gbuf);
-	tmplin = getc (gbuf);
-	tmpcol = getshort (gbuf);
-	if ( dump_state )
-	    printf ("    lin %d, col %d, tmplin %d, tmpcol %d\n",
-		    lin, col, tmplin, tmpcol);
-	if ( build_flg ) {
-	    if ( ichar != ONE_FILE ) {
-		cc = editfile (fname, col, lin, 0, NO);
-		if ( cc == 1 ) {
-		    gf = 1;
-		}
-		/* this sets them up to get copied into curwksp->ccol & clin */
-		poscursor (curwksp->ccol = tmpcol, curwksp->clin = tmplin);
-	    }
-	    else poscursor (0, 0);
-	}
-
-	/*  do this so that editfile won't be cute about
-	 *  suppressing a putup on a file that is the same
-	 *  as the altfile
-	 */
-	curfile = NULLFILE;
-    }
+    cc = one_window_file (ichar, dump_state, gbuf, curwin_flg, afn, build_flg, YES);
+    if ( cc == 1 ) gf = 1;
+    /*  do this so that editfile won't be cute about suppressing a putup on
+     *  a file that is the same as the altfile
+     */
+    curfile = NULLFILE;
 
     /* main edited file */
-    nletters = getshort (gbuf);
-    (void) fgetpos (gbuf, &lnb);
-    if ( dump_state )
-	printf ("  size of file name %d at file pos %06o\n",
-		nletters, lnb);
-    if ( feoferr (gbuf) ) badstart (gbuf);
-
-    fname = ( build_flg ) ? salloc (nletters, YES) : strg;
-    fread (fname, 1, nletters, gbuf);
-    if ( dump_state ) {
-	fname [nletters -1] = '\0';
-	if ( !nletters || !fname [0] ) printf ("    no file\n");
-	else printf ("    file \"%s\"\n", fname);
-    }
-
-    lin = getlong  (gbuf);
-    col = getshort (gbuf);
-    tmplin = getc (gbuf);
-    tmpcol = getshort (gbuf);
-    if ( dump_state )
-	printf ("    lin %d, col %d, tmplin %d, tmpcol %d\n",
-		lin, col, tmplin, tmpcol);
-    if ( feoferr (gbuf) ) badstart (gbuf);
-
-    if ( win_idx != curwin_idx ) chgborders = 2;
-
+    if ( ! curwin_flg ) chgborders = 2;
+    cc = one_window_file (ichar, dump_state, gbuf, curwin_flg, nfn, build_flg, NO);
+    if ( cc == 1 ) gf = 2;
     if ( build_flg ) {
-	cc = editfile (fname, col, lin, 0, win_idx == curwin_idx ? NO : YES);
-	if ( cc == 1) {
-	    gf = 2;
-	    poscursor (curwksp->ccol = tmpcol, curwksp->clin = tmplin);
-	}
 	chgborders = 1;
-
 	if ( gf < 2 ) {
-	    if ( win_idx != curwin_idx ) chgborders = 2;
+	    if ( ! curwin_flg  ) chgborders = 2;
 	    if ( gf == 0 ) {
-		eddeffile (win_idx == curwin_idx ? NO : YES);
+		eddeffile (curwin_flg ? NO : YES);
 		curwksp->ccol = curwksp->clin = 0;
 	    }
-	    else if ( win_idx != curwin_idx ) putupwin ();
+	    else if ( ! curwin_flg ) putupwin ();
 	    chgborders = 1;
 	}
     }
 }
 
+static void get_stf_mark (struct markenv *markpt, FILE *gbuf)
+{
+    if ( feof (gbuf) || !markpt ) return;
+    markpt->mrkwinlin = (Nlines)  getlong (gbuf);
+    markpt->mrkwincol = (ANcols)  getshort (gbuf);
+    markpt->mrklin    = (ASlines) getlong (gbuf);
+    markpt->mrkcol    = (Scols)   getshort (gbuf);
+}
+
+static void set_posmark (S_wksp *wksp, struct markenv posmark)
+{
+    wksp->wlin = posmark.mrkwinlin;
+    wksp->wcol = posmark.mrkwincol;
+    wksp->clin = posmark.mrklin;
+    wksp->ccol = posmark.mrkcol;
+}
+
+static void one_workspace_cursor (S_wksp *wksp, FILE *gbuf, char *msg, int fn)
+{
+    struct markenv posmark, prevmark;
+    S_wksp *crwksp;
+
+    if ( feof (gbuf) ) return;
+
+    /* get cursor position */
+    memset (&posmark, 0, sizeof (posmark));
+    get_stf_mark (&posmark, gbuf);
+    if ( wksp && (wksp->wfile != NULLFILE) ) {
+	set_posmark (wksp, posmark);
+    }
+    if ( msg ) {
+	strcat (msg, "cursor at : ");
+	msg_mark (&posmark, NULL, msg, NO, YES);
+    }
+    /* get cursor previous position */
+    memset (&prevmark, 0, sizeof (prevmark));
+    get_stf_mark (&prevmark, gbuf);
+    if ( wksp && (wksp->wfile != NULLFILE) )
+	wksp->wkpos = prevmark;
+    if ( msg ) {
+	strcat (msg, ", previous at : ");
+	msg_mark (&prevmark, NULL, msg, NO, YES);
+    }
+    if ( !wksp || !fn ) return;
+
+    /* copie also in current window if needed */
+    crwksp = curwin->altwksp;
+    if ( crwksp->wfile == fn ) {
+	set_posmark (crwksp, posmark);
+	crwksp->wkpos = prevmark;
+    }
+    crwksp = curwin->wksp;
+    if ( crwksp->wfile == fn ) {
+	set_posmark (crwksp, posmark);
+	poscursor (crwksp->ccol, crwksp->clin);
+	crwksp->wkpos = prevmark;
+    }
+}
+
+static void one_window_cursor (Short widx, FILE *gbuf, Flag dump_state,
+			       Small curwin_idx, int *nfn, int *afn)
+{
+    int fn;
+    S_wksp *wksp;
+    char msg [256];
+
+    memset (msg, 0, sizeof (msg));
+    sprintf (msg, "Window %d%s\n", widx,
+		 (widx == curwin_idx) ? " (Active window)" : "");
+
+    /* alternate work space */
+    fn = (int) getshort (gbuf);
+    if ( afn ) *afn = fn;
+    if ( fn != NULLFILE ) {
+	wksp = dump_state ? NULL : winlist[widx]->altwksp;
+	strcat (msg, "  Alternate : ");
+	one_workspace_cursor (wksp, gbuf, msg, 0);
+	strcat (msg, "\n");
+    }
+    /* normal work space */
+    fn = (int) getshort (gbuf);
+    if ( nfn ) *nfn = fn;
+    if ( fn != NULLFILE ) {
+	wksp = dump_state ? NULL : winlist[widx]->wksp;
+	strcat (msg, "  Normal    : ");
+	one_workspace_cursor (wksp, gbuf, msg, 0);
+    }
+    if ( dump_state ) puts (msg);
+}
 
 #ifdef COMMENT
-void
-getstate (ichar, dump_state)
-    Char ichar;
-    Flag dump_state;
+static Flag
+getstate (Char ichar, Flag dump_state, int *infolv_pt, Flag *grph_flg_pt)
 .
     /*
     Set up things as per the state file.
@@ -2669,26 +3492,36 @@ getstate (ichar, dump_state)
       ONE_WINDOW  set up one full-size window and don't put up any files.
     */
 #endif
-void
-getstate (ichar, dump_state)
-Char ichar;
-Flag dump_state;
+static Flag
+getstate (Char ichar, Flag dump_state, int *infolv_pt, Flag *grph_flg_pt)
 {
     extern void new_image ();
     extern void history_reload (FILE *stfile, Flag dump_state);
+    extern void set_file_mark (AFn fnb, Flag tick_flg, struct markenv *my_markpt);
+    extern int  itswapdeldchar (char *, int, int *);
+    extern Flag inputcharis7bits;
 
     int ncwfi, acwfi;   /* normal and alternate file in current window */
+    int ncwf [MAXWINLIST], acwf [MAXWINLIST];
     Slines nlin;
     Scols ncol;
     Short i, widx;
     Small nletters;
-    Small winnum;
+    Small cur_widx;
     FILE *gbuf;
-#ifdef LMCSTATE
     char *ich, dchr;
-    char strg [128];
-#endif
+    char strg [256];
     long sttime;
+    char fname_buf [PATH_MAX+1];
+    int finb [MAXFILES];    /* where the file are loaded */
+    int fidx;               /* number of file in the status file */
+    int fi_one, fi_nb;
+    Flag grph_flg;
+
+    /* get and set defaults */
+    grph_flg = ( grph_flg_pt ) ? *grph_flg_pt : NO;
+    acwfi = ncwfi = 0;
+    if ( infolv_pt ) *infolv_pt = 0;
 
     gbuf = NULL;
 #ifdef LMCSTATE
@@ -2712,7 +3545,7 @@ Flag dump_state;
 	    ich = "ONE_FILE";
 	    break;
 	}
-	printf ("\nDump of state file \"%s\" for %s\n", state_file_name, ich);
+	printf ("\n--- Dump of state file \"%s\" for %s ---\n\n", state_file_name, ich);
     }
 
     if ( ! dump_state ) {
@@ -2720,7 +3553,7 @@ Flag dump_state;
 	    /* do not read state file, do not edit scratch file */
 	    insmode = YES;  /* by default set in INSERT mode" */
 	    makestate (NO);
-	    return;
+	    return NO;
 	}
     }
 
@@ -2730,9 +3563,10 @@ Flag dump_state;
 	if ( dump_state ) getout (YES, "  state file cannot be opened");
 	else makestate (gbuf == NULL);
 	insmode = YES;  /* by default set in INSERT mode" */
-	return;
+	return NO;
     }
 
+    /* Now read the state file */
     /* Rand revision */
     i = getshort (gbuf);
     if ( dump_state )
@@ -2750,14 +3584,9 @@ Flag dump_state;
     }
 
     /* terminal type */
-    nletters = getshort (gbuf);
+    nletters = get_strg (strg, sizeof (strg), YES, gbuf);
     if (feoferr (gbuf)) badstart (gbuf);
-
-    if ( dump_state ) {
-	printf ("nb of char in terminal name %d\n", nletters);
-	fread (strg, 1, nletters, gbuf);
-	printf ("terminal name \"%s\"\n", strg);
-    } else getskip (nletters, gbuf);
+    if ( dump_state ) printf ("terminal name \"%s\"\n", strg);
 
     nlin = getc (gbuf) & 0377;
     ncol = getc (gbuf) & 0377;
@@ -2767,15 +3596,6 @@ Flag dump_state;
     }
     if ( dump_state ) printf ("screen size column %d, line %d\n", ncol, nlin);
     else new_image ();
-
-#if 0
-    /* old fashion, when resizing was not available */
-
-	getout (YES, "\
-Startup file: \"%s\" was made for a terminal with a different screen size. \n\
-(%d x %d).  Delete it or give a filename after the %s command.",
-		rfile, nlin, ncol, progname);
-#endif
 
     sttime = getlong (gbuf);
     if ( dump_state ) {
@@ -2819,7 +3639,7 @@ Startup file: \"%s\" was made for a terminal with a different screen size. \n\
     }
     if ( dump_state ) {
 	printf ("size of searchkey string %d\n", i);
-	if ( i ) printf ("  searchkey : \"%s\"\n", searchkey);
+	if ( i ) printf ("  searchkey pattern : \"%s\"\n", searchkey);
     }
 
     insmode = getc (gbuf);
@@ -2856,68 +3676,77 @@ Startup file: \"%s\" was made for a terminal with a different screen size. \n\
 #endif
 
     nwinlist = getc (gbuf);
-    if ( dump_state ) printf ("nwinlist %d\n", nwinlist);
+    if ( dump_state ) printf ("\nnwinlist (Nb of windows) %d\n", nwinlist);
     if ( ferror(gbuf) || nwinlist > MAXWINLIST ) badstart (gbuf);
 
-    winnum = getc (gbuf);
-    if ( dump_state ) printf ("curwin idx (winnum) %d\n", winnum);
-    if ( winnum < 0 ) winnum = 0;
-    if ( winnum >= nwinlist ) winnum = nwinlist -1;
+    cur_widx = getc (gbuf);
+    if ( dump_state ) printf ("curwin idx (current window index) %d\n", cur_widx);
+    if ( cur_widx < 0 ) cur_widx = 0;
+    if ( cur_widx >= nwinlist ) cur_widx = nwinlist -1;
 
     /* set up window */
+    if ( dump_state ) putchar ('\n');
     for ( widx = 0 ; widx < nwinlist ; widx++ ) {
-	one_window_state (ichar, dump_state, gbuf, widx, winnum);
-	if ( (widx == winnum) && !dump_state ) {
-	    ncwfi = winlist[winnum]->wksp->wfile;
-	    acwfi = winlist[winnum]->altwksp->wfile;
+	int nfn, afn;
+	nfn = afn = 0;
+	one_window_state (ichar, dump_state, gbuf, widx, cur_widx, &nfn, &afn);
+	ncwf[widx] = acwf[widx] = -1;
+	if ( (widx == cur_widx) ) {
+	    ncwfi = nfn;
+	    acwfi = afn;
 	}
+#if 0
+|        if ( (widx == cur_widx) && !dump_state ) {
+|            /* get the active window edited files */
+|            ncwfi = winlist[widx]->wksp->wfile;
+|            acwfi = winlist[widx]->altwksp->wfile;
+|        }
+#endif
     }
 
     /* Reload the history buffer */
+    if ( dump_state ) putchar ('\n');
     history_reload (gbuf, dump_state);
 
-    /* Reload the edited file list not in a window */
-    nletters = getshort (gbuf);
-    if ( nletters > 0 ) {
-	/* files list exist */
+    /* Edited files list (ended by an 0 size name) */
+    if ( ! dump_state ) {
+	switchwindow (winlist[cur_widx]);
+	poscursor (curwksp->ccol, curwksp->clin);
+    }
+    for ( fidx = 0 ; ; fidx++ ) {
 	extern char * fileStatusString ();
-	char fname_buf [PATH_MAX], *fstrg;
+	char * fstrg;
 	Short fflag;
 	Small cc;
 	int fi;
 
-	if ( dump_state ) printf ("Edited files list :\n");
-	else switchwindow (winlist[winnum]);
-	for ( ; nletters > 0 ; nletters = getshort (gbuf) ) {
-	    fread (fname_buf, 1, nletters, gbuf);
-	    fname_buf [nletters -1] = '\0';
-	    fflag = getshort (gbuf);
-	    if ( dump_state ) {
-		fstrg = fileStatusString (fflag, NULL);
-		printf ("  %s %s\n", fstrg, fname_buf);
-		continue;   /* no more processing */
-	    }
-	    if ( fflag & (DELETED | RENAMED) ) continue;
+	nletters = get_strg (fname_buf, sizeof (fname_buf), YES, gbuf);
+	if ( nletters <= 0 ) break;
+	fflag = getshort (gbuf);
+	if ( dump_state ) {
+	    if ( fidx == 0 ) printf ("\nEdited files list :\n");
+	    fstrg = fileStatusString (fflag, NULL);
+	    fi = file_in_names (dump_state, fname_buf, YES);
+	    printf ("%-2d %s %s\n", fi, fstrg, fname_buf);
+	    finb [fidx] = fi;   /* where the file is loaded */
+	    continue;   /* no more processing */
+	}
+	if ( fflag & (DELETED | RENAMED) ) continue;
 
-	    /* insert in edited files list if needed, and update flag */
-	    for ( fi = MAXFILES -1 ; fi >= 0 ; fi-- ) {
-		if ( !(fileflags [fi] & INUSE) ) continue;
-		if ( strcmp (fname_buf, names [fi]) != 0 ) continue;
-		break;
-	    }
-	    if ( fi < 0 ) {     /* not yet in list, insert it */
-		cc = editfile (fname_buf, (Ncols) -1, (Nlines) -1, 0, NO);
-		fi = curfile;
-	    } else cc = 1;
-	    if ( (cc == 1) && (strcmp (fname_buf, xdir_err) == 0) ) {
-		if ( ! (fflag & CANMODIFY) ) fileflags [fi] &= ~CANMODIFY;
-	    }
+	/* insert in edited files list if needed, and update flag */
+	for ( fi = MAXFILES -1 ; fi > 0 ; fi-- ) {
+	    if ( !(fileflags [fi] & INUSE) ) continue;
+	    if ( strcmp (fname_buf, names [fi]) != 0 ) continue;
+	    break;
 	}
-	if ( ! dump_state ) {
-	    /* restaure the active window edited files */
-	    if ( acwfi > 0 ) editfile (names [acwfi], (Ncols) -1, (Nlines) -1, 0, NO);
-	    if ( ncwfi > 0 ) editfile (names [ncwfi], (Ncols) -1, (Nlines) -1, 0, NO);
+	if ( fi <= 0 ) {     /* not yet in list, insert it */
+	    cc = editfile (fname_buf, (Ncols) -1, (Nlines) -1, 0, NO);
+	    fi = curfile;
+	} else cc = 1;
+	if ( (cc == 1) && (strcmp (fname_buf, xdir_err) == 0) ) {
+	    if ( ! (fflag & CANMODIFY) ) fileflags [fi] &= ~CANMODIFY;
 	}
+	finb [fidx] = fi;   /* where the file is loaded */
     }
 
     if ( ! feof (gbuf) ) {
@@ -2930,15 +3759,16 @@ Startup file: \"%s\" was made for a terminal with a different screen size. \n\
 
 	del_ch = getc (gbuf);
 	del_fc = getc (gbuf);
-	if ( feof (gbuf) ) {
+	if ( feof (gbuf) || (del_ch == '\0') ) {
 	    if ( dump_state ) {
-		printf ("No function assigned to <Del> key (\\%03o)\n", del_strg [0]);
+		printf ("\nNo function assigned to <Del> key (\\%03o)\n", del_strg [0]);
 	    }
 	} else {
 	    if ( dump_state ) {
-		printf ("<Del> (\\%03o) key assigned to function \"%s\"\n",
+		printf ("\n<Del> (\\%03o) key assigned to function \"%s\"\n",
 			del_ch, itsyms_by_val ((short) del_fc));
 	    } else {
+		(void) itswapdeldchar (del_strg, -1, NULL); /* save the init value */
 		if ( (del_ch == del_strg [0]) &&
 		     ((del_fc == CCBACKSPACE) || (del_fc == CCDELCH)) ) {
 		    val_pt = itgetvalue (del_strg);
@@ -2947,24 +3777,197 @@ Startup file: \"%s\" was made for a terminal with a different screen size. \n\
 		    }
 		}
 	    }
+	}
+	if ( ! feof (gbuf) ) {
 	    /* skip end of section mark */
 	    (void) getshort (gbuf);
 	}
     }
 
+    if ( ! feof (gbuf) ) {
+	int infolv, fi, fn;
+	Flag tick_flg, title_flg, cs7_flg;
+	Flag prv_notracks, prv_norecover, prv_replaying, prv_recovering;
+	struct markenv tickmark, *markpt;
+	S_wksp *lwksp;
+	char msg [256];
+
+	/* various session status */
+	prv_notracks = getc(gbuf);
+	prv_norecover = getc(gbuf);
+	prv_replaying = getc(gbuf);
+	prv_recovering = getc(gbuf);
+	if ( dump_state ) {
+	    printf ("\nSession  state : %s%s%s%s\n",
+		    prv_notracks   ? "'-notracks'" : "",
+		    prv_norecover  ? "'-norecover'" : "",
+		    prv_replaying  ? "replaying" : "",
+		    prv_recovering ? "recovering" : "");
+	}
+	cs7_flg = NO;
+	infolv = 0;
+	grph_flg = getc (gbuf);           /* graphic char for window edges */
+	cs7_flg = getc (gbuf);            /* 7 (or 8) bits characters */
+	infolv = (int) getshort (gbuf);   /* info level */
+	fi_one = (int) getshort (gbuf);   /* 1st user edited file id */
+	fi_nb  = (int) getshort (gbuf);   /* saved idex of 1st edited file */
+	if ( dump_state ) {
+	    printf ("\nGraphic window edges : %s\n", grph_flg ? "Yes" : "No");
+	    printf ("8 bits characters : %s\n", cs7_flg ? "No, 7 bits (cs7)" : "Yes (cs8)");
+	    printf ("Info line level : %d\n", infolv);
+	    printf ("First user file id : %d\n", fi_one);
+	    printf ("Number of edited file in the session : %d (%d)\n", fidx, fi_nb);
+	} else {
+	    inputcharis7bits = cs7_flg;
+	    if ( grph_flg_pt ) *grph_flg_pt = grph_flg;
+	    if ( infolv_pt ) *infolv_pt = infolv;
+	}
+	/* reload file cursor position and tick marks */
+	title_flg = NO;
+	for ( i = 0 ; i < fidx ; i++ ) {
+	    if ( feof (gbuf) ) break;
+
+	    memset (msg, 0, sizeof (msg));
+	    fn = finb [i];
+	    sprintf (msg, "File %-2d : \"%s\"\n  ", fn, names [fn]);
+	    lwksp = &lastlook [fn];
+	    lwksp->wfile = fn;
+	    one_workspace_cursor (dump_state ? NULL : lwksp, gbuf, msg, fn);
+
+	    /* get file tick */
+	    tick_flg = getc (gbuf);
+	    memset (&tickmark, 0, sizeof (tickmark));
+	    if ( tick_flg ) {
+		/* get tick position */
+		get_stf_mark (&tickmark, gbuf);
+		if ( dump_state ) {
+		    strcat (msg, ", tick at : ");
+		    msg_mark (&tickmark, NULL, msg, NO, YES);
+		}
+	    }
+	    if ( dump_state ) {
+		if ( ! title_flg ) {
+		    puts ("\nFiles cursor and tick setting (line x column)");
+		    title_flg = YES;
+		}
+		puts (msg);
+	    } else {
+		set_file_mark (fn, tick_flg, &tickmark);
+	    }
+	}
+	/* skip end of section mark */
+	(void) getshort (gbuf);
+    }
+
+    if ( ! dump_state ) {
+	/* restaure the active window */
+	chgwindow (cur_widx);   /* switch to active window now */
+	if ( acwfi > 0 )
+	    editfile (names [acwfi], (Ncols) -1, (Nlines) -1, 0, NO);
+	if ( ncwfi > 0 )
+	    editfile (names [ncwfi], (Ncols) -1, (Nlines) -1, 0, NO);
+	else eddeffile (NO);
+	if ( acwfi <= 0 )
+	    releasewk (curwin->altwksp);
+    }
+
+    if ( ! feof (gbuf) ) {
+	/* section for the window cursor positions */
+	int nfn, afn;
+	if ( dump_state )
+	    puts ("\nWindow cursor positions");
+	for ( widx = 0 ; widx < nwinlist ; widx++ ) {
+	    if ( feof (gbuf) ) break;
+	    nfn = afn = 0;
+	    one_window_cursor (widx, gbuf, dump_state, cur_widx, &nfn, &afn);
+	}
+	/* skip end of section mark */
+	(void) getshort (gbuf);
+    } else if ( dump_state )
+	puts ("\nNo Window cursor positions info in state file");
+
     if ( dump_state ) {
+	if ( nwinlist > 0 ) {
+	    char str [8];
+	    printf ("\nCurrent active window : %d\n", cur_widx);
+	    if ( acwfi > 0 ) sprintf (str, "%2d \"%s\"", acwfi, names[acwfi]);
+	    else strcpy (str, "NO");
+	    printf ("  Alternate file : %s\n", str);
+	    printf ("  Normal    file : %2d \"%s\"\n", ncwfi, names[ncwfi]);
+	}
+    }
+
+    if ( ! feof (gbuf) ) {
+	int path_max, lpath_max, vers, revi;
+	char bld_str [64];
+
+	/* file system info and Rand version, revision */
+	path_max = (int) getlong (gbuf);    /* file name max lenth */
+	lpath_max = PATH_MAX;
+	vers = (int) getshort (gbuf);
+	revi = (int) getshort (gbuf);
+	nletters = get_strg (bld_str, sizeof (bld_str), YES, gbuf);
+	if ( dump_state ) {
+	    printf ("\nMax path name lenth (PATH_MAX) : %d, in current OS : %d\n",
+		    path_max, lpath_max);
+	    if ( nletters )
+		printf ("\nRand version E%d.%d, build %s\n", vers, revi, bld_str);
+	}
+
+	/* OS and user info */
+	nletters = get_strg (strg, sizeof (strg), YES, gbuf);
+	if ( nletters > 0 ) {
+	    if ( dump_state )
+		    printf ("\nOS and user :\n  %s\n", strg);
+	} else puts ("\nNo OS and user info\n");
+
+	/* get client session info */
+	nletters = get_strg (strg, sizeof (strg), YES, gbuf);   /* fromHost */
+	if ( dump_state )
+	    if ( strg [0] ) printf ("  Remote session from \"%s\"", strg);
+	    else fputs ("  Local session", stdout);
+	nletters = get_strg (strg, sizeof (strg), YES, gbuf);   /* fromHost_alias */
+	if ( dump_state && strg[0] )
+	    printf (" (%s)", strg);
+	nletters = get_strg (strg, sizeof (strg), YES, gbuf);   /* fromDisplay */
+	if ( dump_state ) {
+	    if ( strg[0] ) printf (" On display \"%s\"", strg);
+	    else putchar ('\n');
+	}
+
+	/* Get ssh session info */
+	nletters = get_strg (strg, sizeof (strg), YES, gbuf);   /* ssh_ip */
+	if ( nletters > 0 ) {
+	    nletters = get_strg (strg, sizeof (strg), NO, gbuf);   /* sshHost */
+	    if ( nletters > 0 ) {
+		nletters = get_strg (strg, sizeof (strg), NO, gbuf);   /* sshHost_alias */
+	    }
+	}
+	if ( dump_state && strg[0] )
+	    printf ("  ssh session from \"%s\" client\n", strg);
+
+	/* skip end of section mark */
+	(void) getshort (gbuf);
+    }
+
+    if ( ! feof (gbuf) ) {
+	/* skip end of file mark */
+	(void) getshort (gbuf);
+    }
+
+    if ( dump_state ) {
+	char * str;
+	str = feof (gbuf) ? "\n--- End of a previous version state file ---\n"
+			  : "\n--- End of state file dump ---\n";
 	fclose (gbuf);
-	getout (YES, "\nEnd of state file dump\n");
+	getout (YES, str);
     }
 
     if ( ferror (gbuf) ) badstart (gbuf);
 
-    drawborders (winlist[winnum], WIN_ACTIVE);
-    switchwindow (winlist[winnum]);
-    infotrack (winlist[winnum]->winflgs & TRACKSET);
     poscursor (curwksp->ccol, curwksp->clin);
     fclose (gbuf);
-    return;
+    return YES;
 }
 
 #ifdef COMMENT
@@ -2991,14 +3994,14 @@ static int default_tabs = DEFAULT_TABS;
 
 
 #ifdef COMMENT
-void
+static void
 makestate (nofileflg)
     Flag nofileflg;
 .
     Make an initial state without reference to the state file.
     If 'nofileflg' != 0, edit the 'scratch' file.
 #endif
-void
+static void
 makestate (nofileflg)
 Flag nofileflg;
 {
@@ -3027,21 +4030,21 @@ Flag nofileflg;
 
 #ifdef LMCAUTO
 #ifdef COMMENT
-void
+static void
 infoint0 ()
 .
     Set up initial parameters for the info line.
 #endif
-void
+static void
 infoint0 ()
 {
     Scols col;
 
     inf_insert = 0; col = 7;    /* "INSERT" */
 
-    inf_track = col; col += 6;  /* "TRACK" */
+    inf_track = col; col += 4;  /* "TRK", old value was "TRACK" */
 
-    inf_range = col; col += 7;  /* "=RANGE" */
+    inf_range = col; col += 4;  /* "=RG", old value was "=RANGE" */
 
     inf_pat = col; col += 3;    /* "RE" */
 
@@ -3051,9 +4054,9 @@ infoint0 ()
 
     inf_area = col; col += 7;   /* "30x16" etc. */
 
-    inf_at = col; col += 3;     /* "At"         */
+    inf_at = col+1; col += 4;   /* space for impl tick flg (*) and "At" or "ch" */
 #ifdef LA_LONGFILES
-    inf_line = col; col += 7;   /* line         */
+    inf_line = col; col += 10;  /* lineXcolumn  */
 #else
     inf_line = col; col += 6;   /* line         */
 #endif
@@ -3062,24 +4065,27 @@ infoint0 ()
 }
 
 #ifdef COMMENT
-void
-infoinit ()
+static void
+infoinit (int infolv)
 .
     Set up the displays on the info line.
 #endif
-void
-infoinit ()
+static void
+infoinit (int infolv)
 {
 #else
 #ifdef COMMENT
-void
-infoinit ()
+static void
+infoinit (int infolv)
 .
     Set up the displays on the info line.
 #endif
-void
-infoinit ()
+
+
+static void
+infoinit (int infolv)
 {
+    extern void set_info_level (int level);
     Scols col;
 
     inf_insert = 0; col = 8;    /* "INSERT" */
@@ -3094,18 +4100,18 @@ infoinit ()
 
     inf_area = col;             /* "30x16" etc. */
 
-    col = 42;
-    inf_at = col; col += 3;     /* "At"         */
+    col = 38;
+    inf_at = col; col += 3;     /* "At" or "ch" */
 #ifdef LA_LONGFILES
-    inf_line = col; col += 7;   /* line         */
+    inf_line = col; col += 10;  /* line         */
 #else
     inf_line = col; col += 6;   /* line         */
-#endif
+#endif /* LA_LONGFILES */
     inf_in = col; col += 3;     /* "in"         */
     inf_file = col;             /* filename     */
-#endif
+#endif /* - LMCAUTO */
 
-    rand_info (inf_at, 2, "At");
+    set_info_level (infolv);    /* default = cursor position */
     rand_info (inf_in, 2, "in");
     infoline = -1;
     infofile = NULLFILE;
@@ -3125,14 +4131,17 @@ static void clean_all (Flag filclean)
     if (windowsup)
 	screenexit (YES);
     if (filclean && !crashed)
+	/* remove change file, keep key stroke files */
 	cleanup (YES, NO);
     if (keysmoved)
+	/* restaure initial key stroke file from backup (rename file) */
 	mv (bkeytmp, keytmp);
     d_put (0);
 }
 
 static void exit_now (int status)
 {
+    close_dbgfile (NULL);
 #ifdef PROFILE
     monexit (status);
 #else
@@ -3160,7 +4169,9 @@ long a1,a2,a3,a4,a5,a6;
 {
     extern char verstr[];
 
+    /* keep key stroke files, delete change file if filclean and !crashed */
     clean_all (filclean);
+
     if (*str)
 	fprintf (stdout, str, a1,a2,a3,a4,a5,a6);
 
@@ -3169,9 +4180,109 @@ long a1,a2,a3,a4,a5,a6;
 	printf ("\n  --- %s : error during initialization ---\n", progname);
 	return;
     }
+
     printf ("\nThis is %s : Rand editor version %d release %d\n%s\n",
 	    prog_fname ? prog_fname : progname, -revision, subrev, verstr);
 
     exit_now (-1);
     /* NOTREACHED */
+}
+
+void save_option_pref (FILE *pref_file)
+{
+    extern char * get_keyword_strg (S_looktbl *table, int val);
+    char *str, *fname, *dfname;
+
+    fname = get_debug_name ();
+    if ( fname ) {
+	/* debugging is defined */
+	str = get_keyword_strg (opttable, OPTDEBUG);
+	dfname = get_debug_file_name (NO, NULL);
+	if ( dfname && (strcmp (fname, dfname) == 0) )
+	    fname = "";  /* default */
+	fprintf (pref_file, "option -%s", str);
+	if ( *fname || (DebugVal != DEFAULT_DebugVal) )
+	    fprintf (pref_file, "=%s,%d", fname, DebugVal);
+	fputc ('\n', pref_file);
+    }
+
+    if ( noX11opt ) {
+	/* do not call X11 server for keyboard mapping */
+	str = get_keyword_strg (opttable, OPTNOX11);
+	fprintf (pref_file, "option -%s\n", str);
+    }
+
+}
+
+int get_debug_default_level ()
+{
+    return DEFAULT_DebugVal;
+}
+
+static void parse_debug_option (char *opt_str, Flag malloc_flg)
+/* debug option syntax : -debug=[file name],[level]
+ *                  or   -debug=[file name]:[level]
+ *   can be called only one time.
+ * malloc_flg : do a malloc to store the debug file name
+ */
+{
+    static called_flg = NO;
+    char *fname, *str;
+
+    if ( called_flg ) return;
+
+    DebugVal = DEFAULT_DebugVal;
+    if ( !opt_str || !*opt_str ) {
+	/* use the default file */
+	fname = NULL;
+    } else {
+	str = strchr (opt_str, ':');
+	if ( ! str ) str = strchr (opt_str, ',');
+	if ( str ) {
+	    *(str++) = '\0';
+	    if ( *str ) DebugVal = atoi (str);
+	}
+	fname = opt_str;
+    }
+    dbgflg = YES;
+    dbgname = (malloc_flg) ? append (fname, "") : fname;
+    called_flg = YES;
+}
+
+
+void set_option_pref (char *cmd, char *par)
+{
+    int idx, val, cc;
+    char str [256], *str1, *str2;
+
+    if ( *cmd != '-' ) return;
+    memset (str, 0, sizeof (str));
+    strncpy (str, cmd+1, sizeof (str) -1);
+
+    str1 = strtok (str, "=");
+    if ( ! str1 ) return;
+    str2 = strtok (NULL, "#");
+
+    idx = lookup (str1, opttable);
+    if ( idx < 0 ) return;
+    val = opttable[idx].val;
+    switch (val) {
+	case OPTDEBUG :
+	    /* already defined by -debug option ? */
+	    if ( dbgflg || dbgname ) break; /* Yes, do not overwrite */
+
+	    parse_debug_option (str2, YES);
+	    cc = open_dbgfile (NO);
+	    if ( cc < 0 ) dbgflg = NO;
+	    break;
+
+	case OPTNOX11 :
+	    set_noX11opt ();
+	    break;
+    }
+}
+
+char * get_myhost_name ()
+{
+    return ( fromHost ) ? fromHost : myHost;
 }

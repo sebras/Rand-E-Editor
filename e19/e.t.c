@@ -11,6 +11,7 @@ file e.t.c
 #include "e.h"
 #include "e.inf.h"
 #include "e.m.h"
+#include "e.cm.h"
 #include "e.tt.h"
 #ifdef LMCMARG
 #include "e.wi.h"
@@ -56,6 +57,9 @@ file e.t.c
 #define EINTR   4       /* should be #included but for problems ... */
 
 extern void testandset_resize ();
+extern char *getparam (char *str, int *beg_pos, int *end_pos);
+extern int check_keyword (char *, int, S_looktbl *, int, int *,
+			  char **, int *, int *, Flag);
 
 /* set outside putup (), looked at by putup () */
 Flag entfstline = NO;           /* says write out entire first line */
@@ -66,6 +70,10 @@ Scols   newcurcol  = -1;        /* similar to newcurline                */
 Flag    freshputup;             /* ignore previous stuff on these lines */
 Flag    nodintrup;              /* disallow display interruption */
 Scols putupdelta;               /* nchars to insert (delete) in putup() */
+
+static Flag entering = NO;      /* set if e is in the param () routine. */
+				/* looked at by getkey1() and quote_process */
+static Flag ignore_quote_flg = NO;  /* set when the quote processing must no be apply */
 
 extern void putupwin ();
 extern void putup ();
@@ -95,7 +103,7 @@ extern void mesg ();
 extern void credisplay ();
 extern void redisplay ();
 extern void screenexit ();
-extern void tglinsmode ();
+       void tglinsmode ();
 extern Flag vinsdel ();
 
 static unsigned Short getkey1 ();
@@ -1461,6 +1469,116 @@ int GetCccmd ()     /* to be called during initialisation */
     return (cccmd_ctrl);
 }
 
+/* capture a quoted char : a control char or any printing char */
+#ifdef  SYSSELECT
+static unsigned Short quote_process (Flag *knockdown_pt, unsigned Short *quoted_key_pt, Flag peekflg, struct timeval *timeout)
+#else
+static unsigned Short quote_process (Flag *knockdown_pt, unsigned Short *quoted_key_pt, Flag peekflg)
+#endif
+{
+    char *endptr, *mesg_str;
+    int i, base;
+    long int ch_code;
+    unsigned Short rkey;
+    unsigned char val [6];
+
+    if ( !entering && loopflags.hold ) {
+	loopflags.hold = NO;
+	mesg (TELALL);
+    }
+
+    mesg_str = NULL;
+    memset (val, 0, sizeof (val));
+    i = 0;
+    for ( ; ; ) {
+#ifdef  SYSSELECT
+	rkey = getkey1 (peekflg, timeout);
+#else
+	rkey = getkey1 (peekflg);
+#endif
+
+	if ( rkey == CCINT ) {
+	    /* interrupt the quoted char processing */
+	    *knockdown_pt = NO;
+	    break;
+	} else {
+	    rkey &= 0377;
+	    if ( (i == 0) && (rkey >= 0100) && (rkey < 0177) ) {
+		/* a control char */
+		*quoted_key_pt = rkey & 0337;
+		rkey = CCCTRLQUOTE;
+		break;
+	    } else if ( isxdigit (rkey) || (rkey == 'x') || (rkey == 'X') ) {
+		/* capture a char by his code */
+		val [i++] = rkey;
+		if ( i >= 4 ) break;    /* no more room */
+		if ( (i >= 3) && (val [0] != '0') ) break;  /* completed decimal value */
+		continue;
+	    } else if ( (i > 0) && ((rkey == ' ') || (rkey == CCRETURN)) ) {
+		/* complete the capture */
+		break;
+	    } else {
+		val [i] = rkey;
+		mesg_str = " : Invalid : alpha char or octal, decimal or hexadecimal number";
+		goto valerr;
+	    }
+	}
+    }
+    if ( (rkey != CCCTRLQUOTE) && (rkey != CCNULL)  && (rkey != CCINT) ) {
+	if ( ! isdigit (val [0]) ) {
+	    mesg_str = " : Invalid char by code, must be like : 0123 83 or 0x53";
+	    goto valerr;
+	} else {
+	    if ( val [0] != '0' ) base = 10;
+	    else base = (toupper (val [1]) == 'X') ? 16 : 8;
+	    ch_code = strtol (val, &endptr , base);
+	    if ( *endptr == '\0' ) {
+#ifdef CHAR7BITS
+		if ( (ch_code < 0) || (ch_code >= 0177) ) {
+		    mesg_str = "Invalid ASCII character code (out of range)";
+#else
+		if ( (ch_code < 0) || (ch_code >= 0400)
+		     || ((ch_code >= 0177) && (ch_code < 0240)) ) {
+		    mesg_str = "Invalid ISO 8859 character code (out of range)";
+#endif
+		    goto valerr;
+		}
+		rkey = (unsigned Short) ch_code;
+		if ( rkey <= 037 ) {
+		    /* a control char */
+		    *quoted_key_pt = rkey | 0100;
+		    rkey = CCCTRLQUOTE;
+		} else {
+		    /* a printable char */
+		    *knockdown_pt = NO;
+		}
+	    } else {
+		mesg_str = "Invalid ISO 8859 character code, must be like : 0123 83 or 0x53";
+		goto valerr;
+	    }
+	}
+    }
+    if ( mesg_str ) {
+valerr:
+	if ( entering ) mesg (TELDONE);
+	if ( val[0] )
+	    mesg (ERRALL + 4, "\"", val, "\"", mesg_str);
+	else
+	    mesg (ERRALL + 1, mesg_str);
+
+	loopflags.hold = YES;
+	loopflags.clear = NO;
+	rkey = entering ? CCINT : CCNULL;
+	*knockdown_pt = NO;
+    }
+    return rkey;
+}
+
+void ignore_quote ()
+{
+    ignore_quote_flg = YES;
+}
+
 #ifdef  SYSSELECT
 #ifdef COMMENT
 unsigned Short
@@ -1498,19 +1616,35 @@ getkey (peekflg)
 #endif
 unsigned Short
 getkey (peekflg)
-Reg2 Flag peekflg;
+Flag peekflg;
 #endif
 {
-    Reg1 unsigned Short rkey;
-    static Flag knockdown  = NO;
+    static unsigned Short quoted_key;
+    static Flag knockdown = NO;
+    unsigned Short rkey;
+    Flag qp_flg;
 
-    if (peekflg == WAIT_KEY && keyused == NO)
+    qp_flg = ignore_quote_flg;
+    ignore_quote_flg = NO;
+
+    if ( (peekflg == WAIT_KEY) && (keyused == NO) )
 	return key; /* then getkey is really a no-op */
+
+    if ( knockdown && (peekflg == WAIT_KEY)) {
+	knockdown = NO;
+	keyused = NO;
+	key = quoted_key;
+	return key;
+    }
+
 #ifdef  SYSSELECT
     rkey = getkey1 (peekflg, timeout);
 #else
     rkey = getkey1 (peekflg);
 #endif
+
+#if 0
+    /* ------- old version <= E19.57 ------------- */
     if (knockdown && rkey < 040)
 	rkey |= 0100;
     if (peekflg != WAIT_KEY)
@@ -1518,10 +1652,25 @@ Reg2 Flag peekflg;
     knockdown = rkey == CCCTRLQUOTE;
     keyused = NO;
     return key = rkey;
+    /* ------- old version <= E19.57 ------------- */
+#endif
+
+    if ( peekflg != WAIT_KEY ) {
+	return rkey;
+    }
+
+    keyused = NO;
+    knockdown = (rkey == CCCTRLQUOTE) && !qp_flg;
+    if ( knockdown ) {
+#ifdef  SYSSELECT
+	rkey = quote_process (&knockdown, &quoted_key, peekflg, timeout);
+#else
+	rkey = quote_process (&knockdown, &quoted_key, peekflg);
+#endif
+    }
+    return key = rkey;
 }
 
-Flag entering = NO;     /* set if e is in the param () routine. */
-			/* looked at by getkey1() */
 #ifdef  SYSSELECT
 #ifdef COMMENT
 static unsigned Short
@@ -2093,7 +2242,7 @@ static Short ccmdl = 0; /* allocated space in *ccmdp */
 static Short ccmdlen;
 
 static Short ccmdpos;   /* insertion position */
-static Scols ccmdbg;    /* begining of the command line s^tring */
+static Scols ccmdbg;    /* begining of the command line string */
 static int   ccmdoffset;/* offset in cmd string of the 1st visible char */
 
 
@@ -2101,6 +2250,23 @@ static char *lcmdp;
 static Short lcmdl = 0; /* allocated space in *lcmdp */
 static Short lcmdlen;
 
+/* get a copy of the current command line string */
+/* --------------------------------------------- */
+
+int getccmd (char *strg, int strg_sz, int *pos_pt)
+{
+    int sz;
+
+    if ( !strg ) return 0;
+    if ( strg_sz <= 0 ) return 0;
+    memset (strg, 0, strg_sz);
+
+    ccmdp [ccmdlen] = '\0';
+    strncpy (strg, ccmdp, strg_sz -1);
+    if ( pos_pt ) *pos_pt = ccmdpos;
+    sz = strlen (strg);
+    return sz;
+}
 
 
 static const char cmd_prompt [] = "CMD: ";
@@ -2221,13 +2387,13 @@ static void putch_cmd (chr)
 /* cmd_insert : insert a string in the command string at current position */
 /* ---------------------------------------------------------------------- */
 
-static int cmd_insert (int wlen, char *name_expantion)
+int cmd_insert (int wlen, char *name_expantion)
 {
     int i;
 
     if ( wlen <= 0 ) return 0;
 
-    /* make sure alloced space is big enough */
+    /* make sure allocated space is big enough */
     if (ccmdlen + wlen >= ccmdl)
 	ccmdp = gsalloc (ccmdp, ccmdlen, ccmdl = ccmdlen + wlen + LPARAM, YES);
     /* make room for insertion */
@@ -2245,7 +2411,7 @@ static int cmd_insert (int wlen, char *name_expantion)
 /* cmd_fname_expantion : insert a file name extension (do not double '/') */
 /* ---------------------------------------------------------------------- */
 
-static int cmd_fname_expantion (int wlen, char *name_expantion)
+int cmd_fname_expantion (int wlen, char *name_expantion)
 {
     int wl;
 
@@ -2283,6 +2449,13 @@ static void cmd_delete (int wlen)
 
 static void push_in_cmdline (Flag clean_msg)
 {
+    if ( (ccmdpos > 0) && (ccmdp [ccmdpos -1] == ESCCHAR) ) {
+	if ( (key >= '\100') && (key < '\177') ) {
+	    key &= '\137';
+	} else {
+	    return;
+	}
+    }
     if ( insmode && (ccmdpos < ccmdlen) ) {
 	memmove (&ccmdp[ccmdpos +1], &ccmdp[ccmdpos], (ccmdlen++ - ccmdpos));
 	ccmdp[ccmdpos++] = key;
@@ -2296,6 +2469,80 @@ static void push_in_cmdline (Flag clean_msg)
 	else putch_cmd (key);
     }
 }
+
+/* Expand the given keyword in editor command line */
+/* ----------------------------------------------- */
+
+static int expd_keyword_name (int pos, S_looktbl *table, int *val_pt, Flag max_flg)
+/*
+ *  pos is the index of the 1st char of key word in the command line "ccmdp"
+ *  if max_flg is true : return the longest keyword
+ *  return :
+ *      -2 : ambiguous keyword
+ *      -1 : keyword not found in table
+ *       0 : nothing done
+ *       1 : keyword expanded
+ *    *val_pt : the keyword value (from table)
+ */
+{
+    char * name_expantion;
+    char strg[256];     /* must be large enough : see MAXLUPN in e.pa.c */
+    char * keyword;
+    int cc, wlen, idx, val;
+    int delta_pos, pos1, pos2;
+
+    /* outside command line ? */
+    if ( (pos < 0) || (pos >= ccmdlen) ) return 0;
+
+    cc = check_keyword (NULL, pos, table, 1, &pos2, &name_expantion,
+			&wlen, &idx, max_flg);
+    if ( cc == -2 ) return -2;      /* ambiguous keyword */
+    if ( cc == -1 ) return -1;      /* keyword not found */
+    val = table[idx].val;
+    if ( val_pt ) *val_pt = val;
+    if ( (cc <= 0) || (wlen == 0) ) return 0;   /* nothing to do */
+
+    /* move the cursor at end of command name abreviation */
+    delta_pos = ccmdpos - pos2;
+    if ( delta_pos ) {
+	ccmdpos -= delta_pos;
+	move_cursor (-delta_pos, NO);
+    }
+
+    /* now expand the keyword in command line*/
+    (void) cmd_insert (wlen, name_expantion);
+
+    /* move back the cursor at the same relative position */
+    if ( delta_pos < 0 ) delta_pos -=wlen;
+    if ( delta_pos ) {
+	ccmdpos += delta_pos;
+	move_cursor (delta_pos, NO);
+    }
+    return 1;   /* done */
+}
+
+int expand_keyword_name (int pos, S_looktbl *table, int *val_pt)
+{
+    return expd_keyword_name (pos, table, val_pt, NO);
+}
+
+int expand_max_keyword_name (int pos, S_looktbl *table, int *val_pt)
+{
+    return expd_keyword_name (pos, table, val_pt, YES);
+}
+
+
+/* Expand the editor command name (1st param) in command window */
+
+static int expand_cmd_line_para ()
+{
+    extern S_looktbl cmdtable [];
+    int cc;
+
+    cc = expand_keyword_name (0, cmdtable, NULL);
+    return cc;
+}
+
 
 #ifdef COMMENT
 void
@@ -2322,13 +2569,22 @@ param ()
     The pointer is left in the global variable paramv, and
     its alloced length in bytes (not string length) in ccmdl.
 #endif
-void
-param ()
+
+void param ()
+{
+    void re_param (Flag);
+    re_param (NO);
+}
+
+
+void re_param (Flag uselast)
+/*  uselast */              /* re-use the last command string */
 {
     extern void clear_namelist ();
-    extern int get_next_name ();
+    extern void clear_ambiguous_param ();
+    extern int get_next_file_name ();
     extern void key_resize ();
-    extern int command_file ();
+    extern int command_class ();
 
     long seek_point;        /* position on entry in param in keyfile */
     int old_wlen;           /* insert file name expension */
@@ -2347,7 +2603,6 @@ param ()
 
     Flag all_cmdflg, previous_all_cmdflg;   /* only CCCMD keys */
     Flag cmdflg, previous_cmdflg;   /* previous and pervious previous key was CCCDM */
-    Flag uselast;                   /* re-use the last command string */
     Flag clean_msg;                 /* hold cmd line until next key input */
     Flag prchar_flg;                /* put key value in the command line */
     Flag done_flg;                  /* completion of the main for loop */
@@ -2359,6 +2614,8 @@ param ()
     Flag file_navig_cont_flg;           /* continue file navigation */
     Flag previous_file_navig_flg;
     Flag file_navig_enter_flg;          /* to enter in file navigation */
+    Flag ambiguous_flg;                 /* tab processing found something ambiguous */
+    int cmd_class;                      /* command class for ambiguous processing */
 
     /* for file navigation */
     char * file_cmd_strg;               /* cmd string for file navigation */
@@ -2387,7 +2644,8 @@ param ()
     exchgcmds ();
 
     parmstrt_flg = YES;
-    uselast = used_file_flg = NO;
+    used_file_flg = NO;
+    ambiguous_flg = NO;
     key_cnt = previous_key_cnt = 0;
     previous_all_cmdflg = all_cmdflg = YES;
     cmdflg = previous_cmdflg = cmd_file_flg = NO;
@@ -2396,9 +2654,11 @@ param ()
     hist_flg = previous_hist_flg = hist_cont_flg = NO;
     file_navig_flg = file_navig_cont_flg = previous_file_navig_flg = NO;
     file_navig_enter_flg = ( key == CCFNAVIG );
+    cmd_class = NOT_CMD_CLASS;
 
     /* Main get command line loop */
     for ( done_flg = NO ; ! done_flg ; keyused = YES ) {
+	if ( key != CCTAB ) ambiguous_flg = NO;
 	if ( ! keep_previous_flg ) {
 	    cmdflg = ((unsigned) key == CCCMD);
 	    all_cmdflg = all_cmdflg && cmdflg;
@@ -2460,6 +2720,23 @@ param ()
 		putmsg ();
 		all_cmdflg = NO;
 		if ( ccmdlen ) check_history_get (ccmdp);   /* version 19.57 */
+
+		/* rebuild ambiguous info and the file names list if any */
+		cmd_class = process_tab_in_cmd (cmdflg, &old_wlen,
+						&done_flg,
+						&used_file_flg,
+						&cmd_file_flg,
+						&ambiguous_flg);
+		if ( ambiguous_flg && (old_wlen > 0) &&
+		     ((cmd_class == FILE_CMD_CLASS) ||
+		      (cmd_class == DIR_CMD_CLASS)) ) {
+		    /* if something added, remove it */
+		    extern void reset_namelist_idx ();
+		    cmd_delete (old_wlen);
+		    old_wlen = 0;
+		    reset_namelist_idx ();
+		}
+		ambiguous_flg = done_flg = NO;
 	    }
 	    else {
 		/* keyfile write position, for file expension and CCINT */
@@ -2507,14 +2784,14 @@ param ()
 	    ccmdp = gsalloc (ccmdp, ccmdlen, ccmdl += LPARAM, YES);
 	ccmdp [ccmdlen] = '\0';
 
-	/* look for navigation in expended file name list */
 	if ( ((unsigned) key == CCMOVEUP) || ((unsigned) key == CCMOVEDOWN) ) {
+	    /* look for navigation in expanded file name list */
 	    int delta, wlen;
 	    Flag beep, cont;
 
 	    cont = beep = YES;  /* default beep and go back in the for loop */
 	    delta = ((unsigned) key == CCMOVEUP) ? -1 : 1;
-	    wlen = get_next_name (delta, &file_name_expantion);
+	    wlen = get_next_file_name (delta, &file_name_expantion);
 	    if ( wlen == -3 ) {
 		/* only one name in the list */
 		if ( delta > 0 ) {
@@ -2532,19 +2809,23 @@ param ()
 		    old_wlen = cmd_fname_expantion (wlen, file_name_expantion);
 		}
 	    } else if ( wlen == -5 ) {
-		/* nothing selected */
+		/* nothing in file navigation list */
 		cont = beep = cmd_file_flg;
 	    }
 
 	    if ( beep ) putchar ('\007');
 	    if ( cont ) {
+		/* in navigation, continue to get command */
 		clean_msg = NO;
 		continue;
 	    }
 	} else {
 	    /* no navigation, clear list */
-	    clear_namelist ();
-	    old_wlen = 0;
+	    if ( ((unsigned) key != CCTAB) || !ambiguous_flg ) {
+		clear_ambiguous_param ();
+		clear_namelist ();
+		old_wlen = 0;
+	    }
 	}
 
 	if ( CTRLCHAR ) {
@@ -2588,12 +2869,18 @@ param ()
 
 		case CCINT:
 		    /* do this whether or not preceded by <CMD> key */
+#if 0
+		    if ( (ccmdpos > 0) && (ccmdp [ccmdpos -1] == ESCCHAR) ) {
+			/* remove interrupted quoted char */
+			cmd_delete (1);
+		    }
+#endif
 		    if ( ccmdlen > 0 ) {
 			/* we have generated something we may want to call back */
 			if ( used_file_flg ) {
 			    /* a file para could have been expanded,
-			       simulate the input in keyfile to save data
-			    */
+			     *  simulate the input in keyfile to save data
+			     */
 			    int i;
 			    (void) fseek (keyfile, seek_point, SEEK_SET);
 			    for ( i = 0 ; i < ccmdlen ; i++ ) putc (ccmdp[i], keyfile);
@@ -2614,9 +2901,9 @@ param ()
 			break;
 		    }
 		    /* to force that what was just saved will be use as
-		       last command during the done processing.
-		       If ccmdlen is not set to 0, this is not true
-		    */
+		     *  last command during the done processing.
+		     *  If ccmdlen is not set to 0, this is not true
+		     */
 		    ccmdlen = 0;
 		    break;
 
@@ -2629,51 +2916,67 @@ param ()
 		    done_flg = NO;
 		    break;
 
-		case CCTAB:     /* expand file name ? */
+		case CCTAB:     /* expand file name or command ? */
 		    {
-			extern int expand_file_para ();
-			extern void incr_fname_para_sz ();
-			char *file_para;
-			char chr;
-			char strg[1024];
-			int i, nb, nbentr, wlen, dir_flg;
+			extern int process_tab_in_cmd (
+			    Flag cmdflg, int *old_wlen_pt, Flag *done_flg_pt,
+			    Flag *used_file_flg_pt, Flag *cmd_file_flg_pt,
+			    Flag *ambiguous_flg_pt);
 
-			old_wlen = 0;
-			ccmdp[ccmdlen] = '\0';
-			memset (strg, 0, sizeof(strg));
-			strncpy (strg, ccmdp, sizeof(strg)-1);
-			if ( ccmdpos < sizeof(strg) ) strg[ccmdpos] = '\0';
+			static int cmd_class = NOT_CMD_CLASS;
+			Flag break_flg;
 
-			cmd_file_flg = NO;
-			file_para = NULL;
-			if ( command_file (strg, &file_para, NULL) ) {
-			    /* the command could use a file name para */
-			    used_file_flg = YES;
-			    if ( file_para ) {
-				nbentr = expand_file_para (file_para, &file_name_expantion, &wlen, &dir_flg);
-				if ( nbentr > 0 ) {
-				    nb = cmd_fname_expantion (wlen, file_name_expantion);
-				    incr_fname_para_sz (nb);
-				    if ( dir_flg && (nb == 0) ) {
-					/* nothing more displayed, display the 1st entry */
-					wlen = get_next_name (1, &file_name_expantion);
-					if ( wlen > 0 ) old_wlen = cmd_fname_expantion (wlen, file_name_expantion);
-				    }
-				}
-				if ( nbentr > 1 ) putchar ('\007');
-				cmd_file_flg = YES;
+			if ( ambiguous_flg ) {
+			    /* previous key (tab) had detected an ambiguous parameter */
+			    break_flg = NO;
+			    switch (cmd_class) {
+				case -1 :
+				case -2 :
+				    /* ambiguous command */
+				    done_flg = YES;
+				    key = CCHELP;
+				    break_flg = YES;
+				    break;
+
+				case NOT_CMD_CLASS :
+				    break;
+
+				case FILE_CMD_CLASS :
+				case DIR_CMD_CLASS  :
+				case HELP_CMD_CLASS :
+				case ARG_CMD_CLASS :
+				    /* simulate a HELP key stroke to display
+				     *  the list of matching keywords.
+				     */
+				    done_flg = YES;
+				    key = CCHELP;
+				    break_flg = YES;
+				    if ( (old_wlen > 0) &&
+					 ((cmd_class == FILE_CMD_CLASS) ||
+					  (cmd_class == DIR_CMD_CLASS)) )
+					cmd_delete (old_wlen);
+				    break;
+
+				default :
+				    ;
 			    }
-			} else {
-			    /* not a command requesting a file name para */
-			    if ( ! cmdflg ) {
-				if ( file_para && *file_para ) sfree (file_para);
-				file_para = NULL;
-				break;
-			    }
+			    ambiguous_flg = NO;
+			    if ( break_flg ) break;
 			}
-			if ( file_para && *file_para ) sfree (file_para);
-			file_para = NULL;
-			done_flg = NO;
+
+			/* try to expand the command name and call processing */
+			(void) expand_cmd_line_para ();
+			ccmdp [ccmdlen] = '\0';
+			old_wlen = 0;
+			cmd_class = process_tab_in_cmd (cmdflg, &old_wlen,
+							&done_flg,
+							&used_file_flg,
+							&cmd_file_flg,
+							&ambiguous_flg);
+			if ( cmd_class < 0 ) {
+			    ambiguous_flg = YES;
+			    done_flg = NO;
+			}
 			break;
 		    }
 
@@ -2824,7 +3127,7 @@ param ()
 		case CCFNAVIG:
 		    if ( !cmdflg && !hist_flg && !file_navig_flg ) {
 			if ( ! ccmdlen ) break;
-			if ( ! command_file (ccmdp, &file_para, &cmdval) )
+			if ( command_class (ccmdp, &file_para, &cmdval) != 1 )
 			    break;
 			if ( (cmdval != CMDEDIT) || (file_para && *file_para) )
 			    break;
@@ -2877,6 +3180,10 @@ param ()
 		    done_flg = NO;
 		    break;
 
+		case CCHELP:
+		    /* in any case do help processing */
+		    done_flg = YES;
+		    break;
 
 #if 0
 /* can be an alternative */
@@ -2963,7 +3270,7 @@ param ()
 	int i;
 	(void) fseek (keyfile, seek_point, SEEK_SET);
 	for ( i = 0 ; i < ccmdlen ; i++ ) putc (ccmdp[i], keyfile);
-	key_resize ();  /* for the case where a resize was done during file xpension */
+	key_resize ();  /* for the case where a resize was done during file expansion */
 	putc (key, keyfile);
     }
 
@@ -3119,6 +3426,18 @@ limitcursor ()
     return;
 }
 
+
+static void my_put_char (Short chr)
+{
+    if ( ISCTRLCHAR(chr) ) {
+	putch (ESCCHAR, NO);
+	if (chr != ESCCHAR)
+	    putch ((chr & 037) | 0100, NO);
+    }
+    else putch (chr, NO);
+}
+
+
 /* image of the full info line */
 static char info_line [MAXWIDTH +1];
 
@@ -3135,11 +3454,12 @@ rand_info (column, ncols, msg)
     the old message is blanked out.
 #endif
 void
-rand_info (column, ncols, msg)
+rand_info (column, ncols, usr_msg)
 Scols column;
 Scols ncols;
-char *msg;
+char *usr_msg;
 {
+    char *msg;
     Short chr;
     S_window *oldwin;
     Scols  oldcol;
@@ -3147,6 +3467,7 @@ char *msg;
     char * infl;
     int sz;
 
+    msg = usr_msg ? usr_msg : "";
     if ( column >= sizeof (info_line) ) return;
 
     if ( ! info_line [0] ) memset (info_line, ' ', sizeof (info_line));
@@ -3160,25 +3481,20 @@ char *msg;
     memcpy (infl, msg, sz);
     info_line [sizeof (info_line) -1] = '0';
 
+    if ( column > infowin.redit ) return;
+
     /* save old window info   */
     oldwin = curwin;
     oldcol = cursorcol;
     oldlin = cursorline;
 
     switchwindow (&infowin);
+    if ( ncols > (infowin.redit - column) ) ncols = infowin.redit - column;
     poscursor (column, 0);
     for ( ; cursorcol < infowin.redit && (chr = *msg++) ; ncols-- ) {
-	if (040 <= chr && chr < 0177) {
-	    putch (chr, NO);
-	} else {
-	    putch (ESCCHAR, NO);
-	    if (chr != ESCCHAR) {
-		putch ((chr & 037) | 0100, NO);
-	    }
-	}
+	my_put_char (chr);
     }
-
-    multchar (' ', ncols);
+    if ( ncols > 0 ) multchar (' ', ncols);
     switchwindow (oldwin);
     poscursor (oldcol, oldlin);
     return;
@@ -3307,13 +3623,7 @@ unsigned char *msg1,*msg2,*msg3,*msg4,*msg5,*msg6,*msg7;
             if ( ! cp ) continue;
 	    if (to_image) {
 	        for ( ; cursorcol < enterwin.redit && (chr = *cp) ; cp++ ) {
-		    if ((040 <= chr && chr < 0177) || chr == 7)
-		        putch (chr, NO);
-		    else {
-		        putch (ESCCHAR, NO);
-		        if (chr != ESCCHAR)
-			    putch ((chr & 037) | 0100, NO);
-		    }
+		    my_put_char (chr);
 	        }
 	    }
 	    else {

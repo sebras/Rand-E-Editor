@@ -9,16 +9,9 @@ char   *tmppath,
        *ttynstr,
 	scratch[];
 
-#define VRSCHAR 1   /* index of the version number into the following names */
-extern
-char    tmpnstr[],                /* they are initialized in e.x         */
-	keystr[],
-	bkeystr[],
-	rstr[];
-
 extern
 char   *keytmp,
        *bkeytmp,
-       *rfile,          /* strt file name and backup name */
+       *rfile,      /* state file name and backup name */
        *brfile,
        *inpfname;

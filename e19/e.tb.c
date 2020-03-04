@@ -18,7 +18,7 @@ Short   pstabs;         /* num of new tabstops alloced */
 
 extern void alcptabs ();
 extern void tabevery ();
-extern void stclptabs ();
+       void stclptabs ();
 extern void sctab ();
 
 #ifdef COMMENT

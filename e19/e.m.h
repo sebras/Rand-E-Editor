@@ -13,7 +13,9 @@ extern char *opstr;     /* first word in cmdopstr from a call to getword () */
 extern char *nxtop;     /* next word after opstr - use for further getwords */
 
 /* commands: <arg> command <ret> */
-#define CMD_MARK        0
+    /* the value 0 must not be used,
+       see command (forcecmd, forceopt) function in e.cm.c
+    */
 #define CMDCHWINDOW     1
 #define CMDEXIT         2
 #define CMDLOGOUT       3
@@ -36,6 +38,7 @@ extern char *nxtop;     /* next word after opstr - use for further getwords */
 #define CMD_SPLIT       18
 #define CMDPRINT        19
 #define CMDCOMMAND      20
+#define CMD_MARK        21
 #define CMD_PICK        26 /************************************/
 #define CMD_CLOSE       27 /*  these three must be consecutive */
 #define CMD_ERASE       28 /************************************/
@@ -110,11 +113,12 @@ extern char *nxtop;     /* next word after opstr - use for further getwords */
 #define CMDCD           114  /* change current directory */
 #define CMDSTATUS       115  /* help status equivalent */
 #define CMDSHFILES      116  /* display the curent files list */
-#define CMDBKBFILE      117  /* interactively build a mapping file */
+#define CMDBKBFILE      117  /* interactively build a kb file (keyboard functions assignement) */
 #define CMDFLIPBKAR     118  /* flip BackArrow key between 'del' and 'dchar' */
 #define CMDTICK         119  /* set a tick at current position */
 #define CMD_TICK        120  /* unset tick in current file */
 #define CMDQTICK        121  /* display tick state */
+#define CMDBKBMAP       122  /* interactively build a keyboard map file */
 
 
 

@@ -12,10 +12,10 @@ file e.f.c
 #include <sys/stat.h>
 #include <string.h>
 
+extern char * xdir_err;     /* previously called deffile */
 extern void fwrprep ();
 extern void freset ();
-extern void eddeffile ();
-
+       void eddeffile ();
 
 
 #ifdef COMMENT
@@ -318,8 +318,6 @@ void
 eddeffile (puflg)
 Flag puflg;
 {
-    extern char * xdir_err;     /* previously called deffile */
-
     if (editfile (xdir_err, (Ncols) 0, (Nlines) 0, 0, puflg) <= 0)
 	mesg (ERRALL + 1, "Default file gone: notify sys admin.");
     else {
@@ -327,4 +325,15 @@ Flag puflg;
 	fileflags[curfile] &= ~CANMODIFY;
     }
     return;
+}
+
+Flag is_eddeffile (Fn fn)
+{
+    int cc;
+
+    if ( !(fileflags[fn] & INUSE) ) return NO;
+    if ( (fileflags[fn] & CANMODIFY) ) return NO;
+    if ( ! names[fn] ) return NO;
+    cc = strcmp (names[fn], xdir_err);
+    return ( cc == 0 );
 }

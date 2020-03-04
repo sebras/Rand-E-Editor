@@ -36,6 +36,7 @@
 
 #include <stdio.h>
 #include <sys/types.h>
+#include <stdlib.h>
 
 #ifdef HAVE_UNISTD_H
 # include <unistd.h>
@@ -118,7 +119,7 @@ static char hostname [MAXHOSTNAMELEN + 1];
 /* Returns the canonical hostname associated with HOST (allocated in a static
    buffer), or 0 if it can't be determined.  */
 char *
-canon_host (char *host, char *loopback)
+canon_host (char *host, char *loopback, char *** aliases_pt)
 {
 #ifdef HAVE_GETHOSTBYNAME
   struct hostent *he, *lohe;
@@ -156,8 +157,10 @@ canon_host (char *host, char *loopback)
 	he = gethostbyaddr (he->h_addr, he->h_length, he->h_addrtype);
 # endif /* HAVE_GETHOSTBYADDR */
 
-      if (he)
+      if (he) {
+	if ( aliases_pt ) *aliases_pt = he->h_aliases;
 	return (char *) (he->h_name);
+      }
     }
 #endif /* HAVE_GETHOSTBYNAME */
   return 0;
@@ -188,7 +191,8 @@ search_entries (int n, char *line)
   return NULL;
 }
 
-static char * get_this_host (STRUCT_UTMP *this, char **display_pt, char *loopback)
+static char * get_this_host (STRUCT_UTMP *this, char **display_pt,
+			     char *loopback, char *** aliases_pt)
 {
   char *host, *display;
 
@@ -210,7 +214,7 @@ static char * get_this_host (STRUCT_UTMP *this, char **display_pt, char *loopbac
 
       if (*ut_host)
 	/* See if we can canonicalize it.  */
-	host = canon_host (ut_host, loopback);
+	host = canon_host (ut_host, loopback, aliases_pt);
       if (! host)
 	host = ut_host;
     }
@@ -224,10 +228,11 @@ static char * get_this_host (STRUCT_UTMP *this, char **display_pt, char *loopbac
 static void
 print_entry (STRUCT_UTMP *this)
 {
+  int i;
   struct stat stats;
   time_t last_change;
   char mesg;
-  char *host, *display;
+  char *host, *display, **aliases;
 
 # define DEV_DIR_WITH_TRAILING_SLASH "/dev/"
 # define DEV_DIR_LEN (sizeof (DEV_DIR_WITH_TRAILING_SLASH) - 1)
@@ -275,12 +280,16 @@ print_entry (STRUCT_UTMP *this)
   printf (" %-12.12s", ctime (&tm) + 4);
 
   host = display = NULL;
-  host = get_this_host (this, &display, NULL);
+  host = get_this_host (this, &display, NULL, &aliases);
   if ( host ) {
     if (display)
       printf (" (%s:%s)", host, display);
     else
       printf (" (%s)", host);
+    if ( aliases ) {
+	for ( i = 0 ; aliases [i] ; i++ ) ;
+	if ( i > 0 ) printf ("\n  Alias : \"%s\"", aliases [i -1]);
+    }
   }
   putchar ('\n');
 }
@@ -329,7 +338,7 @@ read_utmp (char *filename)
  */
 
 char * from_host (char **hostname_pt, char **display_pt,
-		  char *loopback)
+		  char *loopback, char *** aliases_pt)
 {
   register STRUCT_UTMP *utmp_entry;
   char *tty, *host;
@@ -353,7 +362,7 @@ char * from_host (char **hostname_pt, char **display_pt,
     return NULL;
 
   host = NULL;
-  host = get_this_host (utmp_entry, display_pt, loopback);
+  host = get_this_host (utmp_entry, display_pt, loopback, aliases_pt);
   return host;
 }
 
@@ -388,13 +397,53 @@ who_am_i (char *filename)
 #ifdef TEST_WHO
 int main (int argc, char **argv)
 {
-    char *hostname, *host, *display;
+    static char loopback [] = "127.0.0.1";
 
-    host = from_host (&hostname, &display);
-    printf ("hostname \"%s\", host \"%s\", display \"%s\"\n",
+    int i, sz;
+    char *hostname, *host, *display, **aliases;
+    char *name, *str, *str1;
+
+    host = from_host (&hostname, &display, loopback, &aliases);
+    printf ("local hostname \"%s\", remote host \"%s\", display \"%s\"\n",
 	    hostname, host, display);
+    if ( aliases ) {
+	for ( i = 0 ; aliases [i] ; i++ ) ;
+	if ( i > 0 ) printf ("  Alias : \"%s\"\n", aliases [i -1]);
+    }
 
     who_am_i (UTMP_FILE);
+    fputc ('\n', stdout);
+
+    name = NULL;
+    if ( (argc > 1) && argv [1] ) str = argv [1];
+    else {
+	str = getenv ("SSH_CLIENT");
+	if ( str ) printf ("ssh session : %s\n", str);
+	}
+    if ( str ) {
+	str1 = strchr (str, ' ');
+	if ( !str1 ) str1 = &str[strlen (str)];
+	if ( str1 ) {
+	    sz = str1 - str;
+	    name = malloc (sz +1);
+	    if ( name ) {
+		strncpy (name, str, sz);
+		name [sz] = '\0';
+	    }
+	}
+    }
+    if ( name ) {
+	printf ("Look for the name of : %s\n", name);
+	host = canon_host (name, NULL, &aliases);
+	if ( host ) {
+	    printf ("Canonical name for \"%s\" = \"%s\"\n", name,  host);
+	    if ( aliases ) {
+		for ( i = 0 ; aliases [i] ; i++ ) ;
+		if ( i > 0 ) printf ("  Alias : \"%s\"\n", aliases [i -1]);
+	    }
+	}
+	else printf ("Nothing for \"%s\"\n", name);
+    }
     exit (0);
 }
 #endif /* TEST_WHO */

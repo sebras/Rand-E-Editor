@@ -16,9 +16,13 @@ file e.u.c
 #include <pwd.h>
 #include <unistd.h>
 
-       void doedit ();
+static void doedit ();
 extern char *getmypath ();
        char *ExpandName ();
+extern Flag reset_impl_tick ();
+extern Cmdret remove_file (Fn fn);
+
+static Fn getnxfn ();
 
 /* variables used to list the edited file */
 static int term_width, term_height; /* current display size */
@@ -103,9 +107,9 @@ static void display_line (char *fname, char *str, int size, Flag video_flg)
 static int one_edited_file (int fi, int iv_fi, Flag clr_flg)
 {
     /* iv_fi : define for which file nb fi, the display must be in inverted
-       video mode, if iv_fi < 0 : inverted video for the Normal edited file
-       If iv_fi > MAXFILES the video will be normale
-    */
+     * video mode, if iv_fi < 0 : inverted video for the Normal edited file
+     * If iv_fi > MAXFILES the video will be normale
+     */
     extern char * fileslistString ();
     extern char * filestatusString ();
     extern S_term term;
@@ -116,10 +120,12 @@ static int one_edited_file (int fi, int iv_fi, Flag clr_flg)
     char ch, ch1, *wstg, *fname, *strg;
     char str[256];
     char *pt1, *pt2;
+    short flflags;
 
     i0 = FIRSTFILE + NTMPFILES;
     if ( (fi >= MAXFILES) || (fi < i0) ) return -1;
-    if ( !(fileflags[fi] & INUSE) ) return -1;
+    flflags = fileflags[fi];
+    if ( !(flflags & INUSE) || (flflags & DELETED) ) return -1;
 
     term_sz = term_width;
     if ( term_sz > (sizeof (str) -1) ) term_sz = sizeof (str) -1;
@@ -362,6 +368,10 @@ edit ()
 	cc = displayfiles (NO);
 	return cc;
     }
+    if ( (sz == 1) && (*opstr == '-') ) {
+	cc = remove_file (curfile);
+	return cc;
+    }
 
     if (*nxtop) {
 	/* for the case of DOS file name which can include space char ! */
@@ -427,7 +437,7 @@ Flag    puflg;
     La_stream  tlas;
     La_stream *nlas;
     char *dir = NULL;
-    register Fn newfn;
+    Fn newfn;
     int nlink;
     Flag    nameexpanded = NO;  /* "~/file"  or "~user/file" */
 #ifdef SYMLINKS
@@ -462,8 +472,9 @@ Flag    puflg;
      *  Deal with symbolic links
      */
     Block {
-	    register char *cp;
-	    char *ReadSymLink();
+	char *cp;
+	static char *ReadSymLink (char *);
+
 	cp = ReadSymLink (file);
 	if (cp == NULL) {
 	    retval = 0;
@@ -500,7 +511,7 @@ Flag    puflg;
 	if ((j = dircheck (file, &dir, (char **) 0, NO, YES)) == -1)
 	    Goret (0);
 
-/* 3/7/84 changed to handle null directory */
+	/* 3/7/84 changed to handle null directory */
 	if (dir == NULL || *dir == 0)
 	    dwriteable = access (".", 2) >= 0; 
 	else
@@ -581,7 +592,7 @@ Flag    puflg;
 		loopflags.hold = YES;
 	    }
 #ifdef SYMLINKS
-	    if (wassymlink) {
+	    if ( wassymlink ) {
 		mesg (3, " [symbolic link from ", origfile, "]" );
 		loopflags.hold = YES;
 		if (nameexpanded)
@@ -590,7 +601,9 @@ Flag    puflg;
 	    }
 #endif
 	    mesg (TELDONE);
+#if 0       /* do not remove message !!! */
 	    d_put (0);
+#endif
 	    if (dwriteable)
 		fileflags[newfn] |= DWRITEABLE;
 	    if (fwriteable)
@@ -632,6 +645,7 @@ Flag    puflg;
 	else
 	    Goret (-1);
 	names[newfn] = append (file, "");
+	if ( cwdfiledir [newfn] ) sfree (cwdfiledir [newfn]);
 	cwdfiledir [newfn] = NULL;
 	cwd = getcwd (cwdbuf, sizeof (cwdbuf));
 	if ( cwd ) cwdfiledir [newfn] = append (cwdbuf, "");
@@ -658,9 +672,12 @@ editit:
     }
     limitcursor ();
     poscursor (curwksp->ccol, curwksp->clin);
+    if ( (line != -1) || (col != -1) ) {
+	/* set initial value of previous cursor */
+	savemark (&curwksp->wkpos);
+	infosetmark ();
+    }
     retval = 1;
-    savemark (&curwksp->wkpos);
-    infosetmark ();
 
 ret:
 #ifdef SYMLINKS
@@ -677,7 +694,7 @@ ret:
 }
 
 #ifdef COMMENT
-void
+static void
 doedit (fn, line, col)
     Fn      fn;
     Nlines  line;
@@ -688,15 +705,15 @@ doedit (fn, line, col)
     If 'line' != -1 make it the line number of the current workspace;
     Similarly for 'col'.
 #endif
-void
+static void
 doedit (fn, line, col)
 Fn fn;
 Nlines  line;
 Ncols   col;
 {
-    register S_wksp *lwksp;
-    register S_wksp *cwksp;
+    S_wksp *lwksp, *cwksp;
 
+    (void) reset_impl_tick ();
     if (curfile == deffn) {
 	/* insure that the new altwksp will be null */
 	releasewk (curwin->wksp);
@@ -705,11 +722,12 @@ Ncols   col;
     releasewk (curwin->altwksp);
     exchgwksp (NO);
     lwksp = &lastlook[fn];
-    if (line != -1)
-	lwksp->wlin = line;       /* line no of upper-left of screen */
-    if (col != -1)
-	lwksp->wcol = col;        /* col no of column 0 of screen */
     cwksp = curwksp;
+    cwksp->wkpos = lwksp->wkpos;    /* restaure the previous position */
+    if (line != -1)
+	lwksp->wlin = line;     /* line no of upper-left of screen */
+    if (col != -1)
+	lwksp->wcol = col;      /* col no of column 0 of screen */
     cwksp->wlin = lwksp->wlin;
     cwksp->wcol = lwksp->wcol;
     cwksp->ccol = lwksp->ccol;
@@ -721,30 +739,34 @@ Ncols   col;
 }
 
 #ifdef COMMENT
-Fn
+static Fn
 getnxfn ()
 .
     Return the next file number that is not INUSE.
 #endif
-Fn
-getnxfn ()
+static Fn getnxfn ()
 {
     extern void marktickfile ();
     Fn fn;
+    S_wksp *lwksp;
 
-    for (fn = FIRSTFILE + NTMPFILES; fileflags[fn] & INUSE; )
-	if (++fn >= MAXFILES)
+    for ( fn = FIRSTFILE + NTMPFILES ; fileflags[fn] & INUSE ; )
+	if ( ++fn >= MAXFILES )
 	    fatal (FATALBUG, "Too many files");
 
     fileflags[fn] = INUSE;
+
+    /* clear cursor positions */
+    lwksp = &lastlook[fn];
     marktickfile (fn, NO);
+    memset (&lwksp->wkpos, 0, sizeof(lwksp->wkpos));
+    lwksp->wlin = lwksp->wcol = lwksp->ccol = lwksp->clin = 0;
     return fn;
 }
 
 
-
 #ifdef COMMENT
-char *
+static char *
 ReadSymLink (file)
 char *file
 .
@@ -756,21 +778,68 @@ char *file
 #endif
 
 #ifdef SYMLINKS
-char *
-ReadSymLink (file)
-char *file;
+
+
+/* read a link and build the file name, or return NO */
+static Flag follow_link (char *file, int sz)
 {
-    Reg1 int nc;
-    Reg2 char *cp;
+    int nc, nb;
+    char *cp;
+    char linkname [PATH_MAX];
+
+    memset (linkname, 0, sizeof (linkname));
+    /* documentation says readlink doesn't null terminate */
+    if ( (nc = readlink (file, linkname, sizeof(linkname) -1)) == -1 ) {
+	mesg (ERRALL + 2, "Can't read symbolic link ", file);
+	return NO;
+    }
+    if (*linkname == '/' || ((cp = rindex (file, '/')) == NULL))
+	strncpy (file, linkname, sz);
+    else {                  /* have a relative pathname */
+	*(cp +1) = '\0';
+	nb = sz - strlen (file);
+	strncat (file, linkname, nb);
+    }
+    file [sz-1] = '\0';
+    return (YES);
+}
+
+static char * ReadSymLink (char *file)
+{
+    char bld_name [PATH_MAX];
+    char *fname;
+    int nb;
+    struct stat sb;
+
+    if ( !file ) return NULL;
+
+    if ( lstat (file, &sb ) < 0 )
+	return file;
+    if ( (sb.st_mode & S_IFMT) != S_IFLNK ) /* not a symbolic link */
+	return file;
+
+    /* it is a symbolic link, go down to the actual file */
+    memset (bld_name, 0, sizeof (bld_name));
+    strcpy (bld_name, file);
+    for ( nb = 0 ; nb < 100 ; nb++ ) {
+	if ( ! follow_link (bld_name, sizeof (bld_name)) )
+	    return NULL;
+	if ( lstat (bld_name, &sb ) < 0 ) break;
+	if ( (sb.st_mode & S_IFMT) != S_IFLNK ) /* not a symbolic link */
+	    break;
+    }
+    fname = append (bld_name, "");
+    return (fname);
+
+#if 0
+    int nc;
+    char *cp;
     char linkname[150];
     struct stat sb;
-#if 0
-    char *rindex();
-#endif
 
     if (lstat (file, &sb) < 0)
 	return (file);
-    if ((sb.st_mode&S_IFMT) != S_IFLNK)         /* not a symbolic link */
+    if ( (sb.st_mode & S_IFMT) != S_IFLNK ) /* not a symbolic link */
 	return (file);
 
     if ((nc = readlink (file, linkname, sizeof(linkname))) == -1) {
@@ -790,6 +859,7 @@ char *file;
     }
 
     return (file);
+#endif
 }
 #endif
 

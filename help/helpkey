@@ -94,6 +94,8 @@ PICK - This key will cause the area described (see MARK) (default) or
     current cursor position.  Any text formerly residing there is moved
     down if the pick buffer contains whole lines, or to the right, if the
     buffer contains an area.
+~13
+RETURN - Return key, normaly assigned to <CR> carriage retun key.
 ~14
 UP ARROW - This key causes the cursor to be moved up one character
     position.  If the cursor was on the first line of the window, the
@@ -182,15 +184,32 @@ S/RTAB - This key causes a tab stop to be set at the column that the cursor
     is on.  If the key is preceeded by the CMD key, any tab stop at the
     cursor's location is reset.
 ~28
-CTRLQ - This key causes the next character (in the ascii range @-_) to be
-    converted into a control character (in the range NUL-US) and inserted
-    into the buffer, regardless of its meaning to the editor.  Normally,
-    the use of this key causes some kind of offbeat character to appear on
-    the screen, and then the letter itself.  For example, the sequence
-    CTRLQ-G causes a BEL character to be entered into the text.  When text
-    containing control characters is edited, the embedded control
-    characters are displayed in the same manner (the exception is HT
-    (ctrl-I), which is expanded to blanks by the editor).
+CTRLQUOTE - (cchar function) This key is used to enter control character into
+    buffer or to enter a character by its ASCII (or ISO 8859) code value.
+    1 - If the next character is in the ASCII range @-_ (0100-0137) it is
+      converted into a control character (in the range NUL-US) and inserted
+      into the buffer, regardless of its meaning to the editor.  Normally,
+      the use of this key causes some kind of offbeat character to appear on
+      the screen, and then the letter itself.  For example, the sequence
+      CTRLQUOTE-G causes a BEL character to be entered into the text.  When text
+      containing control characters is edited, the embedded control
+      characters are displayed in the same manner (the exception is HT
+      (ctrl-I), which is expanded to blanks by the editor).
+    2 - If the next character is in the range 0-9 (060-071) it is the
+      begining of a char defined by its code value. The value can be defined
+      as a decimal, octal or hexadecimal value, according to the Ansi C
+      constant defintion : a leading 0 mean an octal value, a leading 0x
+      (or 0X) means hexadecimal value. A maximum of 4 characters (octal or
+      hexadecimal) or 3 characters (decimal) can be entered to define the
+      value. To complete the entry before, a "space" or a "return" key can
+      be used.
+      In this way it is possible to enter any control character (in range
+      000-037) or any printable character from the ISO 8859 set (in range
+      040-0176 and 0240-0377). If Rand is compiled without the support for
+      8 bits characters (ISO 8859 char set) the range is restricted to
+      strict ASCII character set : 040-0176.
+      To display the current character set in use the command "help charset"
+      can be used.
 ~29
 -TAB - This character causes the cursor to be moved backwards to the next
     preceeding tab stop on the current line (default) or the specified
@@ -344,31 +363,73 @@ DWORD - This key will delete the next word.  If there's no text remaining
     on the current line, a search is made for the next word, and that
     word is deleted.
 ~155
-TICK - This key will set the file tick mark at the cursor's current location.
-    It is generally used to mark the current position in order to come
-    back latter at this position with the "goto tick" (or "goto t") command.
-    If preceeded by the CMD key, any tick mark set for the current file
-    is removed.
-~160
+TICK - This key is used to manipulate the tick marks.
+
+    There is 3 types of ticks wich can be set in a file.
+    - The explicit "tick mark", set by the key or by the tick command, reset
+      by the '-tick' command.
+    - The "previous position" set by the 'goto' command at the initial
+      position, or by the tick navigation key strock.
+    - The "transiant tick" mark is set on up and down window motion (with
+      '+page' or '-page' key) or during 'interactive replace' command or
+      'search' key or command.
+      It is reset - when it is used (by tick navigation key),
+      - when the cursor come back at the marked position,
+      - on window exchange by changing window key,
+      - on editing another file : the alternate file or any other file,
+      - by the 'int' key strocke,
+      - and when some printable character is entered into the editing window.
+      When the "transiant tick" is activated a '*' character is displayed
+      before the 'At' or 'ch' on info line at the bottom of the screen.
+    "tick mark" and "previous position" are shown by the '?tick' or 'tick ?'
+      commands.
+
+    A simple 'tick' key stroke (not after a 'cmd' key, and not during command
+      entry) result in tick navigation :
+      - if a "transiant tick" is active, goto the marked position, and erase
+	the "transiant tick". Initial position is not saved in the "previous
+	position" tick.
+      - else if a "tick mark" is set in the edited file, and the cursor is
+	not on the "tick mark" goto the marked position and save the
+	initial position in the "previous position".
+      - else if a "previous position" was defined, goto the marked position
+	and overwrite the "previous position" with the initial position.
+    This simple 'tick' key stroke provide a quick way to come back at the
+      starting point of a 'search' or 'interactive replace' sequence,
+      and to flip between the current position and marked (tick) position.
+
+    A 'tick' key stroke after a 'cmd' key or during a 'command entry'
+      (initiated by a 'cmd' key stroke),
+      - reset the "transiant tick" if active,
+      - or set the "tick mark" at the current active window cursor
+	position. If the command line is empty (not in 'command entry'),
+	an information message is generated, else a beep is generated.
+
+    Files "tick mark" and "previous position" are saved into (and restaured
+      from) the status file (.esX) on exit.
+~157
 FNAVIGATE - This key enter into the edited file list navigation mode,
     this is equivalent to 'edit <DOWN key>' key stroke.
     When in this mode, navigate in a turn around behaviour,
     when we cross in the file list the currently active window edited file,
     a beep is generated.
-~161
+~158
 FLIST - This key enter into the edited file list display mode,
     this is equivalent to 'edit ?' key stroke.
     When in this mode, the Up and DOWN key can be used to select the
     file to be the Normal edited file.
     Trying to cross the top or the bottom the edited file list generate a bip.
     Entering the file number from the keyboard is an alternated method.
-~184
+~159
     This key value can be used only for replay, (entry of resizing command).
 ~---------------------- End of the key section ---------------------
 
 `open
-OPEN (Insert Line) - This command causes a single blank line to be opened
-    above the cursor's current position.
+OPEN [ number ] [ linearea ]
+    [linearea] is the currently "MARKed" lines area.
+
+    Insert Line - This command causes a single (or multiple) blank line to
+    be opened (inserted) above the cursor's current position.
 
 `pick
 PICK - This command will cause the area described (see MARK) to be copied to
@@ -383,14 +444,14 @@ PUT - This command will  causes the contents of the the pick buffer
 
 `close
 CLOSE [ number ] [ linearea ]
+    [linearea] is the currently "MARKed" lines area.
+
     - delete lines or area.
     Without parameters the cursor line is deleted.
-
-    With "number" parameter number lines beginning at the cursor are deleted.
-
+    With "number" parameter, [number] lines beginning at the cursor are
+    deleted.
     With parameter "linearea" the specified number of paragraphs or lines
     are deleted.
-
     With a "marked area" and no parameters the area is deleted and the
     material to the right of the closed area will move to the left,
     filling it in.
@@ -508,6 +569,9 @@ EDIT [ filename ]
     To look at the current edited file list use the "e ?" command or
     look into the output of the "status" command.
 
+    "edit -" can be used to remove the active window file from the current
+    list of edited file (if it is not modified, nor referenced).
+
 `redraw
 REDRAW - This command will cause the screen to be redrawn.
 
@@ -556,17 +620,15 @@ COMMAND - Set the Editor in command mode.
 
 `erase
 ERASE [ number ] [ linearea ]
+    [linearea] is the currently "MARKed" lines area.
+
     - blank out lines or area.
 
     Without parameters the cursor line is blanked out (replaced by blanks).
-
-    With "number" parameter number lines beginning at the cursor are
+    With "number" parameter, [number] lines beginning at the cursor are
     blanked out.
-
     With parameter "linearea" the specified number of paragraphs or lines
     are blanked out.
-
-    With a "marked area" and no parameters the area is blanked out.
 
     The most recently blanked out information is kept in the erase buffer.
 
@@ -594,8 +656,18 @@ MARK - set a mark at the current cursor position
 -PRINT - This command is not implemented yet !
 
 `range
-RANGE [ number ] [ linearea ]
-    - define a range for search and replace.
+RANGE [ number ] [ linearea ] [ ? ]
+    [linearea] is the currently "MARKed" lines area.
+
+    - define (or show) a range for search and replace.
+    'range ?' show the currently defined range (idem to '?range').
+
+    The range is defined from the cursor position and expendand over
+	[number] lines.
+    Without parameter
+	if a mark area is defined [linearea], the range is this area
+	    which must be full lines, not a rectangle,
+	else any dormant range is reactivated.
     Searches and replaces are limited to the defined range. Number and
     linearea specify the range from the cursor. One of them must be given
     unless an area has been marked, then the range is the area.
@@ -607,18 +679,19 @@ RANGE [ number ] [ linearea ]
 `?range
 ?RANGE - show status of range.
     The status (current or dormant) and extent of the range is displayed.
+    '?range' same as  'range ?'
 
 `replace
 REPLACE [ number ] [ linearea ] [ show | interactive ] /texta/textb/
+    [linearea] is the currently "MARKed" lines area.
+
     - replace texta by textb from cursor and towards the end of the file.
 
     If a number or linearea are given, or if an area has been marked,
     the replacements are restricted to the area, otherwise they are made
     from the cursor position to the beginning of the file.
-
     If a range is in effect (set by the range command) the replacements
     are limited to the range.
-
     The show parameter will show the replacements on the screen as they
     take place.
 
@@ -636,6 +709,8 @@ REPLACE [ number ] [ linearea ] [ show | interactive ] /texta/textb/
 
 `-replace
 -REPLACE [ number ] [ linearea ] [ show | interactive ] /texta/textb/
+    [linearea] is the currently "MARKed" lines area.
+
     - replace texta by textb from cursor and towards the beginning of
     the file.
     Ref to the  "replace" command for detailled description of the parameters.
@@ -664,11 +739,14 @@ TABFILE [ filename ]
 TICK - set the file tick mark at the cursor's current location, to be used
     latter by the "goto tick" or "goto t" command.
 
+    'tick ?' show the defined tick status (idem to '?tick').
+
 `-tick
 -TICK - unset any tick mark in the current file.
 
 `?tick
 -?TICK - show the status of tick mark for the current file.
+    Same as 'tick ?'.
 
 `track
 TRACK - turn on tracking in the current window.
@@ -685,15 +763,23 @@ TRACK - turn on tracking in the current window.
 UPDATE [ inplace | -inplace ]
     - editor exit control command
     The update command tells the editor what to do on exit with the
-    current file.  The update command can be used to specify whether
-    or not to break links, the -update command causes any changes to
-    the current file to be ignored.
+    current file.
+    The -update command causes any changes to the current file to be
+    ignored.
+    The inplace, -inplace optional parameter can be used to specify
+    whether or not to break links.
+    The current status of the file can be displayed with the ?file
+    command.
 
 `-update
 -UPDATE [ inplace | -inplace ]
     - editor exit control command
     The -update command causes any changes to the current file to be
     ignored.
+    The inplace, -inplace optional parameter can be used to specify
+    whether or not to break links.
+    The current status of the file can be displayed with the ?file
+    command.
 
 `window
 WINDOW [ filename ]
@@ -718,7 +804,7 @@ WINDOW [ filename ]
 
 `set
 SET <option>
-    - set various internal paarmeter of the editor.
+    - set various internal parameter of the editor.
 
     Option :
     +line n     sets the <+line> key to n lines
@@ -732,6 +818,10 @@ SET <option>
     bell        enable the bell
     nobell      disable the bell
     hy          enables splitting of hyphenated words by fill/just
+    info n      what to display on info line: default 0
+		   -1, 0 = cursor position -1: line only, 0: line,column
+		    1, 2, 3 = ascii code of char at cursor position
+			      in octal, decimal or hexadecimal.
     nohy        disables splitting of hyphenated words by fill/just (default)
     left n      sets the <window left> key to n cols
     lmar n      sets the left margin to n
@@ -739,7 +829,7 @@ SET <option>
     rmar n      sets the right margin (linewidth) to n
     window n    sets the <window left> and <window right> keys to n cols
     width n     sets the linewidth to n cols (for fill, etc.)
-    wordelim "mode"     sets the action of the <+word> and <-word> keys.
+    worddelimiter "mode" sets the action of the <+word> and <-word> keys.
 		If mode is "whitespace" (the default), words are delimited
 		by blanks and newlines, and the cursor advances to the
 		first character following the delimiter.
@@ -747,11 +837,27 @@ SET <option>
 		characters in addition to blanks and newlines, and the
 		cursor advances to the first alphanumeric character
 		following the delimiter.
-    charset n   n = 0 resets to the default character set and non graphic
-		window border charater marks.
-		n = 1 sets the alternate character set and graphic border
-		if any. This is currently only available for the consol
-		of PC linux paltform.
+    graphset n  n = 0 resets to the text character set and non graphic
+		for the window edges.
+		n = 1 sets the graphical character set and user customised
+		window edges if any. This is currently available only on
+		PC linux paltform. (old command : "set charset n")
+    cs8         keyboard input is taken as 8 bits character.
+    cs7         keyboard input is taken as 7 bits character. If the input
+		is strange, try this option to clean the 8th bit (MSB) of
+		input from the terminal keyboard.
+    utf8 n      n = 1 use utf-8 encoded unicode char for window graphical
+		edges, n = 0 use alternate char set. Look at the output of
+		"help graphset" to know the current setting and available
+		graphical character set.
+    preferences Save the current session parameters into the user preferences
+		file : $HOME/.Rand/preferences (this is a standard text file).
+		What is saved is the "INSERT" state, the <Del> key function,
+		the tab stop current setting, the regular expression mode,
+		the word processing mode, major "set parameters", and the
+		-debug and -noX11 calling options.
+    preferences ?  Display the content of preferences file for the current
+		   terminal.
 
     The "line", "page", and "window" options may be individually set in
     different windows.
@@ -840,7 +946,7 @@ GOTO [ b | e | number | rbeginning | rend | t | tick | p | prev ]
     This saved position can be retrived with the "prev" parameter value.
 
 `name
-NAME <filename>
+NAME [ filename ]
     - rename the current file
     The file being edited is renamed. The renaming takes effect when the
     editor is exited normally. It may be nullified by exiting with a
@@ -852,6 +958,8 @@ NAME <filename>
 
 `open
 OPEN [ number ] [ linearea ]
+    [linearea] is the currently "MARKed" lines area.
+
     - insert lines or area.
     Without parameters an empty line is inserted before the cursor line.
 
@@ -953,7 +1061,10 @@ SHELL - run the user shell
     "command" and return.
 
 `justify
-JUSTIFY [ width=number ] [ linearea ] - justify lines
+JUSTIFY [ width=number ] [ linearea ]
+    [linearea] is the currently "MARKed" lines area.
+
+    - justify lines
     Justify lines, beginning at the cursor such that the last word on the
     lines ends at the right margin. With parameter linearea the specified
     lines or paragraphs are justified. With no linearea parameter one
@@ -1067,14 +1178,10 @@ FILE <option>
 
     MicroSoft file style use "cr lf" characters as End Of Line mark,
     Unix file style use "lf" as End Of Line.
-
     The current file style is sample on the first line read from this
     file during the editing session.
-
     If this line is ended by "cr lf", the style is MicroSoft,
     else if it is "lf", the style is Unix.
-
-    By default (on creatation) a file use MicroSoft style.
 
 `version
 VERSION - displays the program version and author.
@@ -1100,6 +1207,22 @@ FILES - display the current list of edited files (same as "edit ?" command)
 BUILD-KBMAP - capture or update the keys to escape sequence mapping of your
     keyboard.
 
+`build-kbfile
+BUILD-KBFILE [ filename ]
+    - Generate the named file (or by default, the defined file
+    in $HOME/.Rand) with the current keboard function assignment
+    and other terminal setting.
+    All the keyword which can be used in a kbfile are shown in the file,
+    in comment line if the function is not assigned.
+    For a better result it can be useful to capture the keyboard mapping
+    with the "build-keymap" command.
+    This generated file is a good starting point to customize the keyboard
+    mapping.
+
+    Filename parameter can be expanded with the TAB key,
+    If alternate name expansion exists, the UP ARROW and DOWN ARROW keys
+    provide navigation in the name expansion list.
+
 `flipbkarrow
 FLIPBKARROW - flip between "DEL" and "DELCH" keyboard function the function
     allocated to the key which generate the ascii <Del> character (code 0177).
@@ -1109,6 +1232,81 @@ FLIPBKARROW - flip between "DEL" and "DELCH" keyboard function the function
 
 #New_features_Linux -----------------------------------------------------
 ------------------------------------------------------------------------------
+New Features of the Linux version 19 revision 58 (January 2002)
+  Support for the ISO 8859 (8 bits) character set (if the conditional
+    compilation variable CHAR7BITS is not defined).
+    Input from the keyboard can be cut to 7 bits (with "set cs7"), or
+    get as 8 bits char ("set cs8").
+    Any control or printable character can be entered by its code value
+    with the "cchar" key. Character code can be define as octal, decimal or
+    hexadecimal value.
+  Important notice : this version is not backward compatible with the
+    previous one for the key stroke file content (used in replay facility).
+  The new editor command "build-kbfile" generate keyboard definition and
+    function assignation file from the current setting. This file which
+    include all the keyword usable is a good starting point for cutomization
+    of the keyboard.
+  Help is extended with option "charset" and "graphset" to display the
+    currently in use text and window edges character sets.
+    Full customization of the window edges can be specified in the kb file.
+    Look at the output of "help keymap" for the keyword available.
+    "set graphset 0/1" and "set utf8 0/1" provide a dynamic control of
+    window edges character set used. "set utf8 0/1" is available only on
+    linux PC platforms. "set utf8 1" is allowed only if <utf8> is defined
+    in kb file or for a restricted set of predifined terminal type.
+  During file (or directory) name expansion (with the tab key for commands
+    which support this feature) a second tab key stroke will display
+    the list of entries which match the patern.
+  Help key start to be context sensitive : in editing window it displays
+    info on the key function assigned to keys, in command line window
+    it provides info on command(s) and there parameters.
+  In the command line window, Pushing the key assigned to the "help" function
+    display info on the command line string interpreted as an editor command.
+  In the command line window, editor command can be expanded with the tab key.
+    In case of ambiguous command or parameter keyword a second push of tab
+    key display the list of all commands matching to the current patern.
+  In the command line window, a single "!" display the list of editor
+    commands and aliases.
+  An editor command followed by a single "!" character provide some
+    information on the parameter list of the command, and or the description
+    of the command.
+  New directive "#!Comment" and "#!-Comment" for keyboard definition file.
+    Look at the file generated by "build-kbfile" for the available set of
+    keywords and directives.
+  The new "set info n" (n = -1, 0, 1, 2 or 3) command define what to display
+    on the information line (bottom of line of the display).
+    n = 0, -1 to display the cursor position (line,column), -1 = line only
+    n = 1, 2 or 3 to display the ascii char code of char at cursor position
+    in octal, decimal or hexadecimal.
+  The cursor current and previous positions, and file tick mark are saved
+    into the status file on exit, and restaured from.
+  A POSIX lock file is used on the key stroke working file to allow muiltiple
+    sessions by the same user in the same directory, (see the session number
+    in the working files .es1, .ec1 .ek1 .ek1b for sessions '1' ... '9').
+  "root" user is not any more a very special case. The working files (.es1 ..)
+    are build in the current directory either if the owner or the group
+    of this directory is "root", and "root" as accesses to the directory,
+    else they will be created in /tmp directory.
+  On exit of a '-notracks' editing session, the state file (.esX) (fresh one)
+    is saved.
+  The empty option parameter '-' can be used to end the option list
+    and edit a file for which the name start with a '-' character.
+  The cursor current and previous positions, and file tick mark are saved
+    into the status file on exit, and restaured from.
+  Transiant tick mark is generated on major window motions (look at the
+    'help keyf tick' output for descrition of transiant tick and key tick
+    navigation facility.
+  New aliases for the 'exit' command : 'quit', 'q'.
+  The command "edit -" can be used to remove a file from the current list
+    of edited file (if it is not modified, nor referenced).
+  New syntax for the -debug option : -debug=[debug output file]:[debug level]
+    The "set debuglevel 0" suspend the debugging printout, and close the
+    output file. "set debuglevel <no zero level>" resume the debugging.
+  The new "set preferences" command save the user preferenes into preferences
+    file : $HOME/.Rand/preferences (see on line help for set command).
+    "set preferences ?"  Display the content of preferences file for the
+    current terminal.
+
 New Features of the Linux version 19 revision 57 (June 2001)
   Corrected files navigation for very large file systems. This version
     is mandatory if you have very large file system (64 bit addressing).

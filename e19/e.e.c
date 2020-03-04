@@ -348,28 +348,32 @@ chgcase (xabs)
 #endif
 Cmdret
 chgcase (xabs)
-	Flag xabs;
+    Flag xabs;
 {
-	Flag moved;
-	Ncols nc, curcol;
-	Nlines nl, i;
+    Flag moved;
+    Ncols nc, curcol;
+    Nlines nl, i;
+    Char ch;
 
-	numtyp++;
-	if (!okwrite())
-		return NOWRITERR;
-	if (curmark)
-		return edmark (xabs ? OPCAPS : OPCCASE, QNONE);
-	else {
-		getline (curwksp->wlin + cursorline);
-		curcol = cursorcol + curwksp->wcol;
-		if (curcol < ncline - 1) {
-			cline [curcol] = caseit (cline [curcol], xabs);
-			putch (cline [curcol], YES);
-		} else
-			movecursor (RT, 1);
-	}
-	fcline = YES;
-	return CROK;
+    numtyp++;
+    if (!okwrite())
+	return NOWRITERR;
+    if (curmark)
+	return edmark (xabs ? OPCAPS : OPCCASE, QNONE);
+    else {
+	getline (curwksp->wlin + cursorline);
+	curcol = cursorcol + curwksp->wcol;
+	if (curcol < ncline - 1) {
+	    ch = cline [curcol];
+	    cline [curcol] = caseit (ch, xabs);
+	    if ( ch != cline [curcol] ) {
+		putch (cline [curcol], YES);
+		fcline = YES;
+	    }
+	} else
+	    movecursor (RT, 1);
+    }
+    return CROK;
 }
 
 #ifdef COMMENT

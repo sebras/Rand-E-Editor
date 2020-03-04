@@ -18,7 +18,7 @@ char *outbuf;           /* stdout buf */
 #endif
 
 #ifndef TDIR
-#define TDIR "/tmp/etmp"        /* directory for temporaries */
+#define TDIR P_tmpdir   /* directory for temporaries (see stdio.h) */
 #endif
 
 Fd nopens;
@@ -59,9 +59,7 @@ Small   nwinlist;
 
 S_svbuf qbuf[NQBUFS];
 
-#ifdef LMCSRMFIX
 Flag optstick = NO;
-#endif
 
 /* see e.e.h */
 AFn qtmpfn[NQBUFS] = {
@@ -170,33 +168,36 @@ char    prebak[]  = ",",        /* text to precede/follow         */
 
 char *searchkey;
 
+#if 0   /* old definition, version < 19.58 */
+| #ifdef UNIXV7
+| #if defined(__alpha) || defined(_AIX) || defined(__sun)
+| int
+| #else
+| short
+| #endif
+| #endif
+| #ifdef UNIXV6
+| char
+| #endif
+|     userid,
+|     groupid;
+#endif
+
 #ifdef UNIXV7
-#if defined(__alpha) || defined(_AIX) || defined(__sun)
-int
+uid_t userid;
+pid_t groupid;
 #else
-short
+int userid,
+int groupid;
 #endif
-#endif
-#ifdef UNIXV6
-char
-#endif
-    userid,
-    groupid;
-
-char *la_cfile;
-
-FILE   *keyfile;		/* channel number of keystroke file	*/
 
 
-Fd	inputfile;		/* channel number of command input file */
+int mypid;  /* current process id */
 
-Flag    intok;                  /* enable la_int () */
-Small   intrupnum;              /* how often to call intrup             */
-
-
+Flag    intok;      /* enable la_int () */
+Small   intrupnum;  /* how often to call intrup */
 
 Flag	alarmed;
-
 
 char    putscbuf[10];
 
@@ -204,10 +205,7 @@ Flag windowsup = NO;
 
 FILE   *dbgfile = NULL;
 
-Char evrsn;   /* the character used in the chng, strt, & keys filename   */
-		/* '0', '1', ...	*/
-
-
+/* session running conditions */
 Flag notracks = NO;
 Flag norecover = NO;
 Flag replaying = NO;
@@ -228,7 +226,8 @@ int DebugVal = 0;
 /************/
 /* e.fn.h */
 /* pathnames for standard files */
-char   *tmppath   = TDIR; /* the x will be replaced with */
+char   default_tmppath [] = TDIR;
+char   *tmppath = &default_tmppath [0];
 #ifdef UNIXV7
 char   *ttynstr;
 #endif
@@ -237,15 +236,26 @@ char   *ttynstr   = "/dev/tty ";
 #endif
 char    scratch[] = "scratch";
 
-char    tmpnstr[] = "c1";    /* The 1 may be replaced with a higher digit */
-char    keystr[]  = "k1";
-char    bkeystr[] = "k1b";
-char    rstr[]    = "s1";
 
-char   *keytmp,
-       *bkeytmp,
-       *rfile,          /* strt file name and backup name */
-       *inpfname;
+/* working file names */
+const char workfileprefix [] = "./.e";   /* ./ is mandatory before the teal prefix string */
+    /* The '1' (session nb) may be replaced with a higher digit '2' ... '9' */
+const char tmpnstr [] = "c1";    /* change file name */
+const char keystr []  = "k1";    /* key strok file name */
+const char bkeystr [] = "k1b";   /* backup key strock file name */
+const char rstr []    = "s1";    /* state file name */
+
+const int vrschar = 1;   /* relative position of evrsn char in tmpnstr ... */
+char evrsn;   /* session nb character : '1', '2', ... '9' */
+
+char   *la_cfile,   /* change file name */
+       *keytmp,     /* key stroke file name */
+       *bkeytmp,    /* backup (previous) key stroke file name */
+       *rfile,      /* state file name and backup name */
+       *inpfname;   /* file name for recover */
+
+FILE   *keyfile;    /* strem of keystroke file */
+Fd      inputfile;  /* file descriptor number of command input file */
 
 /************/
 /* e.sg.h */
@@ -369,3 +379,35 @@ Flag line_draw = NO;  /* we are in line drawing mode */
 #ifdef SUN
 char _sobuf[BUFSIZ];
 #endif 
+
+
+/* initial setup of global storage */
+/* ------------------------------- */
+
+static struct _glb_storage {
+    void * storage;
+    int sz;
+    } glb_storages [] = {
+	names, sizeof (names),
+	oldnames, sizeof (oldnames),
+	cwdfiledir, sizeof (cwdfiledir),
+	fileflags, sizeof (fileflags),
+	fileticksflags, sizeof (fileticksflags),
+	lastlook, sizeof (lastlook),
+	fnlas, sizeof (fnlas),
+	winlist, sizeof (winlist),
+	0, 0
+    };
+static Flag clean_glb_storages_flg = NO;
+
+
+void clean_glb_storages ()
+{
+    int i;
+    void * stor;
+
+    if ( clean_glb_storages_flg ) return;
+    for ( i = 0 ; stor = glb_storages [i].storage ; i++ )
+	memset (stor, 0, glb_storages [i].sz);
+    clean_glb_storages_flg = YES;
+}

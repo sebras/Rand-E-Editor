@@ -48,6 +48,23 @@ file e.sv.c
 
 #define DEFAULT_STYLE UNIX_FILE
 
+extern char *cwdfiledir [];
+extern int la_stream_is_allocated (La_stream *);
+extern int la_can_be_closed (La_stream *plas);
+
+S_looktbl filetable [] = {
+    "?",            127,
+    "linux",        UNIX_FILE,
+    "microsoft",    MS_FILE,
+    "ms",           MS_FILE,
+    "ms-dos",       MS_FILE,
+    "msdos",        MS_FILE,
+    "unix",         UNIX_FILE,
+    0,              0
+    };
+
+
+
 /* file_mode : get the file mode (text or binary) */
 /* ---------------------------------------------- */
 /*  return the cr/lf flag to be use to write the file */
@@ -238,18 +255,6 @@ char * fileslistString (Fn fn, char **fname_pt)
 Cmdret fileStatus (show_flg)
 int show_flg;
 {
-
-    static S_looktbl fileStatusTable[] = {
-        "?",            127,
-	"linux",        UNIX_FILE,
-        "microsoft",    MS_FILE, 
-        "ms",           MS_FILE,
-        "ms-dos",       MS_FILE,
-        "msdos",        MS_FILE,
-        "unix",         UNIX_FILE,
-        0,              0
-    };
-
     int shw_flg;
     Cmdret retval;
     char *arg;
@@ -262,10 +267,21 @@ int show_flg;
     if ( ! shw_flg ) {
         Small ind;
 
-	if (!opstr[0])
+	if (!opstr[0]) {
+	    void set_ambiguous_param (S_looktbl *, char *, Flag);
+	    set_ambiguous_param (filetable, NULL, NO);
 	    return CRNEEDARG;
+	}
 
-	ind = lookup (opstr, fileStatusTable);
+	ind = lookup (opstr, filetable);
+	if ( ind == -1 ) {
+	    /* check for "set ?" */
+	    extern Cmdret help_cmd_arguments (char *str, S_looktbl *table);
+	    retval = help_cmd_arguments (opstr, filetable);
+	    if ( retval != CRUNRECARG )
+		return retval;
+	}
+
 	if (ind == -1 || ind == -2) {
 	    mesg (ERRSTRT + 1, opstr);
 	    return ind;
@@ -276,7 +292,7 @@ int show_flg;
 	    cmdname = cmdopstr;
 	    return CRNEEDARG;
         }
-        file_style = (char) fileStatusTable[ind].val;
+	file_style = (char) filetable [ind].val;
         shw_flg = (file_style == 127);
     }
 
@@ -333,13 +349,174 @@ save ()
 
     save_msg (curfile, opstr, NULL);
     savefile (opstr, curfile, NO, NO, NO);
+/*
     sleep (1);
+*/
+    return CROK;
+}
+
+static Cmdret dumplas (int *fn_pt, Flag *fsd_flg)
+{
+    FILE *dmp_stream;
+    int fn, cc;
+    Ff_stream *ffs;
+
+    if ( !dbgflg ) return;
+
+#ifdef __GNUC__
+    debug_info (__FUNCTION__, __FILE__, __LINE__);
+#endif
+    dmp_stream = dbgfile ? dbgfile : stdout;
+    la_dump_stream (dmp_stream);
+    ff_dump_stream (dmp_stream);
+
+    fn = *fn_pt;
+    fputs ("\n==============================================\n", dmp_stream);
+    putc ('\n', dmp_stream);
+
+/*
+    la_schaindump ("");
+    putc ('\n', dmp_stream);
+    la_fschaindump (&fnlas[fn], "");
+    putc ('\n', dmp_stream);
+    la_sforfdump (fnlas[fn].la_file);
+    putc ('\n', dmp_stream);
+    fn = OLDLFILE;
+*/
+    if ( *fsd_flg || 1 ) {
+	la_schaindump (".............");
+	putc ('\n', dmp_stream);
+    }
+    la_sdump (&fnlas[fn], names[fn]);
+    putc ('\n', dmp_stream);
+    la_fdump (fnlas[fn].la_file, names[fn]);
+    ff_sdump (fnlas[fn].la_file->la_ffs, "");
+
+    if ( *fsd_flg || 1 ) {
+	ffs = fnlas[fn].la_file->la_ffs;
+	if ( ffs ) {
+	    if ( ffs->f_file ) {
+		putc ('\n', dmp_stream);
+		ff_fdump (ffs->f_file, "");
+	    }
+	}
+	putc ('\n', dmp_stream);
+	fprintf (dmp_stream, "\nFsd dump for file (%d) : %s\n", fn, names[fn]);
+	la_fsddump (fnlas[fn].la_file->la_ffsd,
+		    *fsd_flg ? NULL : fnlas[fn].la_file->la_ffsd, YES, "");
+    }
+    if ( *fsd_flg ) {
+	la_sdump (&fnlas[OLDLFILE], names[OLDLFILE]);
+	putc ('\n', dmp_stream);
+	la_fdump (fnlas[OLDLFILE].la_file, names[OLDLFILE]);
+	fprintf (dmp_stream, "Fsd dump for file (%d) : %s\n", OLDLFILE, names[OLDLFILE]);
+	la_fsddump (fnlas[OLDLFILE].la_file->la_ffsd, NULL, YES, "");
+
+	la_sdump (&fnlas[PICKFILE], names[PICKFILE]);
+	putc ('\n', dmp_stream);
+	la_fdump (fnlas[PICKFILE].la_file, names[PICKFILE]);
+	fprintf (dmp_stream, "Fsd dump for file (%d) : %s\n", PICKFILE, names[PICKFILE]);
+	la_fsddump (fnlas[PICKFILE].la_file->la_ffsd, NULL, YES, "");
+    }
+    fputs ("\n----------------------------------------------\n", dmp_stream);
+    fflush (dmp_stream);
+    if ( dmp_stream == stdout ) {
+	cc = wait_keyboard ("Push any key to return", NULL);
+    }
+    return 0;
+}
+
+/* Try to remove the file from the list of edited files */
+Cmdret remove_file (Fn fn)
+{
+    Fn fn1;
+    S_window *window, *cwin;
+    int i, cc;
+    Small cwinb;
+    Flag yes_no;
+    La_stream *nlas, *tlas;
+    char str [64];
+
+    if ( fn < (FIRSTFILE + NTMPFILES) )
+	return CROK;
+
+    if ( dbgflg ) {
+	yes_no = YES;
+	(void) do_fullscreen (dumplas, (void *)&fn, (void *)&yes_no, NULL);
+    }
+
+    if ( la_modified (&fnlas[fn]) ) {
+	mesg (TELALL + 3, "The file \"", names [fn], "\" was modified, it cannot be removed");
+	loopflags.hold = YES;
+	return CROK;
+    }
+
+    /* save the curent window ref */
+    cwin = curwin;
+    for ( i = 0 ; i < nwinlist ; i++ )
+	if ( winlist[i] == curwin ) cwinb = i;
+
+    /* look into all windows for the file fn */
+    for ( i = 0 ; i < nwinlist ; i++ ) {
+	window = winlist[i];
+	if ( window->altwksp->wfile == fn ) {
+	    releasewk (window->altwksp);
+	    window->altwksp->wfile == NULLFILE;
+	}
+	if ( window->wksp->wfile != fn ) continue;
+
+	if ( window != curwin ) chgwindow (i);
+	if ( curwin->wksp->wfile != fn ) continue;  /* to be safe */
+	if ( curwin->altwksp->wfile == NULLFILE ) {
+	    edscrfile (YES);    /* edit scratch file */
+	} else switchfile ();
+	releasewk (curwin->altwksp);
+	curwin->altwksp->wfile = NULLFILE;
+    }
+
+    /* restaure initial curent window */
+    if ( curwin != cwin ) chgwindow (cwinb);
+
+    nlas = &fnlas[fn];
+    cc = la_can_be_closed (nlas);
+    if ( (cc != 0) || (nlas->la_file->la_refs > 2) ) {
+	sprintf (str, " (still %d references) ", cc);
+	mesg (TELALL + 3, "--- Cannot remove referenced file", str, names [fn]);
+	loopflags.hold = YES;
+	return CROK;
+    }
+
+    /* remove the file from edited file list */
+    cc = la_close (&lastlook[fn].las);
+    nlas = &fnlas[fn];
+    if ( la_stream_is_allocated (nlas) ) {
+	mesg (TELALL + 2, "--- Rand structure error to remove file ", names [fn]);
+	loopflags.hold = YES;
+	return CROK;
+    }
+    if ( dbgflg ) {
+	yes_no = NO;
+	(void) do_fullscreen (dumplas, (void *)&fn, (void *)&yes_no, NULL);
+    }
+    cc = la_close (nlas);
+    if ( cc > 0 ) {
+	fatal (FATALBUG, "Abnormal call to \"la_close\" by \"remove_file\" routine" );
+    }
+
+    mesg (TELALL + 2, "--- Remove file ", names [fn]);
+    loopflags.hold = YES;
+
+    fileflags[fn]  = 0;
+    if ( cwdfiledir [fn] ) sfree (cwdfiledir [fn]);
+    if ( names [fn] ) sfree (names [fn]);
+    if ( oldnames [fn] ) sfree (oldnames [fn]);
+    names [fn] = oldnames [fn] = cwdfiledir [fn] = NULL;
     return CROK;
 }
 
 #ifdef COMMENT
 Flag
-savefile (filename, fn, svinplace, rmbak)
+savefile (filename, fn, svinplace, rmbak, filedir_flg)
     char *filename;
     Fn    fn;
     Flag  svinplace;         /* enable inplace save */
@@ -393,14 +570,12 @@ Flag svinplace;         /* enable inplace save */
 Flag rmbak;
 Flag filedir_flg;       /* YES : use the initial directory for this file */
 {
-    extern char *cwdfiledir [];
     extern char default_workingdirectory[];
     char   *origfile,       /* origfile to be saved */
 	   *dirname,        /* the directory for the save */
 	   *filepart,       /* filename part of pathname */
 	   *bakfile;
-    register Short  tmp;
-    register Short  j;
+    Short  tmp, j;
     Flag hasmultlinks;
     char cwdbuf [PATH_MAX], *cwd, *fdir;
 
@@ -409,17 +584,25 @@ Flag filedir_flg;       /* YES : use the initial directory for this file */
 
     crlf_flg = NO;      /* assume UNIX style file */
 
+    if ( filename && (strcmp (filename, "-") == 0) ) {
+	mesg (ERRALL + 1, "\"-\" is not a valid file name for the editor");
+	loopflags.hold = YES;
+	return YES;
+    }
+
     /* new test for the file style feature */
     if (filename == NULL) {
-        /* exit case */
+	/* exit case or save and remove */
         if ( ! la_modified (&fnlas[fn]) ) {
             char fstyle, ustyle;
             /* do not create an empty file */
-            if ( fileflags[fn] & NEW ) 
+	    if ( fileflags[fn] & NEW ) {
                 return (YES);
+	    }
             (void) file_mode (fn, &fstyle, &ustyle);
-            if ( !ustyle || (ustyle == fstyle) ) 
+	    if ( !ustyle || (ustyle == fstyle) ) {
                 return  (YES);  /* nothing to save */
+	    }
         }
     }
 
@@ -438,6 +621,7 @@ Flag filedir_flg;       /* YES : use the initial directory for this file */
 	    || hvoldname (filename) != -1
 	   ) {
 	    mesg (ERRALL + 1, "Can't save to a file we are using");
+	    d_put (0);
 	    return NO;
 	}
 	else if (   (j = filetype (origfile = filename)) != -1
@@ -560,7 +744,7 @@ Flag filedir_flg;       /* YES : use the initial directory for this file */
 	char *tempfile;
 	Nlines ltmp;
 
-	save_msg (fn, origfile, hasmultlinks ? "( breaking link)" : "");
+	save_msg (fn, origfile, hasmultlinks ? "(breaking link)" : "");
 	d_put (0);
 
 #if 0   /* old fashion : version <= 19.56 */

@@ -86,15 +86,12 @@
 
 #-----------------------------------------------------------------------------
 
-
 # SET APPLICATIONS MODE
-<kbini>:^["="^["[2l"
-^["="^["[2l":<kbini>
-# <kbini>:^["[?1h"
-# ^["[?1h":<kbini>
+<kbinit>:^["="^["[2l"
+# <kbinit>:^["[?1h"
+
 # EXIT APPLICATIONS MODE
 <kbend>:^[">"^["[2l"
-^[">"^["[2l":<kbend>
 
 #0
 ^["Op":<mark>
@@ -239,3 +236,4 @@
 ^A:<cmd>
 ^W:<dword>
 ^H:<bksp>
+^X^W:<chwin>

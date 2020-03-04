@@ -32,8 +32,13 @@
 #define CLR_SUID_ON_WRITE       /* modifying a file clrs suid and sgid bits */
 #define SYSSELECT               /* system has berkeley select system call */
 #define RENAME                  /* system has berkeley rename system call */
+
 /* TRAILING '"' , for temporaries */
+#ifdef P_tmpdir
+#define TDIR P_tmpdir
+#else
 #define TDIR "/tmp/"
+#endif
 
 #define UNIXV7                  /* if this is Version 7   */
 #undef  UNIXV6

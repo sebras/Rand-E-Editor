@@ -6,7 +6,8 @@
 	Copyright abandoned, 1983, The Rand Corporation
 #endif
 
-/* various options.  All should be turned on. */
+/* various options.  Value can be modified by c.env.h or localenv.h */
+#undef  CHAR7BITS       /* 7 bits only ASCII character set support */
 #define TRACK           /* track command */
 #define RANGE           /* range command */
 #define NAME            /* name command */
@@ -35,7 +36,8 @@
 #define LMCMARG         /* tab and margin tics (cute) */
 #undef  LMCLDC          /* Tcap.c uses line drawing defs for windows */
 #define LMCSRMFIX       /* Replace "stuck at rt margin" with reasonable sub */
-#define V19             /* force version 19 */
+#define V19             /* force version 19 --- Must be defined --- */
+
 #ifdef  V19
 #define LMCV19          /* Version 19 state file */
 #else
@@ -48,6 +50,7 @@
 #include <localenv.h>
 
 #ifdef UNIXV7
+#include <unistd.h>
 #include <sys/types.h>
 #endif
 
@@ -105,12 +108,18 @@ typedef La_linesize Ncols;      /* number of columns in a line */
 typedef La_linesize ANcols;     /* number of columns in a line */
 #else
 typedef int         Ncols;      /* number of columns in a line */
-typedef La_linesize ANcols;     /* number of columns in a line */
+typedef int         ANcols;     /* number of columns in a line */
 #endif
-typedef Char  Fd;               /* unix file descriptor */
-typedef char  AFd;              /* unix file descriptor */
-typedef Char  Fn;               /* index into files we are editing */
-typedef char  AFn;              /* index into files we are editing */
+#if 0   /* old fation, version < 19.58 */
+| typedef Char  Fd;               /* unix file descriptor */
+| typedef char  AFd;              /* unix file descriptor */
+| typedef Char  Fn;               /* index into files we are editing */
+| typedef char  AFn;              /* index into files we are editing */
+#endif
+typedef int   Fd;               /* unix file descriptor */
+typedef int   AFd;              /* unix file descriptor */
+typedef int   Fn;               /* index into files we are editing */
+typedef int   AFn;              /* index into files we are editing */
 typedef Small Cmdret;           /* comand completion status */
 
 #ifdef NOSIGNEDCHAR
@@ -191,8 +200,14 @@ typedef Small Cmdret;           /* comand completion status */
 #define FATALBUG 3              /* bug */
 #define LAFATALBUG 4            /* bug in LA Package */
 #define DEBUGFILE   "e.dbg"
-#define CTRLCHAR   (key < 040 || 0177 <= key)
 #define PGMOTION (key==CCPLPAGE||key==CCPLLINE||key==CCMIPAGE||key==CCMILINE)
+
+#ifdef CHAR7BITS
+#define ISCTRLCHAR(ch)   ((ch)  < 040 || 0177 <= (ch))
+#else
+#define ISCTRLCHAR(ch)   ( (((ch)  & 0177) < 040) || ((ch)  == 0177) )
+#endif
+#define CTRLCHAR         (ISCTRLCHAR(key))
 
 #define NHORIZBORDERS 2         /* number of horiz borders per window   */
 #ifndef VBSTDIO
@@ -341,6 +356,7 @@ extern short         fileflags[];
 #define FWRITEABLE   4              /* file is writeable                   */
 #define CANMODIFY  010              /* ok to modify the file               */
 #define INPLACE    020              /* to be saved in place                */
+/*                 040                 not used                            */
 #define SAVED     0100              /* was saved during the session        */
 			/* A file can have no more than one of the
 			 * following three bits set.
@@ -435,6 +451,7 @@ typedef struct savebuf {
 
 
 /* input control character assignments */
+/*  Must be in range 000 ... 037  0177...0237 for 8 bits characters (ASCII) */
 
 #define CCCMD           000 /* ^@ enter parameter       */
 #define CCLWINDOW       001 /* ^A window left           */
@@ -491,12 +508,12 @@ typedef struct savebuf {
 #define CCCOVER        0221
 #define CCOVERLAY      0222
 #define CCBLOT         0223
-#define CCRANGE        0230
-#define CCNULL         0231
+
 #ifdef LMCHELP
 #define CCHELP         0224
 #else
 #define CCHELP         CCUNAS1
+
 #endif
 #ifdef LMCCASE
 #define CCCCASE        0225
@@ -505,26 +522,34 @@ typedef struct savebuf {
 #define CCCCASE        CCUNAS1
 #define CCCAPS         CCUNAS1
 #endif
+
 #ifdef LMCAUTO
 #define CCAUTOFILL     0227
 #else
 #define CCAUTOFILL     CCUNAS1
 #endif
+
+#define CCRANGE        0230
+#define CCNULL         0231
+
 #ifdef LMCDWORD
 #define CCDWORD        0232
 #else
 #define CCDWORD        CCUNAS1
 #endif
+
 #define CCTICK         0233
 
-#define CCFNAVIG       0240
-#define CCFLIST        0241
+		    /* 0234 is currently free */
+
+#define CCFNAVIG       0235
+#define CCFLIST        0236
 
 /* Resize entry code : to be used for replay only
  *   do not use for keyboard assignement
  * CCRESIZE is followed by <(line +32), (column +32), CCRETURN>
  */
-#define CCRESIZE       0270
+#define CCRESIZE       0237
 
 #else /* -LMCCMDS */
 #define CCEXIT         CCUNAS1
@@ -656,19 +681,29 @@ extern char
 extern
 char *searchkey;
 
-extern
+#if 0   /* old definition, version < 19.58 */
+| extern
+| #ifdef UNIXV7
+| #if defined(__alpha) || defined(_AIX) || defined(__sun)
+| int
+| #else
+| short
+| #endif
+| #endif
+| #ifdef UNIXV6
+| char
+| #endif
+|     userid,
+|    groupid;
+#endif
+
 #ifdef UNIXV7
-#if defined(__alpha) || defined(_AIX) || defined(__sun)
-int
+extern uid_t userid;
+extern pid_t groupid;
 #else
-short
+extern int userid,
+extern int groupid;
 #endif
-#endif
-#ifdef UNIXV6
-char
-#endif
-    userid,
-    groupid;
 
 extern
 FILE   *keyfile;                /* channel number of keystroke file     */
@@ -691,15 +726,15 @@ extern Flag windowsup;   /* screen is in use for windows */
 
 #define d_put(c) (putscbuf[0]=(c),d_write(putscbuf,1))
 
-extern
-FILE   *dbgfile;
 
 extern short revision;  /* revision number of this e */
 extern short subrev;    /* sub-revision number of this e */
 
+#if 0
 extern
 Char evrsn;   /* the character used in the chng, strt, & keys filename   */
 		/* '0', '1', ...        */
+#endif
 
 extern Flag notracks;   /* don't use or leave any strt file */
 extern Flag norecover,
@@ -716,10 +751,14 @@ extern char *vbell;
 extern Flag VBell;
 #endif
 extern Flag NoBell;
+
+/* e.c file */
+extern FILE *dbgfile;
+extern void debug_info (char *func, char *file, int line);
+extern Flag helpflg, verbose_helpflg, dbgflg;
 extern int DebugVal;
 
 /* these used to be in e.c only */
-
 
 extern
 Flag cmdmode;
@@ -735,10 +774,29 @@ Ncols parmcols;         /* columns in numeric arg e.g. 8 in "45x8"      */
 extern
 char *shpath;
 
-typedef struct lookuptbl
-{   char *str;
+/* Look up structures */
+/* ------------------ */
+typedef struct lookuptbl {
+    char *str;
     short val;
 } S_looktbl;
+
+typedef struct lookupstruct {
+    S_looktbl *table;               /* user defined, in alpahbetic order */
+    int table_sz;                   /* number of defined items */
+    S_looktbl *(*storage)[];        /* storage for sorted and alias tables */
+    const int sizeof_storage;       /* sizeof (byte) of storage */
+    S_looktbl *(*sorted_table)[];   /* sorted table */
+    int sorted_table_sz;            /* number of defined items in sorted_table */
+    S_looktbl *(*alias_table)[];    /* aliases table, NULL if not in use */
+    int alias_table_sz;             /* number of defined items in alias_table */
+    int (* one_help) (S_looktbl *, char *); /* help process routine for one item */
+    const Flag as_alias;            /* with or without aliases table */
+    const int type;                 /* 0 unknown, 1 command, 2 key function */
+    S_looktbl *major_name_table;    /* if as_alias, for complex aliases */
+    int major_name_table_sz;        /* nb of items */
+} S_lookstruct;
+
 
 extern
 long strttime;  /* time of start of session */
@@ -843,8 +901,8 @@ extern Small filecopy ();
 extern void sig ();
 extern void srprintf ();
 /* e.se.c */
+extern void dosearch ();
 extern Cmdret replace ();
-extern Small dsplsearch ();
 extern Small strsearch ();
 extern Ncols skeylen ();
 /* e.sv.c */
@@ -868,7 +926,7 @@ extern Flag gettabs ();
 /* e.u.c */
 extern Cmdret use ();
 extern Small editfile ();
-extern Fn getnxfn ();
+/* extern Fn getnxfn (); */
 /* e.wi.c */
 extern S_window *setupwindow ();
 /* e.wk.c */
@@ -882,7 +940,6 @@ extern void credisplay ();
 extern void d_write ();
 extern void dbgpr ();
 extern void dobullets ();
-extern void dosearch ();
 extern void drawborders ();
 extern void eddeffile ();
 extern void edscrfile ();
@@ -930,5 +987,5 @@ extern void switchwindow ();
 extern void tabevery ();
 extern void tglpatmode ();      /* added MAB */
 extern void tglinsmode ();
-extern void unmark ();
+extern Flag unmark ();
 extern void writekeys ();

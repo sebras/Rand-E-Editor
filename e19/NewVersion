@@ -1,7 +1,7 @@
 #!/bin/bash
 # : System V
 #   1st para : version nb (default E19)
-#   2nd para : revision nb (default 57)
+#   2nd para : revision nb (default 58)
 #   3rd para : package name and package sub directory (default Rand)
 #   4th para : pacakage instalation directory (default /usr/local)
 #   5th para : can be use to provide the builder name in case of root loging
@@ -12,7 +12,7 @@
 
 #   ref to bask manual for string manipulation syntax
 rand_version=${1:-E19}
-release=${2:-57}
+release=${2:-58}
 
 pkgdir=${3:-Rand}
 pkgname=${pkgdir%/}
@@ -26,6 +26,7 @@ tag=${rand_version%%[0-9]*}
 
 ver=e.r.c
 string0="${tag}${version}.${release} built `/bin/date +"%d/%m/%y"` for `uname -s`"
+stringbld="`/bin/date +"%d/%m/%Y"`"
 string1b=`whoami`
 string1c=`hostname`
 if test -n "$5"; then
@@ -53,8 +54,12 @@ cat <<EOF >$ver
 
 short revision = -${version};
 short subrev = ${release};
+const char build_date [] = "\\
+$stringbld\\
+";
 
-char verstr[] = "\\
+
+const char verstr[] = "\\
 $string0  $string1\\
 ";
 

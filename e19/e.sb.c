@@ -32,6 +32,7 @@ extern void dbgpr ();
 extern void flushkeys ();
 extern void edscrfile ();
 extern void monexit ();
+extern char default_tmppath [];
 
 void _cleanup ()
 {
@@ -106,12 +107,14 @@ char *
 getmypath ()
 {
 #if 0
+    /* old fation !!! */
     register char *cp;
     register Short i;
     char    *path;
     char     pwbuf[132];
-    uid_t    uid=userid;
+    uid_t    uid;
 
+    uid = userid;
     if (mypath)
 	return mypath;
     if (getpw (uid, pwbuf))
@@ -129,13 +132,22 @@ getmypath ()
     *cp = 0;                    /* make it asciz              */
     mypath = append (path, "");
 #else
-    struct passwd *p;
-    uid_t    uid=userid;
 
-    if (mypath) return mypath;
-    p=getpwuid(uid);
-    myname = append (p->pw_name, "");
-    mypath = append (p->pw_dir, "");
+    /* use Posix call getowuid */
+    struct passwd *p;
+    uid_t uid;
+
+    if ( mypath ) return mypath;
+
+    uid=userid;
+    p = getpwuid (uid);
+    if ( p ) {
+	myname = append (p->pw_name, "");
+	mypath = append (p->pw_dir, "");
+    } else {
+	myname = "???";
+	mypath = &default_tmppath [0];
+    }
 #endif
     return mypath;
 }
@@ -444,7 +456,7 @@ that the editor couldn't read file \"%s\".\n", xdir_crash);
 
     if (keyfile != NULL)
 	fclose (keyfile);
-    if (replaying && keysmoved && strcmp (inpfname, bkeytmp) == 0)
+    if (replaying && keysmoved && inpfname && bkeytmp && strcmp (inpfname, bkeytmp) == 0)
 	mv (bkeytmp, keytmp);
     fflush (stdout);
 

@@ -3,10 +3,15 @@ Directory where RAND is distributed at CERN PS. F.P. march 2000
 
 $GROUP_DIR : /afs/cern.ch/group/pz
 
+To get the value of @sys (AFS file system variable) :
+'fs sysname'
+look also at 'fs help'
+
 1 - sources :
     $GROUP_DIR/src
 
 2 - binaries :
+	$GROUP_DIR/.@sys/Rand
     2.1 - Linux :
 	$GROUP_DIR/.i386_linux22/Rand
 	/ps/local/Linux/Rand

@@ -18,6 +18,17 @@ file e.p.c
 extern Scols putupdelta;
 extern char *deletdwd;
 
+/* print a message in command line and wait for any key */
+static void my_trace (char *str, Ncols curcol)
+{
+#if 0
+    char strg [128];
+    sprintf (strg, "  %c %o = cursorcol %d curcol %d xcline %d", key, key, cursorcol, curcol, xcline);
+    mesg (ERRALL + 2, str, strg);
+    (void) getchar ();
+#endif
+}
+
 #ifdef COMMENT
 Small
 printchar ()
@@ -83,6 +94,7 @@ printchar ()
     /* margin-stick feature */
     if (cursorcol > curwin->rtext)
 	return MARGERR;
+
 #ifdef LMCSRMFIX
     if (!optstick)
 	if (cursorcol == curwin->rtext) {
@@ -97,7 +109,6 @@ printchar ()
 #endif
 	}
 #endif
-
     if (curcol >= lcline - 2 && key != ' ')
 	excline (curcol + 2);
     if (curcol >= ncline - 1) {  /* equiv to (curcol + 2 - ncline > 0) */
@@ -113,17 +124,17 @@ printchar ()
 	    ncline = curcol + 2;
 	    cline[ncline - 1] = '\n';
 	}
-	if (xcline) Block {
-	    Reg3 Ncols thiscol;
+
+	if (xcline) {
+	    Ncols thiscol;
 	    xcline = 0;
 	    thiscol = cursorcol;
 	    putup (-1, cursorline, (Scols) thiscol, MAXWIDTH);
 	    poscursor ((Scols) (thiscol + 1), cursorline);
-	}
-	else
+	} else {
 	    putch (key, YES);
-    }
-    else {
+	}
+    } else {
 	if (insmode) Block {
 		Ncols thiscol;
 	    if (ncline >= lcline)
@@ -295,7 +306,7 @@ int nwords;
 
 #define WORD_WHITESPACE 1
 #define WORD_ALPHNUM    2
-static Small WordMode;
+static Small WordMode = 0;
 
 #ifdef COMMENT
 Small
@@ -308,7 +319,7 @@ inword(c)
 #endif
 
 Small
-inword(c)
+inword (c)
 int c;
 {
 
@@ -318,18 +329,18 @@ int c;
 #endif
 
     switch (WordMode) {
+	default:
+	case WORD_WHITESPACE:
+	    if (isspace(c))
+		return(0);
+	    return(1);
 
-    default:
-    case WORD_WHITESPACE:
-	if (isspace(c))
-	    return(0);
-	return(1);
-
-    case WORD_ALPHNUM:
-	if (isspace(c))
-	    return(0);
-	return (isalnum(c));
+	case WORD_ALPHNUM:
+	    if (isspace(c))
+		return(0);
+	    return (isalnum(c));
     }
+    return 0;
 }
 
 #ifdef COMMENT
@@ -342,37 +353,54 @@ setwordmode(opt)
 .
 #endif
 
+/* set wordmode argumnet look up table */
+S_looktbl wordopttable [] = {
+    "alphanumeric", WORD_ALPHNUM,
+    "whitespace",   WORD_WHITESPACE,
+    0,              0
+};
+
+
 Cmdret
-setwordmode(opt)
+setwordmode (opt)
 char *opt;
 {
-	Reg1 int ind;
-	Reg2 Cmdret retval;
-	static S_looktbl wordopttable[] = {
-	    "alphanumeric", WORD_ALPHNUM,
-	    "whitespace",   WORD_WHITESPACE,
-	    0,              0
-	};
+    int ind, val;
+    Cmdret retval;
 
-	ind = lookup (opt, wordopttable);
-	if (ind == -1 || ind == -2) {
-	    mesg (ERRSTRT + 1, opt);
-	    return ind;
-	}
+    if ( !opt || !*opt ) {
+	/* default */
+	WordMode = 0;
+	return CROK;
+    }
 
-	switch( wordopttable[ind].val ) {
-
+    ind = lookup (opt, wordopttable);
+    if (ind == -1 || ind == -2) {
+	mesg (ERRSTRT + 1, opt);
+	return ind;
+    }
+    val = wordopttable[ind].val;
+    switch ( val ) {
 	case WORD_ALPHNUM:
-	    WordMode = WORD_ALPHNUM;
-	    return CROK;
-
 	case WORD_WHITESPACE:
-	    WordMode = WORD_WHITESPACE;
+	    WordMode = val;
 	    return CROK;
 
 	default:
 	    return CRBADARG;
-	}
+    }
+}
+
+char * getwordmode ()
+{
+    int ind, val;
+    char *str;
+
+    for ( ind = 0 ; str = wordopttable[ind].str ; ind++ ) {
+	val = wordopttable[ind].val;
+	if ( val == WordMode ) return str;
+    }
+    return NULL;
 }
 
 #ifdef LMCDWORD

@@ -21,7 +21,7 @@ file e.ru.c
 
 Flag    fill_hyphenate = NO;    /* default: don't split hyphenated words */
 
-S_looktbl filltable[] = {
+S_looktbl filltable [] = {
     "width"   , 0       ,
     0         , 0
 };

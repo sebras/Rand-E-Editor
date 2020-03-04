@@ -8,6 +8,8 @@ file e.q.c
 	Copyright abandoned, 1983, The Rand Corporation
 #endif
 
+#include <sys/utsname.h>
+
 #include "e.h"
 #include "e.m.h"
 #include "e.cm.h"
@@ -18,9 +20,29 @@ file e.q.c
 #include SIG_INCL
 
 extern char *getenv ();
+extern Flag is_eddeffile (Fn fn);
+extern void close_dbgfile (char *str);
+extern char *command_msg;
 
 static void docall ();
 static void reenter ();
+
+/* Quit argument */
+
+#define EXABORT         0
+#define EXDUMP          1
+#define EXNORMAL        2
+#define EXNOSAVE        3
+#define EXQUIT          4
+
+S_looktbl exittable [] = {
+    "abort"   , EXABORT    ,
+    "dump"    , EXDUMP     ,
+    "nosave"  , EXNOSAVE   ,
+    "quit"    , EXQUIT     ,
+    0, 0
+};
+
 
 #ifdef COMMENT
 Cmdret
@@ -190,12 +212,6 @@ reenter (waitflg)
     return;
 }
 
-#define EXABORT         0
-#define EXDUMP          1
-#define EXNORMAL        2
-#define EXNOSAVE        3
-#define EXQUIT          4
-
 #ifdef COMMENT
 Cmdret
 eexit ()
@@ -218,28 +234,35 @@ eexit ()
 Cmdret
 eexit ()
 {
-    Small extblind;
-    static S_looktbl exittable[] = {
-	"abort"   , EXABORT    ,
-	"dump"    , EXDUMP     ,
-	"nosave"  , EXNOSAVE   ,
-	"quit"    , EXQUIT     ,
-	0, 0
-    };
     extern char default_workingdirectory[];
+    extern int lookup_abv (char *, S_looktbl *, int);
+
+    Small extblind;
+    Cmdret retval;
 
     if (opstr[0] == '\0')
 	extblind = EXNORMAL;
     else {
 	if (*nxtop)
 	    return CRTOOMANYARGS;
-	extblind = lookup (opstr, exittable);
-	if (extblind == -1  || extblind == -2) {
+	extblind = lookup_abv (opstr, exittable, 1);
+	if ( extblind == -1 ) {
+	    extern Cmdret help_cmd_arguments (char *str, S_looktbl *table);
+	    /* check for "exit ?" */
+	    retval = help_cmd_arguments (opstr, exittable);
+	    if ( retval != CRUNRECARG )
+		return retval;
 	    mesg (ERRSTRT + 1, opstr);
 	    return (Cmdret) extblind;
 	}
+	if ( extblind == -2 ) {
+	    ;
+	}
 	extblind = exittable[extblind].val;
     }
+
+    /* close debugging output file */
+    close_dbgfile (opstr);
 
     (void) chdir (default_workingdirectory);
     switch (extblind) {
@@ -267,8 +290,10 @@ eexit ()
 
     case EXNORMAL:
     case EXNOSAVE:
-	if (!notracks)
-	    savestate ();
+#if 0
+	if (!notracks)      /* before version 19.58 */
+#endif
+	    savestate ();   /* we must save the current session state */
     case EXQUIT:
     case EXABORT:
 	cleanup (YES, extblind != EXABORT);
@@ -303,8 +328,8 @@ saveall ()
 Flag
 saveall ()
 {
-    register Fn i;
-    register int j;
+    Fn i;
+    int j;
 
     d_put (0);
     fixtty ();
@@ -320,15 +345,16 @@ saveall ()
      * happened, we're probably screwed if we want to replay
      **/
 
-    /* delete all backup files to make disk space */
-    /* then do the saves */
+    /* delete all backup files to make disk space
+     * then do the saves
+     **/
     for (j = 1; ;) {
 	for (i = FIRSTFILE + NTMPFILES; i < MAXFILES; i++) {
 	    if (   (fileflags [i] & (INUSE | UPDATE | DELETED))
 		   == (INUSE | UPDATE)
-		/* the modofied test is done by savefile now !
-		&& la_modified (&fnlas[i])
-		*/
+		/* the modified test is done by savefile now !
+		 *  && la_modified (&fnlas[i])
+		 **/
 		&& savefile ((char *) 0, i, fileflags [i] & INPLACE, j, YES) == NO
 	       ) {
  err:           putchar ('\n');
@@ -347,10 +373,10 @@ saveall ()
 	la_sync (NO);   /* flush all cached buffers out */
     }
 
-
     /* do any deleting as necessary
-       if any deleted names conflicted with NEW names or RENAMED names,
-       they were already deleted by the save loop above */
+     * if any deleted names conflicted with NEW names or RENAMED names,
+     *  they were already deleted by the save loop above
+     **/
     for (i = FIRSTFILE + NTMPFILES; i < MAXFILES; i++) {
 	if ((fileflags [i] & (UPDATE | DELETED)) == (UPDATE | DELETED)) {
 	    mesg (TELALL + 2, "DELETE: ", names[i]);
@@ -359,9 +385,10 @@ saveall ()
     }
 
     /* do any renaming as necessary
-       if any oldnames conflict with NEW names,
-       or if any saved names wre RENAMED,
-       they were already renamed by the save loop above */
+     * if any oldnames conflict with NEW names,
+     * or if any saved names wre RENAMED,
+     *  they were already renamed by the save loop above
+     **/
     for (i = FIRSTFILE + NTMPFILES; i < MAXFILES; i++) {
 	if (   (fileflags [i] & (UPDATE | RENAMED)) == (UPDATE | RENAMED)
 	    && !svrename (i)
@@ -372,6 +399,16 @@ saveall ()
     putchar ('\n');
     fflush (stdout);
     return YES;
+}
+
+static void put_strg (char *str, FILE *stfile)
+{
+    if ( str ) {
+	putshort ((short) (strlen (str) + 1), stfile);
+	fputs (str, stfile);
+	putc ('\0', stfile);
+    }
+    else putshort (0, stfile);   /* not defined */
 }
 
 static void put_fname (Fn fn, FILE *stfile)
@@ -396,9 +433,50 @@ static void put_fname (Fn fn, FILE *stfile)
 	ffpath [sizeof (ffpath) -1] = '\0';
 	fname = ffpath;
     }
+    put_strg (fname, stfile);
+#if 0
     putshort ((short) (strlen (fname) + 1), stfile);
     fputs (fname, stfile);
     putc ('\0', stfile);
+#endif
+}
+
+static void put_wksp (S_wksp *wksp_pt, FILE *stfile)
+{
+    if ( ! wksp_pt ) return;
+    if ( ! names[wksp_pt->wfile] ) {
+	/* no file attached to this work space : null file name size */
+	putshort ((short) 0, stfile);
+	return;
+    }
+    put_fname ((int)  wksp_pt->wfile, stfile);
+    putlong  ((long)  wksp_pt->wlin,  stfile);
+    putshort ((short) wksp_pt->wcol,  stfile);
+    putc     (        wksp_pt->clin,  stfile);
+    putshort ((short) wksp_pt->ccol,  stfile);
+}
+
+static void put_mark (struct markenv *markpt, FILE *stfile)
+{
+    if ( ! markpt ) return;
+    putlong  ((long)  markpt->mrkwinlin, stfile);
+    putshort ((short) markpt->mrkwincol, stfile);
+    putlong  ((long)  markpt->mrklin, stfile);
+    putshort ((short) markpt->mrkcol, stfile);
+}
+
+static void put_wksp_cursor (S_wksp *wksp, FILE *stfile)
+{
+    struct markenv mark;
+    S_wksp *lwksp;
+
+    if ( ! wksp ) return;
+    mark.mrkwinlin = wksp->wlin;
+    mark.mrkwincol = wksp->wcol;
+    mark.mrklin    = wksp->clin;
+    mark.mrkcol    = wksp->ccol;
+    put_mark (&mark, stfile);
+    put_mark (&wksp->wkpos, stfile);
 }
 
 #ifdef COMMENT
@@ -411,15 +489,24 @@ savestate ()
 Flag
 savestate ()
 {
+    extern int get_info_level ();
     extern void history_dump (FILE *stfile);
+    extern Flag get_graph_flg ();
+    extern Flag inputcharis7bits;
+    extern const char build_date [];
+    extern char *myHost, *fromHost, *fromDisplay, *fromHost_alias;
+    extern char *ssh_ip, *sshHost, *sshHost_alias;
     void delchar_dump (FILE *);
 
-    int fi, wi, wn, i0, nb;
+    Flag savfile_flg [MAXFILES];
+    int cc, fi, wi, wn, i0, nb, finb;
     Short i, fflag;
     char *fname;
     S_window *window;
     char stbuf[BUFSIZ];
     FILE *stfile;
+    struct utsname utsnm;
+    char msg [256];
 
     curwksp->ccol = cursorcol;
     curwksp->clin = cursorline;
@@ -437,9 +524,12 @@ savestate ()
     putshort ((short) 0, stfile);
 
     /* terminal type name */
+    put_strg (tname, stfile);
+#if 0
     putshort ((short) (strlen (tname) + 1), stfile);
     fputs (tname, stfile);
     putc ('\0', stfile);
+#endif
 
     putc (term.tt_height, stfile);
     putc (term.tt_width, stfile);
@@ -457,13 +547,7 @@ savestate ()
 
     putshort ((short) linewidth, stfile);
 
-    if (searchkey == 0)
-	putshort ((short) 0, stfile);
-    else {
-	putshort ((short) (strlen (searchkey) + 1), stfile);
-	fputs (searchkey, stfile);
-	putc ('\0', stfile);
-    }
+    put_strg (searchkey, stfile);
 
     putc (insmode, stfile);
     putc (patmode, stfile);     /* Added Purdue CS 10/8/82 MAB */
@@ -490,10 +574,10 @@ savestate ()
     for (i = 0; i < nwinlist; i++)
 	if (winlist[i] == curwin)
 	    break;
-    putc (i, stfile);
+    putc (i, stfile);   /* index of current window */
     for (i = 0; i < nwinlist; i++) {
 	window = winlist[i];
-	putc (window->prevwin, stfile);
+	putc     (window->prevwin, stfile);
 	putc     (window->tmarg, stfile);
 	putshort ((short) window->lmarg, stfile);
 	putc     (window->bmarg, stfile);
@@ -507,6 +591,13 @@ savestate ()
 	putshort ((short) window->mipage, stfile);
 	putshort ((short) window->lwin, stfile);
 	putshort ((short) window->rwin, stfile);
+	/* workspace data */
+	put_wksp (window->altwksp, stfile);
+	put_wksp (window->wksp,    stfile);
+	savewksp (window->wksp);    /* save cursor position in lastlook */
+
+#if 0
+	/* old fation */
 	if (fname = names[window->altwksp->wfile]) {
 	    put_fname ((int) window->altwksp->wfile, stfile);
 	    putlong  ((long) window->altwksp->wlin, stfile);
@@ -515,7 +606,7 @@ savestate ()
 	    putshort ((short) window->altwksp->ccol, stfile);
 	}
 	else
-	    putshort ((short) 0, stfile);
+	    putshort ((short) 0, stfile);   /* no alt file, file name size is 0 */
 	put_fname ((int) window->wksp->wfile, stfile);
 	/*
 	fname = names[window->wksp->wfile];
@@ -527,6 +618,8 @@ savestate ()
 	putshort ((short) window->wksp->wcol, stfile);
 	putc     (window->wksp->clin, stfile);
 	putshort ((short) window->wksp->ccol, stfile);
+	/* -- old fation */
+#endif
     }
     if (ferror (stfile)) {
 	fclose (stfile);
@@ -536,25 +629,111 @@ savestate ()
     /* Dump the history buffer */
     history_dump (stfile);
 
-    /* Dump the list of edited files and there flag (exepted deleted and
+    /* Dump the list of edited files and there flags (exepted deleted and
      *  renamed), the end of the list is flaged with an empty string.
      */
+    memset (savfile_flg, 0, sizeof(savfile_flg));
+    finb = 0;
     for ( fi = FIRSTFILE + NTMPFILES ; fi < MAXFILES ; fi++ ) {
 	fflag = fileflags [fi];
 	if ( !(fflag & INUSE) ) continue;
 	if ( fflag & (DELETED | RENAMED) ) continue;
+	if ( is_eddeffile (fi) ) continue;
 	put_fname (fi, stfile);
 	putshort (fileflags [fi], stfile);
+	savfile_flg [fi] = YES;
+	finb++;
     }
-    putshort (0, stfile);   /* end of section flag */
+    putshort (0, stfile);  /* end of file list */
 
     /* Dump the key function assigned to <Del> character */
     delchar_dump (stfile);
+
+    /* Various status info */
+
+    /* session status */
+    putc ((char) notracks, stfile);
+    putc ((char) norecover, stfile);
+    putc ((char) replaying, stfile);
+    putc ((char) recovering, stfile);
+
+    /* char set and info line */
+    putc ((char) get_graph_flg (), stfile); /* graphic char for window edges */
+    putc ((char) inputcharis7bits, stfile); /* 7 or 8 bits characters */
+    putshort ((short) get_info_level (), stfile);   /* current info line level */
+
+    /* number of edited file */
+    putshort ((short) (FIRSTFILE + NTMPFILES), stfile); /* first user file id */
+    putshort ((short) finb, stfile);    /* number of edited file in the session */
+
+    /* Dump the files cursor positions and tick marks */
+    for ( fi = FIRSTFILE + NTMPFILES ; fi < MAXFILES ; fi++ ) {
+	extern struct markenv * get_file_mark (Fn fnb);
+	struct markenv *markpt, mark;
+	S_wksp *lwksp;
+
+	if ( ! savfile_flg [fi] ) continue;
+	/* Dump cursor positions and tick */
+	lwksp = &lastlook [fi];
+	put_wksp_cursor (lwksp, stfile);
+	markpt = get_file_mark (fi);
+	putc ((markpt != NULL), stfile);
+	/* Dump tick mark if any */
+	put_mark (markpt, stfile);
+    }
+    putshort (0xAAAA, stfile);  /* end of section flag */
+
+    /* Dump the window cursor positions */
+    for ( i = 0 ; i < nwinlist ; i++ ) {
+	short fn;
+	S_wksp *wksp;
+
+	window = winlist[i];
+	wksp = window->altwksp;
+	fn = (short) wksp->wfile;
+	putshort (fn, stfile);
+	if ( fn != NULLFILE ) put_wksp_cursor (wksp, stfile);
+	wksp = window->wksp;
+	fn = (short) wksp->wfile;
+	putshort (fn, stfile);
+	if ( fn != NULLFILE ) put_wksp_cursor (wksp, stfile);
+    }
+    putshort (0xAAAA, stfile);  /* end of section flag */
+
+    /* file system and Rand version, revision and build date */
+    putlong (PATH_MAX, stfile);
+    putshort (-revision, stfile);
+    putshort (subrev, stfile);
+    putshort ((short) (strlen (build_date) + 1), stfile);
+    fputs (build_date, stfile);  /* Rand build date */
+    putc ('\0', stfile);
+
+    /* OS info */
+    cc = uname (&utsnm);
+    if ( cc >= 0 ) {    /* on Sun uname returns 1 if ok !?! */
+	sprintf (msg, "%s %s, Hostname \"%s\", user \"%s\"", utsnm.sysname,
+		 utsnm.release, utsnm.nodename, myname);
+	put_strg (msg, stfile);
+    } else {
+	putshort (0, stfile);   /* error in uname call */
+    }
+
+    /* client session info */
+    put_strg (fromHost, stfile);
+    put_strg (fromHost_alias, stfile);
+    put_strg (fromDisplay, stfile);
+    put_strg (ssh_ip, stfile);
+    put_strg (sshHost, stfile);
+    put_strg (sshHost_alias, stfile);
+
+    putshort (0xAAAA, stfile);  /* end of section flag */
 
     if (ferror (stfile)) {
 	fclose (stfile);
 	return NO;
     }
+
+    putshort (0xFFFF, stfile);  /* end of file flag */
 
     fseek (stfile, 0L, 0);
     putshort (revision, stfile);   /* state file is OK */
@@ -569,9 +748,13 @@ void delchar_dump (FILE *stfile)
     char *val_pt;
 
     val_pt = itgetvalue (del_strg);
-    if ( ! val_pt ) return;
-
-    putc (del_strg [0], stfile);
-    putc (*val_pt, stfile);
-    putshort (0, stfile);   /* end of section flag */
+    if ( val_pt ) {
+	putc (del_strg [0], stfile);
+	putc (*val_pt, stfile);
+    } else {
+	/* not assigned */
+	putc ('\0', stfile);
+	putc ('\0', stfile);
+    }
+    putshort (0xAAAA, stfile);  /* end of section flag */
 }

@@ -21,6 +21,14 @@ file e.m.c
 #include SIG_INCL
 #endif
 
+char ambiguous_err_str [] =  "Ambiguous or too short abreviation of Editor command.";
+
+extern Flag impl_tick_flg;
+extern void set_impl_tick ();
+extern Flag reset_impl_tick ();
+extern void test_at_impl_tick ();
+extern void reset_searchkey_ref ();
+
 /* check_pattern : check and compiled regular expression if needed */
 /* --------------------------------------------------------------- */
 /*      return YES if every thing ok */
@@ -58,6 +66,154 @@ Flag check_pattern (char *patv)
     return (YES);
 }
 
+/* my_getkey : local to call getkey */
+/* -------------------------------- */
+
+static void bare_getkey ()
+{
+    extern void testandset_resize ();
+    static struct timeval nulsec = { 0, 0};
+
+#ifdef LMCLDC
+    (*term.tt_xlate) (0);   /* reset the graphics if needed */
+#endif
+
+    testandset_resize (YES, NULL, NULL);
+    getkey (WAIT_KEY, nulsec);
+    testandset_resize (NO, NULL, NULL);
+}
+
+
+static void my_getkey (Flag ccnull_flg)
+{
+    bare_getkey ();
+#ifdef LMCCMDS
+    if ( ccnull_flg && (key == CCNULL) ) return;
+#endif
+    if (loopflags.hold) {
+	/* erase previous message */
+	extern char *command_msg;
+	loopflags.hold = NO;
+	mesg (TELALL);
+	command_msg = NULL;
+    }
+}
+
+static Cmdret call_help_ambiguous (Flag ambig_flg, char *str)
+{
+    extern char * help_ambiguous_str ();
+    char my_para [128];
+    Cmdret donetype;
+
+    sprintf (my_para, "%s %s", help_ambiguous_str (ambig_flg), str ? str : "");
+    donetype = command (CMDHELP, my_para);
+    return donetype;
+}
+
+
+/* Wait for a key, erase error message, check for ambiguous help
+ *   and continue in command line processing.
+ */
+static void getkey_help (Flag uselast_flg)
+{
+    extern int check_registered_error ();
+    extern Flag check_ambiguous_param ();
+    extern char * help_cmd_str ();
+
+    if ( ! uselast_flg ) {
+	/* nothing to re process in command line */
+	my_getkey (NO);
+	return;
+    }
+    if ( loopflags.hold ) {
+	/* wait with cursor on command line */
+	mesg (TELSTRT);
+	bare_getkey ();
+	loopflags.hold = NO;
+	mesg (TELDONE);
+    }
+    if ( (key == CCHELP) && (check_registered_error () < 0) ) {
+	(void) call_help_ambiguous (check_ambiguous_param (), NULL);
+    }
+}
+
+/* Set_info_level & update_info_line :
+    Routines to set and write the 'At' or 'ch' info at bottom of the window
+
+    at_info_level values :
+       -1       : cursor position (only line nb), old style
+	0       : cursor position : <line>x<column>
+	1, 2, 3 : char at cursor position code in octal, decimal, hexa
+*/
+
+static int at_info_level = 0;
+
+void update_info_line ()
+{
+    Nlines nline;
+    Ncols ncol;
+    unsigned char ch, ich[32];
+
+    if ( ! curwksp ) {
+	ich[0] = '\0';
+	infoline = -1;
+    } else {
+	test_at_impl_tick ();
+	nline = curwksp->wlin + cursorline +1;
+	ncol  = curwksp->wcol + cursorcol  +1;
+	if ( at_info_level <= 0 ) {
+	    /* display cursor position */
+	    if ( at_info_level < 0 ) {
+		if ( infoline == nline ) return;
+		/* old style : just line nb, update only if line was changed */
+		sprintf (ich, "%5d", nline);
+	    }
+	    else /* new style, display cursor position : 'line'x'column' */
+		sprintf (ich, "%5dx%d", nline, ncol);
+	} else {
+	    /* display char code */
+	    if ( clineno != (nline-1) ) getline (nline-1);
+	    if ( ncol <= ncline ) {
+		ch = (unsigned char) cline[ncol-1];
+		switch (at_info_level) {
+		    case 1 :    /* octal */
+			sprintf (ich, "%04o", ch);
+			if ( ich[1] == '0' ) ich[0] = ' ';
+			break;
+
+		    case 2 :    /* decimal */
+			sprintf (ich, "%3d", ch);
+			break;
+
+		    case 3 :    /* hexadecimal */
+			sprintf (ich, "0X%02x", ch);
+			break;
+
+		    default :
+			return;
+		}
+	    } else ich[0] = '\0';
+	}
+	infoline = nline;
+    }
+    rand_info (inf_line, 9, ich);
+}
+
+void set_info_level (int level)
+{
+    /* 0 is the default value : no vale provided for 'set info' command */
+    if ( (level > 3) || (level < -1) ) return;   /* value out of range */
+    at_info_level = level;
+    rand_info (inf_at, 2, (at_info_level > 0) ? "ch" : "At");
+    infoline = -1;  /* force refresh in any case */
+    update_info_line ();
+}
+
+int get_info_level ()
+{
+    return at_info_level;
+}
+
 #ifdef COMMENT
 void
 mainloop ()
@@ -67,48 +223,64 @@ mainloop ()
 void
 mainloop ()
 {
-extern int command_file ();
-extern void testandset_resize ();
-extern void marktick (Flag set);
+    extern int command_class ();
+    extern void testandset_resize ();
+    extern void marktick (Flag set);
+    extern void marktick_msg (Flag set, Flag msg);
+    extern void goto_tick_or_prev ();
+    extern char * help_cmd_str ();
+    extern void clear_ambiguous_param ();
+    extern Flag test_ctrlc ();
+
+    static char *nix = "\0";
 
 #ifdef LMCCMDS
-static char *nix = "\0";
-static char *abortstg = "ab\0";
-static char *quitstg = "q\0";
-static char *pickstg = "pick\0";
-static char *boardstg = "status\0";
-static char *editstg = "?\0";
-/*
-char *boardstg = "l\0";
-*/
+    static char *abortstg = "ab\0";
+    static char *quitstg = "q\0";
+    static char *pickstg = "pick\0";
+    static char *boardstg = "status\0";
+    static char *editstg = "?\0";
+    /*
+    char *boardstg = "l\0";
+    */
 #endif
-	static struct timeval nulsec = { 0, 0};
+    static struct timeval nulsec = { 0, 0};
 
+    Flag uselast;       /* for re_param call */
+    Flag gotcmd_flg;    /* go to gotcmd directly */
+    int sz;
+
+    uselast = gotcmd_flg = NO;
+
+    /* Main editor loop */
+    /* ---------------- */
     for (;;) {
+	if ( gotcmd_flg ) {
+	    /* continue with command line input after an error msg */
+	    getkey_help (uselast);
+	    keyused = YES;
+	    gotcmd_flg = NO;
+	    if ( !test_ctrlc () ) goto gotcmd;
+	    /* return with Ctrl C : do not reuse the last command line */
+	    uselast = NO;
+	}
+
 funcdone:
 	loopflags.clear = YES;
+
 newnumber:
 	if (loopflags.clear && !loopflags.hold) {
 	    mesg (TELALL + 1, loopflags.beep ? "\007" : "");
 	    loopflags.beep = NO;
 	}
-	Block {
-	    Reg1 Nlines nlines;
-	    char ich[8];
-	    nlines = curwksp->wlin + cursorline + 1;
-	    if (infoline != nlines) {
-#ifdef LA_LONGFILES
-		sprintf (ich, "%-6d", nlines);
-#else
-		sprintf (ich, "%-5d", nlines);
-#endif
-		rand_info (inf_line, 5, ich);
-		infoline = nlines;
-	    }
-	}
 
 	if (curfile != infofile && (fileflags[curfile] & INUSE)) {
-	    rand_info (inf_file, strlen (names[infofile]), names[curfile]);
+	    if ( names [infofile] ) sz = strlen (names [infofile]);
+	    else {
+		sz = 255;
+	    }
+	    sz = (names [infofile]) ? strlen (names [infofile]) : 255;
+	    rand_info (inf_file, sz, names[curfile]);
 	    infofile = curfile;
 	}
 
@@ -118,6 +290,7 @@ newnumber:
 	}
 
 contin:
+	update_info_line ();
 	keyused = YES;
 	if (curwksp->wkflags & RANGESET) {
 	    /* Update the RANGE postion display */
@@ -179,6 +352,21 @@ contin:
 	if (cmdmode) {
 	    goto gotcmd;
 	}
+
+	/* ++ new version : >= 19.58 */
+	my_getkey (YES);    /* CCNULL does not clear command window msg */
+
+#ifdef LMCCMDS
+	if ( key == CCNULL ) {
+	    /* hold message generated during getkey processing */
+	    goto newnumber;
+	}
+#endif
+	/* -- new version : >= 19.58 */
+
+
+#if 0   /* ------ old version : < 19.58 */
+
 #ifdef LMCLDC
 	(*term.tt_xlate) (0);   /* reset the graphics if needed */
 #endif
@@ -187,10 +375,21 @@ contin:
 	getkey (WAIT_KEY, nulsec);
 	testandset_resize (NO, NULL, NULL);
 
+#ifdef LMCCMDS
+	if ( key == CCNULL ) {
+	    /* hold message generated during getkey processing */
+	    goto newnumber;
+	}
+#endif
+
 	if (loopflags.hold) {
+	    extern char *command_msg;
+
 	    loopflags.hold = NO;
 	    mesg (TELALL);
+	    command_msg = NULL;
 	}
+#endif /* ------ old version */
 
 	Block {
 	    Reg1 Small donetype;
@@ -200,6 +399,8 @@ contin:
 		|| key == CCDELCH
 	       ) {
 		donetype = printchar ();
+		/* write something in the file window, reset impl_tick mark */
+		if ( impl_tick_flg ) reset_impl_tick ();
 		goto doneswitch;
 	    }
 	    Block {
@@ -292,6 +493,7 @@ contin:
 		case CCSETFILE:
 		    if (curmark)
 			goto nomarkerr;
+		    (void) reset_impl_tick ();
 		    switchfile ();
 		    goto funcdone;
 
@@ -299,6 +501,7 @@ contin:
 		    if (curmark)
 			goto nomarkerr;
 		    if (nwinlist > 1) {
+			(void) reset_impl_tick ();
 			chgwindow (-1);
 			loopflags.bullet = YES;
 		    }
@@ -337,15 +540,22 @@ contin:
 		    goto funcdone;
 
 		case CCPLPAGE:
+		    set_impl_tick (NO);
 		    vertmvwin (defplpage * (1 + curwin->btext));
 		    goto funcdone;
 
 		case CCMIPAGE:
+		    set_impl_tick (NO);
 		    vertmvwin (-defmipage * (1 + curwin->btext));
 		    goto funcdone;
 
 		case CCINT:
-		    goto nointerr;
+		    {
+			Flag flg;
+			flg = unmark ();
+			if ( reset_impl_tick () || flg ) goto funcdone;
+			goto nointerr;
+		    }
 
 		case CCTABS:
 		    sctab (curwksp->wcol + cursorcol, YES);
@@ -356,7 +566,7 @@ contin:
 		    goto funcdone;
 
 		case CCTICK:
-		    marktick (YES);
+		    goto_tick_or_prev ();
 		    goto funcdone;
 
 		case CCREPLACE:
@@ -487,15 +697,22 @@ contin:
 		    goto doneswitch;
 
 #ifdef LMCCMDS
+/* old processing of CCNULL
 		case CCNULL:
 		    goto funcdone;
+*/
 #endif
 	    }
+	    uselast = NO;
 gotcmd:
-	    param ();
+	    clear_ambiguous_param ();
+	    gotcmd_flg = NO;
+	    re_param (uselast);
+	    uselast = NO;
 
-	    if (cmdmode && key != CCRETURN)
+	    if ( cmdmode && (key != CCRETURN) && (key != CCHELP) )
 		goto notcmderr;
+
 	    switch (key) {
 		case CCCMD:
 		    goto funcdone;
@@ -533,6 +750,8 @@ gotcmd:
 		    */
 
 		case CCINT:
+		    (void) unmark ();
+		    (void) reset_impl_tick ();
 		    goto funcdone;
 
 		case CCMISRCH:
@@ -548,6 +767,7 @@ gotcmd:
 
 		    if (searchkey)
 			sfree (searchkey);
+		    reset_searchkey_ref ();
 		    searchkey = append (paramv, "");
 		    dosearch (key == CCPLSRCH ? 1 : -1);
 		    goto funcdone;
@@ -600,13 +820,20 @@ gotcmd:
 		case CCMARK:
 		    if (paramtype != 0)
 			goto notimperr;
-		    unmark ();
+		    (void) unmark ();
 		    goto funcdone;
 
 		case CCTICK:
-		    if (paramtype != 0)
-			goto notimperr;
-		    marktick (NO);
+		    /* reset implicite tick if any, else set tick */
+		    if ( ! reset_impl_tick () ) {
+			marktick_msg (YES, (paramtype == 0));
+			putchar ('\a');
+		    }
+		    if (paramtype != 0) {
+			/* continue command entry */
+			keyused = uselast = YES;
+			goto gotcmd;
+		    }
 		    goto funcdone;
 
 		case CCMOVELEFT:
@@ -617,21 +844,23 @@ gotcmd:
 		case CCTAB:
 		case CCHOME:
 		case CCBACKTAB:
-		    switch (paramtype) Block {
+		    switch (paramtype) {
 			int lns;
 		    case 0:
+			/* empty command line, just <cmd> <key function> */
 			switch (key) {
 			case CCHOME:
 			    movecursor (cntlmotions[CCHOME], 1);
 			    key = CCMOVEDOWN;
-			    goto llcor;
+			    lns = curwin->btext - cursorline;
+			    break;
 
 			case CCMOVEDOWN:
 			    if ((lns = la_lsize (curlas) -
 				       (curwksp->wlin + cursorline)) > 0)
 				lns = min (lns, curwin->btext - cursorline);
 			    else
-		    llcor:      lns = curwin->btext - cursorline;
+				lns = curwin->btext - cursorline;
 			    break;
 
 			case CCMOVEUP:
@@ -657,56 +886,145 @@ gotcmd:
 			}
 			if (lns <= 0)
 			    goto funcdone;
-			goto multmove;
+			movecursor (cntlmotions[key], lns);
+			break;
 
 		    case 1:
+			/* a number */
 			if (parmlines <= 0)
 			    goto notposerr;
 			lns = parmlines;
- multmove:              movecursor (cntlmotions[key], lns);
+			movecursor (cntlmotions[key], lns);
 			break;
 
 		    case 2:
+			/* a rectangle specification */
 			goto norecterr;
 
+		    case 3 :
+			/* single word string : just a command ? */
+			break;
+
 		    default:
-			if ( command_file (NULL, NULL, NULL) ) goto notfilerr;
-			goto notinterr;
+			/* multi word string */
+			{
+			    int cc;
+			    if ( key != CCTAB ) {
+				/* ignore the key strock */
+				putchar ('\a'); /* ring bell */
+				keyused = uselast = YES;
+				goto gotcmd;
+			    }
+			    cc = command_class (NULL, NULL, NULL);
+			    if ( cc ==  HELP_CMD_CLASS ) goto helperr;
+			    if ( cc ==  FILE_CMD_CLASS ) goto notfilerr;
+			    if ( cc ==  DIR_CMD_CLASS  ) goto notdirerr;
+			    if ( cc ==  0 ) goto nowordcomplerr;
+			    if ( cc == -2 ) goto ambiguouserr;
+			    goto notinterr;
+			}
+		    }
+		    if ( key == CCTAB ) {
+			/* somehing been expanded ? */
+			keyused = uselast = YES;
+			goto gotcmd;
 		    }
 		    goto funcdone;
 
 		case CCRETURN:
-#ifdef LMCCMDS
 		    donetype = command (0, nix);
 		    goto doneswitch;
 #ifdef LMCHELP
 		case CCHELP:
-		    command (CMDHELP, boardstg);
-		    goto funcdone;
+		    /* help key function in command line */
+		    {
+			extern int check_registered_error ();
+			extern Flag check_ambiguous_param ();
+			extern Cmdret help_ambiguous (Flag *ctrlc_flg, Flag ambig_flg);
+			Flag ctrlc_flg;
+
+			if ( check_registered_error () < 0 ) {
+			    donetype = help_ambiguous (&ctrlc_flg, check_ambiguous_param ());
+			    if ( donetype == CROK ) {
+				/* re-display the ambiguous command */
+				keyused = YES;
+				uselast = !ctrlc_flg;
+				if ( uselast ) goto gotcmd;
+				goto doneswitch;
+			    }
+			}
+		    }
+
+		    if ( (paramtype == 3) || (paramtype == 4) ) {
+			/* 1 or more words, get help on the command (1st word) */
+			extern S_looktbl cmdtable[];
+			char my_para [128], para1 [128];
+			char *str1, *str2;
+			int cc;
+
+			memset (my_para, 0, sizeof (my_para));
+			memset (para1, 0, sizeof (para1));
+			/* get the command 1st word */
+			str1 = paramv;
+			str2 = getword (&str1);
+			if ( str2 [0] != '\0' ) {
+			    strncpy (para1, str2, sizeof (para1) -1);
+			    sfree (str2);
+			    cc = lookup (para1, cmdtable);
+			    if ( cc == -2 ) {
+				donetype = call_help_ambiguous (YES, para1);
+				keyused = uselast = YES;
+				goto gotcmd;
+			    } else if ( cc < 0 ) {
+				if ( cc == -1 ) {
+				    extern Flag test_ctrlc ();
+				    donetype = call_help_ambiguous (NO, para1);
+				    uselast = !test_ctrlc ();
+				    keyused = YES;
+				    if ( uselast ) goto gotcmd;
+				    goto funcdone;
+				}
+				keyused = uselast = gotcmd_flg = YES;
+				goto noargerr;
+			    }
+			    sprintf (my_para, "%s %s", help_cmd_str (), para1);
+			}
+			donetype = command (CMDHELP, my_para);
+			keyused = uselast = YES;
+			goto gotcmd;
+		    }
+		    else if ( paramtype == 0 ) {
+			/* get the default help info */
+			char *str;
+			str = help_cmd_str ();
+			donetype = command (CMDHELP, str);
+			keyused = YES;
+			uselast = NO;
+			goto gotcmd;
+		    }
+
+		    keyused = uselast = gotcmd_flg = YES;
+		    goto noargerr;
 #endif
 #ifdef LMCAUTO
 		case CCAUTOFILL:
 		    infoauto(YES);
 		    goto funcdone;
 #endif
-#else
-		    donetype = command ();
-		    goto doneswitch;
-#endif
 		case CCMIPAGE:
 		case CCPLPAGE:
 		    switch (paramtype) {
-		    extern void savemark (struct markenv *);
-		    extern void copymark (struct markenv *, struct markenv *);
-		    struct markenv tmpmk;
+			extern void savemark (struct markenv *);
+			extern void copymark (struct markenv *, struct markenv *);
+			struct markenv tmpmk;
 
 		    case 0:
-			savemark (&tmpmk);
+			set_impl_tick (NO);
 			gotomvwin (key == CCPLPAGE ? la_lsize (curlas) : 0);
-			copymark (&tmpmk, &curwksp->wkpos);
 			break;
 
 		    case 1:
+			set_impl_tick (NO);
 			vertmvwin ((key == CCPLPAGE ? parmlines : -parmlines )
 				    * (1 + curwin->btext));
 			break;
@@ -749,6 +1067,7 @@ gotcmd:
 		    case 1:
 			if (parmlines <= 0)
 			    goto notposerr;
+			(void) reset_impl_tick ();
 			chgwindow (parmlines - 1);
 			loopflags.bullet = YES;
 			break;
@@ -833,6 +1152,10 @@ gotcmd:
 		    goto doneswitch;
 
 		case CCREDRAW:
+		    donetype = command (CMDREDRAW, nix);
+		    keyused = uselast = YES;
+		    goto gotcmd;
+
 		case CCBOX:
 		case CCABORT:
 		case CCCLRTABS:
@@ -851,6 +1174,11 @@ gotcmd:
 
 doneswitch:
 	    switch (donetype) {
+	    case RE_CMD:
+		/* re display the last command (to correct and replay) */
+		keyused = uselast = gotcmd_flg = YES;
+		break;
+
 	    case NOMEMERR:
 		mesg (ERRALL + 1, "You have run out of memory.  Exit now!");
 		break;
@@ -865,6 +1193,7 @@ doneswitch:
 
 	    case NOTSTRERR:
 		mesg (ERRALL + 1, "Argument must be a string.");
+		keyused = uselast = gotcmd_flg = YES;
 		break;
 
 	    case NOWRITERR:
@@ -873,7 +1202,8 @@ doneswitch:
 
 	    noargerr:
 	    case NOARGERR:
-		mesg (ERRALL + 1, "Invalid argument.");
+		mesg (ERRALL + 2, paramv, " : Invalid argument.");
+		keyused = uselast = gotcmd_flg = YES;
 		break;
 
 	    nomarkerr:
@@ -888,6 +1218,7 @@ doneswitch:
 	    norecterr:
 	    case NORECTERR:
 		mesg (ERRALL + 1, "Can't do that to a rectangle");
+		keyused = uselast = gotcmd_flg = YES;
 		break;
 
 	    case NOTRECTERR:
@@ -911,12 +1242,14 @@ doneswitch:
 
 	    notinterr:
 	    case NOTINTERR:
-		mesg (ERRALL + 1, "Argument must be numeric.");
+		mesg (ERRALL + 3, "\"", paramv, "\" : Argument must be numeric.");
+		keyused = uselast = gotcmd_flg = YES;
 		break;
 
 	    notposerr:
 	    case NOTPOSERR:
-		mesg (ERRALL + 1, "Argument must be positive.");
+		mesg (ERRALL + 3, "\"", paramv, "\" : Argument must be positive.");
+		keyused = uselast = gotcmd_flg = YES;
 		break;
 
 	    notimperr:
@@ -924,7 +1257,13 @@ doneswitch:
 		mesg (ERRALL + 1, "That key sequence is not implemented.");
 		break;
 	    }
+	    /* any other case (included CROK) */
+
+	    /* end of switch donetype : continue in main loop */
 	    continue;
+	    /* ---------------------------------------------- */
+
+	    /* local error cases */
 
 	    notcmderr:
 	    mesg (ERRALL + 1, "Can't do that in Command Mode");
@@ -939,12 +1278,38 @@ doneswitch:
 	    continue;
 
 	    notfilerr:
-	    mesg (ERRALL + 1, "Argument must be a file name.");
+	    mesg (ERRALL + 3, "\"", paramv, "\" : Argument must be a file name.");
+	    keyused = uselast = gotcmd_flg = YES;
+	    continue;
+
+	    notdirerr:
+	    mesg (ERRALL + 3, "\"", paramv, "\" : Argument must be a directory name.");
+	    keyused = uselast = gotcmd_flg = YES;
 	    continue;
 
 	    nomorefile:
 	    mesg (ERRALL + 1, "No more file are currently edited.");
 	    continue;
+
+	    ambiguouserr:
+	    mesg (ERRALL + 4, "\"", paramv, "\" : ", ambiguous_err_str);
+	    continue;
+
+	    toomanyargerr:
+	    mesg (ERRALL + 3, "\"", paramv, "\" : Too many arguments.");
+	    keyused = uselast = gotcmd_flg = YES;
+	    continue;
+
+	    helperr:
+	    mesg (ERRALL + 3, "\"", paramv, "\" : Argument must be editor command or key function");
+	    keyused = uselast = gotcmd_flg = YES;
+	    continue;
+
+	    nowordcomplerr:
+	    mesg (ERRALL + 3, "\"", paramv, "\" : Word completion is not available for this command");
+	    keyused = uselast = gotcmd_flg = YES;
+	    continue;
+
 	}
     }
     /* never returns */

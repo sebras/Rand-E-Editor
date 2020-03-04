@@ -13,7 +13,7 @@ file e.put.c
 #include "e.cm.h"
 #include "e.e.h"
 
-S_looktbl qbuftable[] = {
+S_looktbl qbuftable [] = {
     "adjust"  , QADJUST ,
     "box"     , QBOX    ,
     "close"   , QCLOSE  ,

@@ -17,6 +17,8 @@ file e.h.c
 #include SIG_INCL
 #endif
 
+void print_sort_table (S_lookstruct *);
+
 /* these 2 values are primarily defined in e.it.h */
 #define KBINIT  040     /* Must not conflict with CC codes */
 #define KBEND   041
@@ -42,6 +44,7 @@ static void (*resize_param) (int *, int *) = NULL;  /* get current term size */
 static void browse_keyboard (char *msg)
 {
     extern char * itsyms_by_val (short val);
+    extern void ignore_quote ();
     static int help_description ();
     char blank [128];
     char *str;
@@ -53,8 +56,9 @@ static void browse_keyboard (char *msg)
     blank [sz] = '\r';
     blank [sz +1] = '\0';
     for ( ; ; ) {
+	ignore_quote ();
 	ctrlc = wait_keyboard (msg, &qq);
-	if ( qq == CCRETURN ) break;
+	if ( ctrlc || (qq == CCRETURN) ) break;
 	if ( (qq >= ' ') && (qq <= '~') ) putchar ('\007');
 	else {
 	    str = itsyms_by_val (key);
@@ -95,9 +99,9 @@ static int check_new_page (int *nbli, int nl)
     if ( *nbli < sz ) return NO;
 
     ctrlc = wait_keyboard ("Push a key to complete the description, <Ctrl C> to exit", NULL);
-    fputs ("\r                                          \r", stdout);
+    fputs               ("\r                                                        \r", stdout);
     *nbli = 0;
-    (*term.tt_addr) (term.tt_height -2, 0);
+    (*term.tt_addr) (term.tt_height -1, 0);
     return ctrlc;
 }
 
@@ -125,6 +129,9 @@ int *nlnb_pt;   /* when not NULL just count the number of line in the text, no o
     char *type;
     Flag flg;
 
+    if ( cmd_str && !str ) str = cmd_str;
+    if ( !str ) return 0;
+
     type = "???";
     ctrlc = NO;
 
@@ -133,7 +140,7 @@ int *nlnb_pt;   /* when not NULL just count the number of line in the text, no o
 	return (0);   /* no more message */
     }
 
-    go = nl = NO;
+    go = nl = 0;
     nl_nb = 0;
     if ( (nbli == 0) && !nlnb_pt ) (*term.tt_home) ();
 
@@ -141,9 +148,18 @@ int *nlnb_pt;   /* when not NULL just count the number of line in the text, no o
 	/* display the header for keyfunc and command */
 	if ( sep == '`' ) {    /* message by string name */
 	    type = "Command";
-	    if ( !nlnb_pt ) printf ("%s (%d) : Editor %s", str, val, type);
-	    if ( strlen (abreviation) < strlen (str) )
-		if ( !nlnb_pt ) printf (", abreviated down to \"%s\"", abreviation);
+	    if ( !nlnb_pt ) {
+		if ( strcmp (str, cmd_str) == 0 )
+		    printf ("%s (%d) : Editor %s", str, val, type);
+		else
+		    printf ("%s (%d) : Editor %s \"%s\"", str, val, type, cmd_str);
+	    }
+	    if ( abreviation )
+		if ( !nlnb_pt ) {
+		    char *cmt;
+		    cmt = (strchr (abreviation, ',')) ? "aliases" : "alias";
+		    printf (", %s : %s", cmt, abreviation);
+		}
 	} else if ( sep == '~' ) {
 	    type = (flg = (val == KBINIT) || (val == KBEND))
 		 ? "Defined String" : "Key Function";
@@ -197,7 +213,7 @@ int *nlnb_pt;   /* when not NULL just count the number of line in the text, no o
 				type, xdir_help);
 	nl_nb +=3;
     }
-    if ( nl) go--;
+    if ( nl ) go--;
     fclose (helpin);
     if ( !nlnb_pt ) fflush (stdout);
     if ( nlnb_pt ) *nlnb_pt = nl_nb;
@@ -271,8 +287,103 @@ static void keymap_term ()
     display_keymap (NO);
 }
 
-/* key_assigned : local to edit the string of key assigned to the given key function */
-/* --------------------------------------------------------------------------------- */
+/* key_by_func : Get keys list by key function value
+ * -------------------------------------------------
+ *      escp_str and escp_labels must be the same size : escp_nb
+ *      funcval_flg : yes return just the function command string
+ *      escp_labels_flg : return on key labels for each escp string
+*/
+
+static int concat_labels (char ** shift_key, int shift_key_nb,
+			  char * msg, int msg_sz,
+			  char * keys_label, int keys_label_sz)
+{
+    int i, sz;
+
+    for ( i = 0 ; i < shift_key_nb ; i++ ) {
+	if ( !shift_key[i] || !shift_key[i][0] ) continue;
+	sz = msg_sz - strlen (msg);
+	if ( sz < 1 ) break;
+	strncat (msg, shift_key[i], sz);
+	sz = strlen (msg);
+	if ( sz < (msg_sz -2) ) {
+	    msg [sz-1] = ';';
+	    msg [sz] = ' ';
+	}
+    }
+    memset (shift_key, 0, shift_key_nb * sizeof (char *));
+    memset (keys_label, 0, keys_label_sz);
+    return ( strlen (msg));
+}
+
+int key_by_func (int fcmd, char *buf, int buf_sz,
+		 char **escp_str, char **escp_labels, int escp_nb,
+		 char *labels, int labels_sz,
+		 Flag funcval_flg,
+		 Flag escp_labels_flg)
+{
+    extern int it_value_to_string ();
+    extern void all_string_to_key ();
+    int i, nb, sz, msg_sz;
+    char ch;
+    char *sp, *sp1, *msg;
+    char *shift_key[4];
+    char keys_label [4*128];
+    int shift_key_nb;
+
+    memset (buf, 0, buf_sz);        /* buffer for escape sequences */
+    nb = it_value_to_string (fcmd, NO, buf, buf_sz);
+    if ( nb <= 0 ) return 0;
+    if ( nb > escp_nb ) nb = escp_nb;
+    if ( funcval_flg ) return nb;
+
+    memset (escp_str, 0, escp_nb * sizeof (char *));
+    if ( escp_labels ) memset (escp_labels, 0, escp_nb * sizeof (char *));
+    memset (labels, 0, labels_sz);  /* storage for keys labels */
+
+    sp = buf;
+    for ( i = 0 ; i < nb ; i++ ) {
+	sp1 = strchr (sp, ' ');
+	escp_str [i] = sp;
+	if ( !sp1 ) break;
+	*sp1 = '\0';
+	sp = sp1 +1;
+    }
+    if ( i < nb ) nb = i+1;
+
+    /* assigned keys */
+    memset (shift_key, 0, sizeof (shift_key));
+    memset (keys_label, 0, sizeof (keys_label));
+    shift_key_nb = sizeof (shift_key) / sizeof (shift_key[0]);
+
+    msg = labels;
+    for ( i = 0 ; i < nb ; i++ ) {
+	ch = escp_str[i][0];
+	if ( ch >= '\040' && (ch != '\177') ) continue;
+	all_string_to_key (escp_str[i], shift_key, &shift_key_nb,
+			   keys_label, sizeof (keys_label));
+	if ( escp_labels_flg ) {
+	    msg_sz = labels_sz - (msg - labels);
+	    sz = concat_labels (shift_key, shift_key_nb, msg, msg_sz,
+				keys_label, sizeof (keys_label));
+	    if ( sz ) {
+		if ( escp_labels ) escp_labels [i] = msg;
+		msg += (strlen (msg) +1);
+	    }
+	}
+    }
+    if ( ! escp_labels_flg ) {
+	/* a single string for all key labels */
+	msg_sz = labels_sz;
+	(void) concat_labels (shift_key, shift_key_nb, msg, msg_sz,
+			      keys_label, sizeof (keys_label));
+    }
+    return nb;
+}
+
+
+/* key_assigned : local to generate the string of key assigned to the given key function */
+/* ------------------------------------------------------------------------------------- */
 
 static void key_assigned (msg, msg_sz, fcmd, fstr, funcval_flg)
 char *msg;
@@ -281,71 +392,20 @@ int fcmd;
 char *fstr;
 Flag funcval_flg;
 {
+
     extern Flag verbose_helpflg;
     extern char * escstrg ();
-    extern int it_value_to_string ();
-    extern void all_string_to_key ();
-    int i, nb, sz;
-    char ch, buf[256];
+    char buf[256];
     char *escp[16];
-    char *sp, *sp1;
-    char *shift_key[4];
-    char keys_label [4*128];
-    int shift_key_nb;
+    int sz;
 
-    memset (escp, 0, sizeof (escp));
-    memset (buf, 0, sizeof (buf));
-    nb = it_value_to_string (fcmd, NO, buf, sizeof (buf));
-    if ( nb <= 0 ) return;
-
-    if ( nb > (sizeof (escp) / sizeof (escp[0])) )
-	nb = sizeof (escp) / sizeof (escp[0]);
-    sp = buf;
-
+    sz = strlen (msg);
+    (void) key_by_func (fcmd, buf, sizeof (buf),
+		 escp, NULL, sizeof (escp) / sizeof (escp [0]),
+		 msg+sz, msg_sz-sz, funcval_flg, NO);
     if ( verbose_helpflg || funcval_flg ) printf ("%s\n", escstrg (buf));
-    if ( funcval_flg ) return;
-
-    for ( i = 0 ; i < nb ; i++ ) {
-	sp1 = strchr (sp, ' ');
-	escp [i] = sp;
-	if ( !sp1 ) break;
-	*sp1 = '\0';
-	sp = sp1 +1;
-    }
-    if ( i < nb ) nb = i+1;
-
-    /* control characters */
-    for ( i = 0 ; i < nb ; i++ ) {
-	/* control characters */
-	ch = escp[i][0];
-	if ( (ch == '\033') || (ch == '\177') ) continue;
-	if ( ch >= '\040' ) continue;   /* ??? not a Ctrl or escape seq */
-	sprintf (&msg[strlen (msg)], "<Ctrl %c> ", ch + '@');
-    }
-
-    /* assigned keys */
-    memset (shift_key, 0, sizeof (shift_key));
-    memset (keys_label, 0, sizeof (keys_label));
-    shift_key_nb = sizeof (shift_key) / sizeof (shift_key[0]);
-    for ( i = 0 ; i < nb ; i++ ) {
-	ch = escp[i][0];
-	if ( ch >= '\040' && (ch != '\177') ) continue;
-	all_string_to_key (escp[i], shift_key, &shift_key_nb,
-			   keys_label, sizeof (keys_label));
-    }
-    for ( i = 0 ; i < shift_key_nb ; i++ ) {
-	if ( !shift_key[i] || !shift_key[i][0] ) continue;
-	sz = msg_sz - strlen (msg);
-	if ( sz < 1 ) break;
-	strncat (msg, shift_key[i], sz);
-	sz = strlen (msg);
-	if ( sz < (msg_sz -2) ) {
-	    msg [sz-1] =';';
-	    msg [sz] =' ';
-	}
-    }
-    return;
 }
+
 /* ------------------------------------------------------------------------ */
 
 /* keyfunc_ibmpc : find the key for a given key command */
@@ -354,9 +414,10 @@ Flag funcval_flg;
 static Cmdret keyfunc_ibmpc (helparg)
 char *helparg;
 {
+    extern void all_ctrl_key_by_func (char *msg, int msg_sz, int fcmd);
     extern Flag verbose_helpflg;
     extern S_looktbl itsyms[];
-    int idx;
+    int idx, sz;
     char msg [256];
     char *hlparg;
     int fcmd;
@@ -386,7 +447,7 @@ char *helparg;
 	      (idx != -2) ? " : Unknown Key Function" : " : Ambiguous Key Function");
 	if ( *hlparg ) sfree (hlparg);
 	loopflags.hold = YES;
-        return CROK;
+	return RE_CMD;
     }
     if ( *hlparg ) sfree (hlparg);
 
@@ -396,10 +457,12 @@ char *helparg;
 	return CRTOOMANYARGS;
 
     memset (msg, 0, sizeof (msg));
-    sprintf (msg, "%s: ", str);
+    sz = sprintf (msg, "%s: ", str);
+    all_ctrl_key_by_func (&msg[sz], sizeof (msg) -sz, fcmd);
+    sz = strlen (msg);
     tflg = verbose_helpflg;
     verbose_helpflg = NO;
-    key_assigned (msg, sizeof (msg), fcmd, str, NO);
+    key_assigned (&msg[sz], sizeof (msg) - sz, fcmd, str, NO);
     verbose_helpflg = tflg;
     msg [term.tt_width -3] = '\0';
     mesg (TELALL + 1, msg);
@@ -411,6 +474,7 @@ char *helparg;
 Cmdret do_fullscreen (Cmdret (*process) (), void *p1, void *p2, void *p3)
 {
     extern void reset_crlf ();
+    extern char *command_msg;
     Cmdret cc;
     int oflag, col, lin;
 
@@ -420,14 +484,18 @@ Cmdret do_fullscreen (Cmdret (*process) (), void *p1, void *p2, void *p3)
     ( *term.tt_home ) ();
     poscursor (0, term.tt_height -1);
     oflag = set_crlf ();
+    command_msg = NULL;
 
     cc = (*process) (p1, p2, p3);
 
     reset_crlf (oflag);
-    mesg (TELALL+1, " ");
     fflush (stdout);
     fresh ();
     restcurs ();
+    if ( !command_msg ) {
+	mesg (TELALL +1, "");
+	loopflags.hold = NO;
+    }
     return cc;
 }
 
@@ -441,7 +509,9 @@ Cmdret do_fullscreen (Cmdret (*process) (), void *p1, void *p2, void *p3)
 	defined in the file : e.m.c in "mainloop" routine
 */
 
-static char retmsg [] = "--- Press ENTER (CR or RETURN) or <Ctrl C> to return to the Edit session ---";
+static char retmsg []  = "--- Press ENTER (CR or RETURN) or <Ctrl C> to return to the Edit session ---";
+static char contmsg [] = "--- Press ENTER (CR or RETURN) to navigate, <Ctrl C> to return to the Edit session ---";
+static char keyfmsg [] = "--- Press a key for Key function, <Ctrl C> to return to the Edit session ---";
 
 #define HELP_CMD    1
 #define HELP_KBCK   2
@@ -450,10 +520,14 @@ static char retmsg [] = "--- Press ENTER (CR or RETURN) or <Ctrl C> to return to
 #define HELP_KMAP   5
 #define HELP_NEW    6
 #define HELP_STAT   7
+#define HELP_CHARSET 8
+#define HELP_GRAPHSET 9
 
-S_looktbl helptable[] = {
+S_looktbl helptable [] = {
+    "charset"           , HELP_CHARSET,
     "cmd"               , HELP_CMD  ,
     "commands"          , HELP_CMD  ,
+    "graphset"          , HELP_GRAPHSET,
     "kbchk"             , HELP_KBCK ,
     "key"               , HELP_KEY  ,
     "keyboard_check"    , HELP_KBCK ,
@@ -466,26 +540,126 @@ S_looktbl helptable[] = {
     0                   , 0
     };
 
-static Cmdret process_help_std (helparg)
-char *helparg;
+/* "cmd" and "commands" are ambiguous with the key function and editor command */
+#define CMD_IDX 1
+#define COM_IDX 2
+
+/* short description of help command */
+static char helpmsg [] = "\
+\"help status\" .   .   .   .   .   .   Display the actual editor parameters value\n\
+\"help NewFeatures\" or \"help new\"  .   Display the new features of the editor\n\
+\"help cmd\"  or \"help commands\".   .   Navigate in Editor Commands description\n\
+\"help keyf\" or \"help keyfunctions\".   Navigate in Key Functions description\n\
+\"help <command or function>\"  .   .   Info on Editor Command and/or Key Function\n\
+\"help cmd <command>\"  .   .   .   .   Info on the given Editor Command\n\
+\"help keyf <function>\"    .   .   .   Info on the given Key Function\n\
+\"help keymap\" .   .   .   .   .   .   Global keyboard mapping info\n\
+\"help key <function>\" .   .   .   .   Info on the keys assigned to function\n\
+\"help charset\".   .   .   .   .   .   Display the current character set\n\
+\"help graphset\"   .   .   .   .   .   Display the graphical character set used\n\
+					for window edges\n\
+\"help kbchk\" or \"help keyboard_check\" Interractively check keyboard mapping\n\
+";
+
+void show_help_msg ()
+{
+    putc ('\n', stdout);
+    fputs (helpmsg, stdout);
+}
+
+/* help special command string to display ambiguous list " */
+static char ambig_str []  = "ambiguous";
+static char allcmds_str [] = "allcommands";
+
+char * help_ambiguous_str (Flag ambig_flg)
+{
+    return ( ambig_flg ? ambig_str : allcmds_str );
+}
+
+char * help_cmd_str ()
+{
+    return ( helptable [CMD_IDX].str );
+}
+
+int expand_help (char *strg, int strg_sz, int *pos)
+/*
+ *  Return :
+ *          -3 : no more argument in strg
+ *          -2 : ambiguous argument in strg
+ *          -1 : not a help argument (can be a command or a key function)
+ *           0 : nothing to be done
+ *           1 : well done
+ */
+{
+    extern int expand_keyword_name (int pos, S_looktbl *table, int *val);
+    extern int getccmd (char *strg, int strg_sz, int *ccmdpos);
+    extern char *getparam (char *str, int *beg_pos, int *end_pos);
+    extern S_looktbl cmdtable[];
+    extern S_looktbl itsyms[];
+    int cc, pos1, pos2, val, sz;
+    char * kwd;
+
+    if ( !strg || !*strg ) return -2; /* no more argument */
+    pos1 = ( pos && (*pos > 0) ) ? *pos : 0;
+    kwd = getparam (strg, &pos1, &pos2);
+    if ( !kwd ) return -3;  /* no more argument */
+
+    cc = expand_keyword_name (pos1, helptable, &val);
+    if ( cc == -1 ) return -1;    /* keyword not found */
+    if ( cc == -2 ) return -2;    /* ambiguous keyword */
+
+    if ( cc == 1 ) {
+	/* reload the expanded command string */
+	sz = getccmd (strg, strg_sz, NULL);
+	kwd = getparam (strg, &pos1, &pos2);
+	if ( !kwd ) return -2;  /* must not occure at this point */
+    }
+
+    /* more argument ? */
+    pos1 = pos2;
+    kwd = getparam (strg, &pos1, &pos2);
+    if ( !kwd ) return 1;   /* nothing more to be done */
+
+    if ( pos ) *pos = pos1;
+    if ( val == HELP_KEYF )
+	cc = expand_keyword_name (pos1, itsyms, &val);
+    else if ( val == HELP_CMD )
+	cc = expand_keyword_name (pos1, cmdtable, &val);
+
+    return 1;   /* well done */
+}
+
+
+
+static Cmdret help_completion (int cc, char *helparg)
+{
+    extern char *command_msg;
+    static char err_msg [128];
+
+    if ( cc >= 0 ) return CROK;
+
+    if ( cc == -2 ) {
+	sprintf (err_msg ,"---- \"%s\" : Ambiguous Editor command or Key function", helparg);
+	command_msg = err_msg;
+	return RE_CMD;
+    } else {
+	sprintf (err_msg, "---- \"%s\" : Unknow Editor Command, Key function or HELP parameter", helparg);
+	command_msg = err_msg;
+    }
+    return CROK;
+}
+
+static Cmdret process_help_std (helparg, nextarg)
+char *helparg, *nextarg;
 
 {
-extern char *nxtop;
-extern S_looktbl cmdtable[];
-extern char * get_cmd_name ();
-static void browse_cmdhelp ();
-static void browse_keyfhelp ();
-extern int get_ctrlc_fkey ();
+    extern char *nxtop;
+    extern S_looktbl cmdtable[];
+    static int browse_cmdhelp  (char *, char *);
+    static int browse_keyfhelp (char *, char *);
+    extern int get_ctrlc_fkey ();
 
 static char stmsg [] = "\n\
-\"help status\"         Display the actual editor parameters value\n\
-\"help NewFeatures\" or \"help new\"      Display the new features of the editor\n\
-\"help key <function>\" Info on the keys assigned to the given function\n\
-\"help keymap\"         Global keyboard mapping info\n\
-\"help <command>\"      Info on the given Editor Command\n\
-\"help cmd\"   or \"help commands\"       Navigate in Editor Commands description\n\
-\"help keyf\"  or \"help keyfunctions\"   Navigate in Key Functions description\n\
-\"help kbchk\" or \"help keyboard_check\" Interractively check keyboard mapping\n\
 For info on a particular key action, press that key combination.\n\
 \n";
 
@@ -493,29 +667,36 @@ static char stmsg1 [] = "\
 Now press a key (or keys combination) for description of the assigned action.\
 \n";
 
-static int stmsg_nbln = 0;  /* number of lines in stmsg string */
+    static int stmsg_nbln = 0;  /* number of lines in stmsg string */
 
-Short qq;
-int i, idx, fkey, hcmd;
-int cmd;
-char *cmd_str, *str;
-int oflag;
-int col, lin, nbli, nb, sz, ctrlc;
+    Short qq;
+    int i, idx, fkey, hcmd;
+    int cmd, cc;
+    char *cmd_str, *str;
+    int oflag;
+    int col, lin, nbli, nb, sz, ctrlc;
+    Flag ctrlc_flg;
 
-extern void showstatus ();
-extern int set_crlf ();
-extern void reset_crlf ();
-extern void check_keyboard ();
-extern char verstr[];
+    extern void showstatus ();
+    extern int set_crlf ();
+    extern void reset_crlf ();
+    extern void check_keyboard ();
+    extern char verstr[];
+    extern S_looktbl itsyms[];
+    extern void set_ambiguous_param (S_looktbl *table, char *str, Flag abv);
+    static Cmdret show_ambiguous ();
+    Cmdret help_ambiguous (Flag *ctrlc_flg_pt, Flag ambig_flg);
 
     if (   (helparg == NULL) || (*helparg == '\0')
         || ( strcmp (helparg, "keyhelp") == 0) ) {
 	if ( ! stmsg_nbln ) {
 	    char ch, *cp;
-	    for ( cp = stmsg ; (ch = *cp) ; cp++ ) if ( ch == '\n' ) stmsg_nbln++;
+	    for ( cp = helpmsg ; (ch = *cp) ; cp++ ) if ( ch == '\n' ) stmsg_nbln++;
+	    for ( cp = stmsg   ; (ch = *cp) ; cp++ ) if ( ch == '\n' ) stmsg_nbln++;
 	    }
 
 	nbli = stmsg_nbln;
+	fputs (helpmsg, stdout);
 	fputs (stmsg, stdout);
 	fkey = get_ctrlc_fkey ();
 	if ( fkey != CCRETURN ) {
@@ -531,80 +712,266 @@ extern char verstr[];
 	browse_keyboard (retmsg);
 	return CROK;
     }
+    if ( strcmp (helparg, ambig_str) == 0 ) {
+	/* special to display list of ambiguous command (see e.m.c) */
+	return ( help_ambiguous (&ctrlc_flg, YES));
+    }
+    if ( strcmp (helparg, allcmds_str) == 0 ) {
+	/* special to display list of command (see e.m.c) */
+	cc = help_ambiguous (&ctrlc_flg, NO);
+	return ( ctrlc_flg ? cc : RE_CMD );
+    }
 
     hcmd = lookup (helparg, helptable);
-    if ( hcmd >= 0 ) switch (helptable [hcmd].val) {
-	case HELP_NEW :
-	    fprintf (stdout, "%s\n\n", verstr);
-	    nbli = 2;
-	    (void) help_info ("New_features_Linux", &nbli);
-	    ctrlc = check_new_page (&nbli, 1);
-	    ctrlc = wait_keyboard (retmsg, NULL);
-	    break;
+    if ( hcmd >= 0 ) {
+	int sz;
 
-	case HELP_STAT :
-	    showstatus ();
-	    ctrlc = wait_keyboard (retmsg, NULL);
-	    break;
+	if ( *nextarg && (helptable [hcmd].val != HELP_KEYF)
+		      && (helptable [hcmd].val != HELP_CMD) )
+	    return CRTOOMANYARGS;
 
-	case HELP_KMAP :
-	    keymap_term ();
-	    break;
+	cc = 0;
+	switch (helptable [hcmd].val) {
+	    case HELP_NEW :
+		fprintf (stdout, "%s\n\n", verstr);
+		nbli = 2;
+		(void) help_info ("New_features_Linux", &nbli);
+		ctrlc = check_new_page (&nbli, 1);
+		ctrlc = wait_keyboard (retmsg, NULL);
+		break;
 
-	case HELP_CMD :
-	    browse_cmdhelp ();
-	    break;
+	    case HELP_STAT :
+		showstatus ();
+		ctrlc = wait_keyboard (retmsg, NULL);
+		break;
 
-	case HELP_KEYF :
-	    browse_keyfhelp ();
-	    break;
+	    case HELP_KMAP :
+		keymap_term ();
+		break;
 
-	case HELP_KBCK :
-	    check_keyboard ();
-	    break;
+	    case HELP_CMD :
+		sz = strlen (paramv);
+		if ( sz > 0 ) {
+		    /* command line is not blank */
+		    if ( strncmp (paramv, helptable [CMD_IDX].str, sz) == 0 ) {
+			/* help cmd is ambiguous with the cmd key function */
+			cc = browse_keyfhelp (paramv, NULL);
+			break;
+		    }
+		    if ( strncmp (paramv, helptable [COM_IDX].str, sz) == 0 ) {
+			/* help command is ambiguous with the editor command */
+			cc = browse_cmdhelp (paramv, NULL);
+			break;
+		    }
+		}
+		/* help key on command line results in a
+		   'help command' with "cmd <command>" parameter
+		   paramv = <command>, nextarg = <command>
+		*/
+		cc = browse_cmdhelp (nextarg, NULL);
+		break;
+
+	    case HELP_KEYF :
+		cc = browse_keyfhelp (nextarg, NULL);
+		break;
+
+	    case HELP_KBCK :
+		check_keyboard (NO, NO);
+		break;
+
+	    case HELP_CHARSET :
+		check_keyboard (YES, NO);
+		ctrlc = wait_keyboard (retmsg, NULL);
+		break;
+
+	    case HELP_GRAPHSET :
+		check_keyboard (YES, YES);
+		ctrlc = wait_keyboard (retmsg, NULL);
+		break;
+
 	}
+	if ( cc >= 0 ) return CROK ;
+	return (help_completion (cc, nextarg));
+    }
 
-    else if ( (idx = lookup (helparg, cmdtable)) >= 0 ) {
-        cmd_str = get_cmd_name (idx);
-        cmd = cmdtable[idx].val;
-        str = cmdtable[idx].str;
-        (void) help_cmd (cmd, cmd_str, str, helparg);
-	ctrlc = wait_keyboard (retmsg, NULL);
+    else if ( hcmd == -2 ) {
+	/* must be a strick match or at least 3 chars in help argument */
+	extern char *command_msg;
+	static char err_msg [128];
+	sprintf (err_msg ,"---- \"%s\" : Ambiguous Help argument", helparg);
+	command_msg = err_msg;
+	return RE_CMD ;
+    }
+
+    /* can be a help <cmd> or <keyf> */
+    idx = lookup (helparg, cmdtable);
+    i = lookup (helparg, itsyms);
+    if ( idx >= 0 ) {
+	cc = browse_cmdhelp (helparg, (i >= 0) ? keyfmsg : NULL);
+	if ( CtrlC_flg ) return CROK;
+	if ( i >= 0 ) {
+	    /* also a key function */
+	    (*term.tt_clear) ();
+	    cc = browse_keyfhelp (helparg, NULL);
+	    if ( cc >= 0 ) return CROK;
 	}
+	return CROK;
+    }
 
-    else if ( idx == -2 ) {
-	printf ("\n\r\"%s\" : Ambiguous Editor command\r\n", helparg);
-	ctrlc = wait_keyboard (retmsg, NULL);
-	}
-
-    else {
-	printf ("\n\r\"%s\" : Unknow Editor Command or HELP parameter\r\n", helparg);
-	ctrlc = wait_keyboard (retmsg, NULL);
-	}
-
+    if ( idx != -2 ) {
+	/* can be a key function */
+	cc = browse_keyfhelp (helparg, NULL);
+	if ( cc >= 0 ) return CROK;
+    }
+    help_completion (idx, helparg);
+    if ( idx = -1 ) {
+	set_ambiguous_param (helptable, NULL, NO);
+	return CRUNRECARG;
+    }
     return CROK ;
 }
+
 
 Cmdret help_std (char * helparg)
 {
     Cmdret cc;
-    int i;
+    int i, hcmd;
     char ch;
 
     if ( helparg ) {
 	for ( i = 0 ; (ch = helparg[i]) ; i++ )
 	    helparg[i] = tolower (ch);
-        if ( (strcmp (helparg, "key") == 0) || (strcmp (helparg, "?") == 0) ) {
-	    return (keyfunc_ibmpc () );
-	    }
-    }
-    if ( *nxtop ) return CRTOOMANYARGS;
 
-    cc = do_fullscreen (process_help_std, (void *) helparg, NULL, NULL);
+	if ( ! *nxtop ) {
+	    /* check for "help ?" */
+	    if ( strcmp (helparg, ambig_str) != 0 ) {
+		/* do not overwrite the ambiguous parameters */
+		cc = help_cmd_arguments (helparg, helptable);
+		if ( cc != CRUNRECARG )
+		    return cc;
+	    }
+	}
+	hcmd = lookup (helparg, helptable);
+	if ( (hcmd >= 0) && (helptable [hcmd].val == HELP_KEY) )
+	    return (keyfunc_ibmpc () );
+    }
+    cc = do_fullscreen (process_help_std, (void *) helparg, (void *)nxtop, NULL);
+    if ( (cc == -1) || (cc == -2) ) mesg (ERRSTRT + 3, "\"", helparg, "\"");
     return cc;
 }
 
-/* utility to display some info and wait for keyboard */
+static Cmdret show_ambiguous_files (Flag *ctrlc_flg_pt)
+{
+    extern void clear_ambiguous_param ();
+    extern void show_namelist ();
+    int cc;
+
+    show_namelist ();
+    clear_ambiguous_param ();
+    cc = wait_keyboard (retmsg, NULL);
+    if ( ctrlc_flg_pt ) *ctrlc_flg_pt = cc;
+    return CROK;
+}
+
+static Cmdret show_ambiguous (Flag *ctrlc_flg_pt, Flag *ambig_flg_pt)
+{
+    extern int get_ambiguous_param (char **amb_kwd, S_looktbl **table_pt, S_looktbl *(**sorted_pt)[],
+				    int * sorted_sz_pt, Flag *abv_pt, char **comt_pt);
+    extern void clear_ambiguous_param ();
+    S_looktbl *table, *(*sorted)[];
+    char ch, *ambiguous_kwd, *str, *comt;
+    int i, j, k, cc, sz, nb, type;
+    int col, max_col, h, height;
+    Flag abv_flg;
+    S_looktbl *tbl_pts [256];
+
+    if ( ambig_flg_pt && !*ambig_flg_pt ) {
+	/* not a command : display just the editor commands list */
+	extern S_lookstruct cmdstruct;
+	print_sort_table (&cmdstruct);
+    } else {
+	/* realy help ambiguous call */
+	if ( ctrlc_flg_pt ) *ctrlc_flg_pt = NO;
+	type = get_ambiguous_param (&ambiguous_kwd, &table, &sorted, &nb, &abv_flg, &comt);
+	if ( type == 0 ) return CRNOVALUE;
+	else if ( type == 2 ) return show_ambiguous_files (ctrlc_flg_pt);
+	else if ( type != 1 ) return CRNOVALUE;
+	else if ( ! ambiguous_kwd ) return CRNOVALUE;
+
+	ch = ( *ambiguous_kwd ) ? ' ' : 's';
+	if ( comt ) printf ("%s%c\n  ", comt, ch);
+	if ( *ambiguous_kwd ) {
+	    if ( abv_flg )
+		printf ("Too short abreviation \"%s\"\n\n", ambiguous_kwd);
+	    else
+		printf ("Keywords matching \"%s\"\n\n", ambiguous_kwd);
+	} else putchar ('\n');
+
+	sz = strlen (ambiguous_kwd);
+	if ( sz > 0 ) {
+	    /* extract the matching keywords */
+	    memset (tbl_pts, 0, sizeof (tbl_pts));
+	    for ( i = 0, nb = 0; str = table [i].str ; i++ ) {
+		cc = strncmp (str, ambiguous_kwd, sz);
+		if ( cc < 0 ) continue;
+		else if ( cc == 0 ) tbl_pts [nb++] = &table [i];
+		else if ( cc > 0 ) break;
+		if ( nb > (sizeof (tbl_pts) /  sizeof (tbl_pts[0]) ) ) break;
+	    }
+	    sorted = &tbl_pts;
+	}
+	if ( ! sorted ) return;
+
+	if ( nb > 0 ) {
+	    height = term.tt_height -5;
+	    max_col = ((term.tt_width -2) / 18);
+	    if ( height <= 0 ) height = 1;
+	    h = (nb -1) / max_col +1;   /* nb of lines for max columns */
+	    if ( h < 5 ) h = 5;
+	    if ( height > h ) height = h;
+	    col = (nb -1) / height +1;
+	    if ( col > max_col ) col = max_col;
+	    if ( col == 1 ) height = nb;
+	    for ( i = 0 ; i < height ; i++ ) {
+		for ( j = 0 ; j < col ; j++ ) {
+		    k = j * height + i;
+		    if ( k >= nb ) continue;
+		    printf ("%3d %-14s  ", (*sorted) [k]->val, (*sorted) [k]->str);
+		}
+		putchar ('\n');
+	    }
+	}
+    }
+    clear_ambiguous_param ();
+    cc = wait_keyboard (retmsg, NULL);
+    if ( ctrlc_flg_pt ) *ctrlc_flg_pt = cc;
+    return CROK;
+}
+
+Cmdret help_ambiguous (Flag *ctrlc_flg_pt, Flag ambig_flg)
+{
+    int cc;
+    cc = do_fullscreen (show_ambiguous, ctrlc_flg_pt, &ambig_flg, NULL);
+    return cc;
+}
+
+/* Display the arguments of a command */
+
+Cmdret help_cmd_arguments (char *str, S_looktbl *table)
+{
+    void set_ambiguous_param (S_looktbl *, char *, Flag);
+    Cmdret retval;
+
+    set_ambiguous_param (table, NULL, NO);  /* for display args with help key */
+    if ( strcmp (str, "!") != 0 )
+	return -1;
+    retval = help_ambiguous (NULL, NO); /* display the arguments in table */
+    return retval;
+}
+
+
+/* Utility to display some info and wait for keyboard */
+/* -------------------------------------------------- */
 
 static Cmdret process_show_info (
 		Flag (*(*my_info)())(int, int *),
@@ -690,178 +1057,206 @@ int cmp;
 /* print_sorted : routine to print in columns a list of strings */
 /* ------------------------------------------------------------ */
 
-static void print_sorted (tbl, print_func, item_nb, nb_clm, nb_chr, nb_spc)
+/* amximum nb of column printed by print_sorted */
+#define MAX_PRT_COL 16
+
+/* Build the item_idx array
+ *  Return the number of line -1 or
+ *         -1 if item_idx array is too samll (must be > item_nb)
+ */
+static int col_struct (int item_nb, int col_nb,
+		       int *item_idx, int item_idx_sz, /* 1st index in each col */
+		       int *lastln_pt)
+{
+    int lnb, lastln;
+    int i, k;
+
+    if ( item_idx_sz <= col_nb ) return -1;
+
+    lnb = item_nb / col_nb;
+    lastln = item_nb % col_nb;
+    for ( i = 0, k = 0 ; i < col_nb ; i++ ) {
+	item_idx[i] = k;
+	k += ( i < lastln ) ? lnb +1 : lnb;
+    }
+    item_idx [i] = item_nb;
+    if ( lastln_pt ) * lastln_pt = lastln;
+    return lnb;
+}
+
+static void print_sorted (tbl, print_func, item_nb, col_nb, nb_data,
+			  nb_spc, colsz_arr)
 void *tbl;
 void (*print_func)();
 int item_nb;    /* number of items in sorted array */
-int nb_clm;     /* number of columns */
-int nb_chr;     /* nb of charcaters printed for each item */
+int col_nb;     /* number of columns */
+int nb_data;    /* nb of charcaters printed for each item */
 int nb_spc;     /* number of spaces between each item */
+int *colsz_arr;
 
 {
-char line[81];
-int lnb, lastln;
-int itemidx[16];
-int i, j, k, l, idx;
-int psiz;
+    char line[256];
+    int line_sz, width;
+    int lnb, lastln;
+    int item_idx [MAX_PRT_COL +1];
+    int line_idx [MAX_PRT_COL +1];
+    int i, j, k, l, idx;
+    Flag stdout_flg;
 
-    psiz = nb_chr + nb_spc;
-    if ( (nb_spc < 1) || (nb_clm > 16)
-	 || ((nb_clm * psiz) >= sizeof (line)) )
-	return;
+    width  = term.tt_width;
+    line_sz = (sizeof (line) > width) ? width -1 : sizeof (line) -2;
+    if ( outst == NULL ) outst = stdout;
+    stdout_flg = ( outst == stdout );
 
-    lnb = item_nb / nb_clm;
-    lastln = item_nb % nb_clm;
-    for ( i = 0, k = 0 ; i < nb_clm ; i++ ) {
-	itemidx[i] = k;
-	k += ( i < lastln ) ? lnb +1 : lnb;
-	}
+    lnb = col_struct (item_nb, col_nb, item_idx,
+		      (sizeof (item_idx) / sizeof (item_idx[0])), &lastln);
+    memset (line_idx, 0, sizeof (line_sz));
+    for ( i = idx = 0 ; i < col_nb ; i++ ) {
+	line_idx [i] = idx;
+	idx += colsz_arr [i] + nb_data + nb_spc;
+    }
     for ( i = 0 ; i <= lnb ; i ++ ) {
 	memset (line, ' ', sizeof (line));
-	l = (i == lnb) ? lastln : nb_clm;
+	l = (i == lnb) ? lastln : col_nb;
 	if ( l == 0 ) continue;
 	for ( j = 0 ; j < l ; j ++ ) {
-	    (* print_func) (tbl, &line[psiz*j], itemidx[j]);
-	    itemidx[j] +=1;
-	    }
-	for ( idx = 0, k = sizeof (line) -1 ; k >= 0 ; k-- ) {
+	    (* print_func) (tbl, item_nb, &line[line_idx[j]], item_idx[j],
+			    colsz_arr[j], nb_data);
+	    item_idx[j] +=1;
+	}
+	for ( idx = 0, k = line_sz +1 ; k >= 0 ; k-- ) {
 	    if ( line[k] == '\0' ) line[k] = ' ';
 	    if ( (idx == 0) && (line[k] != ' ') ) idx = k+1;
-	    }
+	}
 	if ( idx == 0 ) idx = sizeof (line) -2;
 	line[idx++] = '\n'; line[idx] = '\0';
-	if ( (line [0] == ' ') && (line [1] == ' ') ) line [0] = '#';
-	if ( outst == NULL ) outst = stdout;
-	fprintf (outst, line);
+	if ( stdout_flg ) fputs (line+2, outst);
+	else {
+	    if ( (line [0] == ' ') && (line [1] == ' ') ) line [0] = '#';
+	    fputs (line, outst);
 	}
+    }
     return;
 }
 
 
-/* looktbl_print : local to print 1 item from key function table */
-/* ------------------------------------------------------------- */
+/* table_print : local to print 1 item from table */
+/* ---------------------------------------------- */
 
-static void looktbl_print (tbl, line_pt, idx)
-S_looktbl  *tbl;
-char *line_pt;
-int idx;
-
+static void sort_table_print (S_looktbl  *(*tbl)[], int tbl_sz, char *line_pt,
+			      int idx, int fld_sz, int data_sz)
 {
-    (void) sprintf (line_pt + 2, "%3d %-9s ",
-	     tbl[idx].val, tbl[idx].str);
+    if ( idx >= tbl_sz ) return;
+    (void) sprintf (line_pt + 2, "%*d %*s ",  data_sz -1,
+	     (*tbl)[idx]->val, -fld_sz, (*tbl)[idx]->str);
+}
+
+/* get_all_aliases : construct a string with all the aliases of a command */
+/* ---------------------------------------------------------------------- */
+
+static char * get_all_aliases (S_lookstruct *tblstruct, int cmd_val, Flag sep_flg)
+{
+    static char aliases [128];
+    int nb, j, sz;
+    char *format;
+
+    j = tblstruct->alias_table_sz;
+    if ( !tblstruct->as_alias || (j <= 0) || !tblstruct->alias_table )
+	return NULL;
+
+    /* check and get aliases */
+    memset (aliases, 0 , sizeof (aliases));
+    format = sep_flg ? "%s\"%s\"" : "%s%s";
+    for ( ; j >= 0 ; j-- ) {
+	if ( (*tblstruct->alias_table)[j]->val != cmd_val ) continue;
+	sz = strlen (aliases);
+	nb = (sizeof (aliases) -1) - sz;
+	if ( nb > 0 ) snprintf (&aliases[sz], nb, format,
+	  aliases[0] ? ", " : "",
+	  (*tblstruct->alias_table)[j]->str);
+    }
+    return ( aliases[0] ? aliases : NULL );
 }
 
 
-/* sort_cmdt : local to sort the command table */
-/* ------------------------------------------- */
+/* browse_sortedtbl : common processing to browse commands or key functions */
+/* ------------------------------------------------------------------------ */
 
-static int sort_cmdt (cmdt_pt) 
-S_looktbl **cmdt_pt;
-
+static int browse_sortedtbl (S_lookstruct *tblstruct, char * mystr, char *waitmsg)
 {
-    extern S_looktbl cmdtable[];
-    int nb;
+    static int waitkb (short);
 
-    for (nb = 1 ; ; nb++ ) if ( cmdtable[nb].str == NULL ) break;
-    *cmdt_pt = (S_looktbl *) calloc (nb, sizeof (cmdtable[0]));
-    if ( ! *cmdt_pt ) return (0);
+    char *all_aliases;
+    int nb, i, di, idx, cmd_val, cc;
+    char *str, *cmd_str;
 
-    memcpy (*cmdt_pt, cmdtable, nb * sizeof (cmdtable[0]));
-    qsort (*cmdt_pt, nb, sizeof (cmdtable[0]), (int (*)(const void *,const void *)) sort_looktb);
-    return (nb);
+    if ( mystr && *mystr ) {
+	/* a single entry */
+	idx = lookup (mystr, tblstruct->table);
+	if ( idx == -2 ) {  /* ambiguous */
+	    show_ambiguous (NULL, NULL);
+	    return 0;
+	}
+	if ( idx < 0 ) return idx;
+	cc = (* tblstruct->one_help) (&(tblstruct->table [idx]), mystr);
+	if ( cc ) cc = wait_keyboard (waitmsg ? waitmsg : retmsg, NULL);
+	return 0;
+    }
+
+    /* browse all entries */
+    print_sort_table (tblstruct);
+    cc = wait_keyboard (contmsg, NULL);
+    if ( cc > 0 ) return;
+    (*term.tt_clear) ();
+
+    for ( i = 0, di = 1 ;  ; i += di ) {
+	if ( i < 0 ) i = tblstruct->sorted_table_sz -1;
+	if ( i >= tblstruct->sorted_table_sz ) i = 0;
+
+	/* display the help message */
+	cc = (* tblstruct->one_help) ((*tblstruct->sorted_table)[i], NULL);
+	if ( CtrlC_flg) break;
+	cc = waitkb (NO);
+        if ( cc > 0 ) break;
+        di = ( cc < 0 ) ? -1 : 1;
+    }
+    return cc;
 }
 
 /* browse_cmdhelp : local to browse all editor commands ("help cmd" processing) */
 /* ---------------------------------------------------------------------------- */
 
-static void browse_cmdhelp ()
+int one_help_cmd (S_looktbl *cmd, char *str)
+/* return 1 : ok, 0 : error */
 {
-    extern char * get_cmd_name ();
-    extern S_looktbl cmdtable[];
-    static int waitkb (short);
-    int *abv_tbl;
+    extern S_lookstruct cmdstruct;
 
-    int nb, i, di, j, idx, cmd, sz, cc;
-    char *str, *str_abv, *cmd_str;
-    S_looktbl *cmdt;
+    char *all_aliases, *cmd_str;
+    int idx, cmd_val;
 
-    nb = sort_cmdt (&cmdt);
-    if ( nb <= 0 ) return;
+    if ( !cmd || !cmd->str || !*cmd->str ) return 0;
 
-    abv_tbl = (int *) calloc (nb, sizeof (int));
-    if ( ! abv_tbl ) return;
-
-    for ( i = 0, di = 1 ;  ; i += di ) {
-        if ( i < 0 ) i = nb -1;
-        if ( i >= nb ) i = 0;
-        if ( abv_tbl[i] < 0 ) continue;
-
-        str_abv = str = cmdt[i].str;
-        idx = lookup (str, cmdtable);
-        cmd_str = get_cmd_name (idx);
-        cmd = cmdtable[idx].val;
-        str = cmdtable[idx].str;
-
-        /* check for abreviation or alias */
-        if ( strcmp (str_abv, cmd_str) != 0 ) {
-            sz = strlen (str_abv);
-            if ( strncmp (str_abv, cmd_str, sz) == 0 ) str = cmd_str;
-            else {
-                for ( j = 0 ; j < nb ; j ++ ) {
-                    if ( cmdt[j].val != cmd ) continue;
-                    if ( strncmp (str_abv, cmdt[j].str, sz) != 0 ) continue;
-                    if ( j == i ) continue;
-                    str = cmdt[j].str;
-                    break;
-                }
-            }
-            /* a real abreviation */
-            if ( strncmp (str_abv, str, sz) == 0 ) {
-                for ( j = nb -1 ; j >= 0 ; j-- ) {
-                    if ( j == i ) continue;
-                    if ( strcmp (cmdt[j].str, str) == 0 ) break;
-                }
-                if ( j >= 0 ) {
-                    abv_tbl [j] = idx;
-                    abv_tbl [i] = -j;
-                    continue;
-                }
-            }
-        }
-
-        if ( idx = abv_tbl[i] ) 
-            str_abv = cmdtable[idx].str;
-        (void) help_cmd (cmd, cmd_str, str, str_abv);
-	cc = waitkb (NO);
-        if ( cc > 0 ) break;
-        di = ( cc < 0 ) ? -1 : 1;
+    /* found the major name, not alias */
+    cmd_val = cmd->val;
+    for ( idx = cmdstruct.sorted_table_sz -1 ; idx >= 0 ; idx-- ) {
+	if ( (*cmdstruct.sorted_table)[idx]->val == cmd_val ) break;
     }
-    free (cmdt);
-    free (abv_tbl);
+    if ( idx < 0 ) return 0;
+
+    cmd_str = (*cmdstruct.sorted_table)[idx]->str;
+    all_aliases = get_all_aliases (&cmdstruct, cmd->val, YES);
+    (void) help_cmd (cmd_val, cmd_str, str, all_aliases);
+    return 1;
 }
 
 
-/* sort_keyft : local to sort the key functions table */
-/* -------------------------------------------------- */
-
-static int sort_keyft ()
+static int browse_cmdhelp (char * cmdstr, char *waitmsg)
 {
-    extern S_looktbl itsyms[];
-    S_looktbl *keyft_pt;
-    int nb;
+    extern S_lookstruct cmdstruct;
+    int cc;
 
-    if ( keyftable ) return (keyftable_sz);    /* already init */
-
-    keyftable_sz = 0;
-    for (nb = 0 ; ; nb++ ) if ( itsyms[nb].str == NULL ) break;
-    keyft_pt = (S_looktbl *) calloc (nb +1, sizeof (S_looktbl));
-    if ( ! keyft_pt ) return (0);
-
-    memcpy (keyft_pt, itsyms, nb * sizeof (S_looktbl));
-    qsort (keyft_pt, nb, sizeof (S_looktbl), (int (*)(const void *,const void *)) sort_looktb);
-    keyftable = keyft_pt;
-    keyftable_sz = nb;
-    return (nb);
+    cc = browse_sortedtbl (&cmdstruct, cmdstr, waitmsg);
+    return cc;
 }
 
 /* help_keyf :
@@ -1005,6 +1400,19 @@ void reset_ctrlc () {
     CtrlC_flg = NO;
 }
 
+Flag test_ctrlc () {
+    return (CtrlC_flg);
+}
+
+int call_waitkeyboard (char *msg, int *gk_pt)
+{
+    int cc;
+
+    reset_ctrlc ();
+    cc = wait_keyboard (msg ? msg : retmsg, gk_pt);
+    return (CtrlC_flg ? CROK : RE_CMD);
+}
+
 /* wait_continue : wait for a key pushed on the keyboard */
 /* ----------------------------------------------------- */
 /*
@@ -1024,108 +1432,232 @@ int any_flg;    /* ! 0 : wait in any case */
 /* browse_keyfhelp : local to browse all key functions ("help keyf" processing) */
 /* ---------------------------------------------------------------------------- */
 
-static void browse_keyfhelp ()
+int one_help_keyf (S_looktbl *kf, char *str)
+/* return 1 : ok, 0 : error */
 {
     extern Flag verbose_helpflg;
     extern Flag noX11flg;
-    static int sort_keyftable ();
 
-    int nb, i, di, fcnt, cc;
+    int nb, di, fcnt, cc, sz;
     Flag funcval_flg, tflg;
     char *fcnt_str, *sp;
     char msg[256];
 
-    nb = sort_keyftable ();
-    for ( i = 0, di = 1 ;  ; i += di ) {
-        if ( i < 0 ) i = nb -1;
-        if ( i >= nb ) i = 0;
-        fcnt = keyftable[i].val;
-        fcnt_str = keyftable[i].str;
-	if ( fcnt == 0177 ) fcnt = CCBACKSPACE; /* special case for del char */
-	funcval_flg = ( (fcnt == KBINIT) || (fcnt == KBEND) );
-	by_flg = NO;
-        (void) help_keyf (fcnt, fcnt_str);
-	for ( sp = fcnt_str ; *sp ; sp++ ) putchar (toupper (*sp));
-	funcval_flg = ( (fcnt == KBINIT) || (fcnt == KBEND) );
-	tflg = verbose_helpflg;
-	verbose_helpflg = noX11flg;
-	sp = ( funcval_flg ) ? " Current value: " :
-			       ( verbose_helpflg )
-				    ? " Current Key Assignement: "
-				    : " Current Key Assignement:\n";
-	fputs (sp, stdout);
-	memset (msg, 0, sizeof (msg));
-	key_assigned (msg, sizeof (msg), fcnt, fcnt_str, funcval_flg);
-	verbose_helpflg = tflg;
-	puts (msg);
-	cc = waitkb (NO);
-        if ( cc > 0 ) break;
-        di = ( cc < 0 ) ? -1 : 1;
-    }
+    if ( ! kf ) return 0;
+
+    fcnt = kf->val;
+    fcnt_str = kf->str;
+    if ( fcnt == 0177 ) fcnt = CCBACKSPACE; /* special case for del char */
+    funcval_flg = ( (fcnt == KBINIT) || (fcnt == KBEND) );
+    by_flg = NO;
+    (void) help_keyf (fcnt, fcnt_str);
+    for ( sp = fcnt_str ; *sp ; sp++ ) putchar (toupper (*sp));
+    funcval_flg = ( (fcnt == KBINIT) || (fcnt == KBEND) );
+    tflg = verbose_helpflg;
+/*  ?!?
+    verbose_helpflg = noX11flg;
+*/
+    sp = ( funcval_flg ) ? " Current value: " :
+			   ( verbose_helpflg || funcval_flg )
+				? " Current Key Assignement: "
+				: " Current Key Assignement:\n";
+    fputs (sp, stdout);
+    memset (msg, 0, sizeof (msg));
+    all_ctrl_key_by_func (msg, sizeof (msg), fcnt);
+    sz = strlen (msg);
+    key_assigned (&msg[sz], sizeof (msg) -sz, fcnt, fcnt_str, funcval_flg);
+    verbose_helpflg = tflg;
+    puts (msg);
+    return 1;
+}
+
+static int browse_keyfhelp (char * kfstr, char *waitmsg)
+{
+    extern S_lookstruct keyfstruct;
+    int cc;
+
+    cc = browse_sortedtbl (&keyfstruct, kfstr, waitmsg);
+    return cc;
 }
 
 
 /* print_cmdtable : local to print in column the command names */
 /* ----------------------------------------------------------- */
 
-static void print_cmdtable ()
+/* Build the column size, and return the sum of all columns size */
+
+static int columns_size (
+    int *item_sz, int item_nb,  /* item_nb : nb of element in item_sz array */
+    int col_nb,                 /* nb of columns */
+    int *colsz_arr, int colsz_sz)   /* max item size for each column */
 {
-    extern S_looktbl cmdtable[];
-    int nb;
-    S_looktbl *cmdt;
+    int i, i1, j;
+    int item_idx [MAX_PRT_COL+1];
+    int sz, c_nb, t_sz, lnb;
+    int max_sz;
 
-    nb = sort_cmdt (&cmdt);
-    if ( nb <= 0 ) return;
+    /* set default : maxi size for all columns */
+    for ( i = item_nb -1 ; i >= 0 ; i-- ) {
+	sz = item_sz [i];
+	if ( sz > max_sz ) max_sz = sz;
+    }
+    c_nb = ( col_nb <= colsz_sz ) ? col_nb : colsz_sz;
+    memset (colsz_arr, 0, colsz_sz * sizeof (colsz_arr[0]));
+    for ( i = c_nb -1 ; i >= 0 ; i-- ) colsz_arr [i] = max_sz;
 
-    print_sorted (cmdt, looktbl_print, nb, 5, 14, 1);
-    free (cmdt);
+    lnb = col_struct (item_nb, c_nb, item_idx,
+			  (sizeof (item_idx) / sizeof (item_idx[0])), NULL);
+    if (lnb < 0 ) return -1;
 
-    puts ("\r\n\
-Help on a specific command can be displayed with \"help <command name>\"\r\n\
-To navigate in the Editor Commands description : \"help cmd\" or \"help commands\"\r\n");
-
+    t_sz = max_sz = 0;
+    for ( i = j = 0, i1 = item_idx [j +1] ; ; i++ ) {
+	if ( i >= i1 ) {
+	    /* next column */
+	    colsz_arr [j++] = t_sz;
+	    max_sz += t_sz;
+	    i1 = item_idx [j+1];
+	    t_sz = 0;
+	}
+	if ( i >= item_nb ) break;
+	sz = item_sz [i];
+	if ( sz > t_sz ) t_sz = sz;
+    }
+    return max_sz;
 }
 
+/* Find the best number of columns,
+ *   Return the numer of columns and the size of each one
+ */
 
-/* sort_keyftable : local to sort the key function names */
-/* ----------------------------------------------------- */
 
-static int sort_keyftable ()
+static int check_columns_size ( S_looktbl *(*table)[], int table_sz,
+    int item_sep, int item_data,    /* size of separator and data field */
+    int *colsz_arr, int colsz_sz)   /* size of columns, size of the array */
 {
-    return (sort_keyft ());
+    int i, sz, max_sz, col_nb, line_nb, width;
+    int item_nb;
+    int item_sz [256];
+    char *str;
+
+    max_sz = 0;
+    item_nb = table_sz;
+    for ( i = item_nb -1 ; i >= 0 ; i-- ) {
+	if ( i > (sizeof (item_sz) / sizeof (item_sz[0])) ) break;
+	sz = strlen ((*table)[i]->str);
+	item_sz [i] = sz;
+	if ( sz > max_sz ) max_sz = sz;
+    }
+    width  = term.tt_width;
+    col_nb = ((width + item_sep) -1) / (max_sz + item_data + item_sep);
+    if ( col_nb >= colsz_sz ) col_nb = colsz_sz -1;
+    line_nb = ((item_nb -1) / col_nb) +1;
+    if ( line_nb < 5 ) {
+	/* too few lines */
+	line_nb = 5;
+	col_nb  = ((item_nb -1) / line_nb) +1;
+	line_nb = ((item_nb -1) / col_nb) +1;
+    } else for ( col_nb++ ;  ; col_nb++ ) {
+	/* try more columns */
+	line_nb = ((item_nb -1) / col_nb) +1;
+	sz = columns_size (item_sz, item_nb, col_nb, colsz_arr, colsz_sz);
+	sz += ((item_sep + item_data) * col_nb) - item_sep;
+	if ( (line_nb < 5) || (sz >= width) || (col_nb > colsz_sz) ) {
+	    col_nb--;
+	    break;
+	}
+    }
+    sz = columns_size (item_sz, item_nb, col_nb, colsz_arr, colsz_sz);
+    return col_nb;
 }
 
-
-/* print_keyftable : local to print in column the key function names */
-/* ----------------------------------------------------------------- */
-
-static void print_keyftable ()
+void print_sort_table (S_lookstruct *tblstruct)
 {
-    int sz;
+    static int print_alias_table (S_lookstruct *);
+    char *cmt1, *cmt2;
+    int width, height;
+    int i, sz;
+    int item_nb, item_sep, item_data, item_sz, col_nb, line_nb, max_sz;
+    int colsz_arr [MAX_PRT_COL];
 
-    sz = sort_keyftable ();
-    print_sorted (keyftable, looktbl_print, sz, 5, 14, 1);
-#ifdef WIN32
-    mouse_info ();
-#endif
+    switch (tblstruct->type) {
+	case 1 :    /* commands */
+	    cmt1 = "Editor commands (without aliases)";
+	    cmt2 = "Help on a specific command with \"help cmd <command name>\"";
+	    break;
 
+	case 2 :    /* key functions */
+	    cmt1 = "Keyboard functions";
+	    cmt2 = "\
+Help on a given keyboard function with \"help keyf <function name>\"\n\
+Help on keyboard keys assigned functions can be displayed with \"help\"\n\
+Keys assigned to a given function can be displayed with\n\
+    \"help key <key function name>\" or \"help ? <key function name>\"\n\
+";
+	    break;
+
+	default :
+	    cmt1 = cmt2 = NULL;
+    }
+
+    /* The separator (space char(s) after the string) can be outside
+     * the window size. The line must include a 'new line' before the
+     * within the terminal window size */
+    memset (colsz_arr, 0, sizeof (colsz_arr));
+    max_sz = 0;
+    item_nb = tblstruct->sorted_table_sz;
+    width  = term.tt_width;
+    height = term.tt_height;
+    item_sep = 1;
+    item_data = 4;
+    col_nb = check_columns_size (tblstruct->sorted_table, tblstruct->sorted_table_sz,
+				 item_sep, item_data, colsz_arr,
+				 sizeof(colsz_arr) / sizeof(colsz_arr[0]));
+    line_nb = ((item_nb -1) / col_nb) +1;
+    if ( cmt1 ) {
+	printf ("%d %s\n", tblstruct->sorted_table_sz, cmt1);
+	line_nb++;
+    }
+    print_sorted (tblstruct->sorted_table, sort_table_print,
+		  tblstruct->sorted_table_sz, col_nb, item_data, item_sep,
+		  colsz_arr);
+
+    if ( tblstruct->type == 1 )
+	line_nb += print_alias_table (tblstruct);
+
+    if ( cmt2 ) {
+	if ( line_nb < (height - 2) ) putchar ('\n');
+	puts (cmt2);
+	if ( line_nb < (height - 3) ) putchar ('\n');
+    }
 }
 
-
-/* display_keyftable : local to display in column the key assignement function names */
-/* --------------------------------------------------------------------------------- */
-
-static void display_keyftable ()
+static int print_alias_table (S_lookstruct *tblstruct)
 {
-    print_keyftable ();
+    int i, nb, lnb, sz, sz1, width;
+    char *all_aliases, str[128];
+    S_looktbl *(*sorted_table)[];
 
-    puts ("\r\n\
-Help on a specific key action can be displayed with \"help\"\r\n");
-    puts ("\
-Keys assigned to a given function can be displayed with\r\n\
-    \"help key <key function name>\" or \"help ? <key function name>\"\r\n\
-To navigate in the Key Functions description :\r\n\
-    \"help keyf\" or \"help keyfunctions\"\r\n");
+    if ( !tblstruct->as_alias || !tblstruct->alias_table_sz )
+	return 0;
 
+    width = term.tt_width;
+    sorted_table = tblstruct->sorted_table;
+    nb = tblstruct->sorted_table_sz;
+    printf ("\n%d Editor commands aliases\n", tblstruct->alias_table_sz);
+    lnb = 2;
+    for ( i = sz = 0 ; i < nb ; i++ ) {
+	all_aliases = get_all_aliases (tblstruct, (*sorted_table)[i]->val, NO);
+	if ( ! all_aliases ) continue;
+	sprintf (str, "%s: %s", (*sorted_table)[i]->str, all_aliases);
+	sz1 = strlen (str);
+	if ( (sz + sz1 +4) >= width ) {
+	    putchar ('\n');
+	    sz = 0;
+	    lnb++;
+	}
+	sz += printf ("%s%s", sz ? ";  " : "", str);
+    }
+    putchar ('\n');
+    return (lnb +1);
 }
 /* ======================================================================== */
